@@ -1,6 +1,8 @@
 # Each doc, apply this to each block
 import re
 import sys
+# os and Path imports were used in a short-lived implementation; the CLI filtering approach is preferred
+from typing import Optional
 import yaml
 from yaml.loader import SafeLoader
 from mako.template import Template as MakoTemplate
@@ -16,6 +18,10 @@ from mako.exceptions import SyntaxException, CompileException
 # * labels above fields?
 # * if "# use jinja" at top, process whole file with Jinja:
 #   https://docassemble.org/docs/interviews.html#jinja2
+
+
+__all__ = ["find_errors_from_string", "find_errors"]
+
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -536,21 +542,24 @@ class SafeLineLoader(SafeLoader):
         return mapping
 
 
-def find_errors(input_file):
+def find_errors_from_string(full_content: str, input_file: Optional[str] = None) -> list[YAMLError]:
+    """Return list of YAMLError found in the given full_content string
+
+    Args:
+        full_content (str): Full YAML content as a string.
+    Returns:
+        list[YAMLError]: List of YAMLError instances found in the content.
+    """
     all_errors = []
-    with open(input_file, "r") as f:
-        full_content = f.read()
+
+    if not input_file:
+        input_file = "<string input>"
 
     exclusive_keys = [
         key
         for key in types_of_blocks.keys()
         if types_of_blocks[key].get("exclusive", True)
     ]
-
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return all_errors
 
     line_number = 1
     for source_code in document_match.split(full_content):
@@ -603,11 +612,15 @@ def find_errors(input_file):
                         file_name=input_file,
                     )
                 )
-        weird_keys = [
-            attr
-            for attr in doc.keys()
-            if attr != "__line__" and attr.lower() not in all_dict_keys
-        ]
+        weird_keys = []
+        for attr in doc.keys():
+            if attr == "__line__":
+                continue
+            if not isinstance(attr, str):
+                # Non-string keys (e.g., bools) are not expected in DA interview files
+                weird_keys.append(str(attr))
+            elif attr.lower() not in all_dict_keys:
+                weird_keys.append(attr)
         if len(weird_keys) > 0:
             all_errors.append(
                 YAMLError(
@@ -630,6 +643,29 @@ def find_errors(input_file):
                     )
         line_number += lines_in_code
     return all_errors
+
+
+def find_errors(input_file: str) -> list[YAMLError]:
+    """Return list of YAMLError found in the given input_file
+       
+    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
+    it is ignored and an empty list is returned.
+
+    Args:
+        input_file (str): Path to the YAML file to check.
+
+    Returns:
+        list[YAMLError]: List of YAMLError instances found in the file.
+    """
+    with open(input_file, "r") as f:
+        full_content = f.read()
+
+    if full_content[:12] == "# use jinja\n":
+        print()
+        print(f"Ah Jinja! ignoring {input_file}")
+        return []
+
+    return find_errors_from_string(full_content, input_file=input_file)
 
 
 def process_file(input_file):
