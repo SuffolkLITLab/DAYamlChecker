@@ -35,7 +35,7 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(description="Generate .vscode/mcp.json for DAYamlChecker")
     parser.add_argument("--workspace", default=os.getcwd(), help="Workspace root (default: current directory)")
-    parser.add_argument("--venv", help="Path to venv root (e.g., ~/.venv or /home/user/.venv)")
+    parser.add_argument("--venv", help="Path to venv root (e.g., ~/venv or /home/user/venv)")
     parser.add_argument("--python", help="Path to python executable to use (overrides venv) - e.g. /usr/bin/python3")
     parser.add_argument("--command", help="Command to run for the MCP server (e.g. dayamlchecker-mcp). If not provided, by default we'll use python -m dayamlchecker.mcp.server", default=None)
     parser.add_argument("--args", help="JSON array of args to pass to the command (for example: '[-m, dayamlchecker.mcp.server]')")

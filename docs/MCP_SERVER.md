@@ -34,36 +34,8 @@ Optional flags: `--venv <path>`, `--python <path>`, `--non-interactive`, and `--
 
 ### Alternative invocation (advanced / development)
 
-If you're a developer or prefer not to install the package, you can run the generator script directly from the repo. This is useful if you want to test changes to the generator or use it without installing the package.
-
-```bash
-# Run using your local Python interpreter
-python tools/generate_mcp_config.py --workspace . --non-interactive
-
-# Run and point to a shared venv: good for users who keep venvs in ~/.venv
-python tools/generate_mcp_config.py --venv ~/.venv --non-interactive
-
-# Run with a specific python interpreter
-python tools/generate_mcp_config.py --python /usr/bin/python3 --non-interactive
-```
-
-Advanced invocation examples:
-
-```bash
-# Use the installed CLI command instead of python -m
-python tools/generate_mcp_config.py --command dayamlchecker-mcp --non-interactive
-
-# Pass a JSON args array (useful for non-python `--command` and edge cases)
-python tools/generate_mcp_config.py --command /usr/local/bin/python --args '["-m","dayamlchecker.mcp.server"]'
-```
-
-Advanced flags for the tools script (developer / debugging use):
-
-* `--command <command>` — Use a custom command, e.g. `dayamlchecker-mcp` if you prefer to run the packaged CLI rather than `python -m` mode.
-* `--args '<JSON array>'` — JSON array of args to pass to the command (e.g. `'[-m, "dayamlchecker.mcp.server"]'`).
-* `--transport <stdio|sse|streamable-http>` — Select transport for MCP server.
-
-The `tools/generate_mcp_config.py` script is a thin wrapper that calls `dayamlchecker.generate_mcp_config.main()` and is kept in the repo for contributors who prefer the convenience wrapper while developing or testing the generator.
+If you're a developer or prefer not to install the package, you can copy and customize the mcp.json in .vscode/mcp.json
+and edit manually to point to the path to the executable for this module.
 
 #### Manual use of template mcp.json
 
@@ -163,10 +135,10 @@ Examples:
 codex mcp add dayamlchecker -- "$(pwd)/.venv/bin/python" -m dayamlchecker.mcp.server
 ```
 
-* Add `dayamlchecker` using a global venv (`~/.venv`):
+* Add `dayamlchecker` using a global venv (`~/venv`):
 
 ```bash
-codex mcp add dayamlchecker -- "~/.venv/bin/python" -m dayamlchecker.mcp.server
+codex mcp add dayamlchecker -- "~/venv/bin/python" -m dayamlchecker.mcp.server
 ```
 
 * Add `dayamlchecker` using the installed CLI command (if installed globally):
@@ -175,22 +147,7 @@ codex mcp add dayamlchecker -- "~/.venv/bin/python" -m dayamlchecker.mcp.server
 codex mcp add dayamlchecker -- dayamlchecker-mcp
 ```
 
-If you need to set environment variables, use `--env` flags before `--`, for example:
-
-```bash
-codex mcp add dayamlchecker --env EXAMPLE_VAR=foo -- "$(pwd)/.venv/bin/python" -m dayamlchecker.mcp.server
-```
-
-For a URL-based (SSE) server, add the server using the Codex config (or a CLI command that supports `--url`):
-
-```toml
-[mcp_servers.dayamlchecker]
-url = "https://example.com/mcp"
-bearer_token_env_var = "DAYAML_BEARER"
-```
-
-For more advanced options (timeouts, tool allow/deny lists, etc.), you can either pass flags to the `codex mcp add` command (if supported), or edit your `~/.codex/config.toml` manually with the `[mcp_servers.<server-name>]` table and the options shown earlier in this document.
-
+Note: If you have `dayamlchecker` installed in the same, activated virtual environment from which you're running the `codex mcp add` command (or if `dayamlchecker-mcp` is on the PATH for the user that runs Codex), you can use the short command `dayamlchecker-mcp` and do not need to pass an absolute path. If Codex or your Codex IDE is running outside the workspace or under a different process, prefer an absolute path to the Python executable or the CLI for reliability.
 
 ## Tool Usage
 

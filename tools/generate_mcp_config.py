@@ -9,7 +9,7 @@ This script is intended to be run from the project root. Usage examples:
 python tools/generate_mcp_config.py
 
 # Specify a venv path
-python tools/generate_mcp_config.py --venv ~/.venv
+python tools/generate_mcp_config.py --venv ~/venv
 
 # Specify a specific python executable
 python tools/generate_mcp_config.py --python /usr/bin/python3
