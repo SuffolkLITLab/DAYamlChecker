@@ -1,6 +1,6 @@
 [project]
 name = "dayamlchecker"
-version = "0.1.0"
+version = "0.2.0"
 description = "An LSP for Docassemble YAML interviews"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,3 +17,10 @@ authors = [
 [build-system]
 requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+mcp = ["mcp[cli]"]
+
+[project.scripts]
+dayamlchecker-mcp = "dayamlchecker.mcp.server:main"
+dayamlchecker-gen-mcp = "dayamlchecker.generate_mcp_config:main"

@@ -1,0 +1,13 @@
+{
+  "name": "dayamlchecker",
+  "title": "DAYamlChecker YAML Validator MCP Server",
+  "description": "A tool for validating Docassemble YAML interviews via MCP.",
+  "version": "0.2.0",
+  "transport": "stdio",
+  "command": "dayamlchecker-mcp",
+  "args": [],
+  "icon": "assets/lit-favicon.svg",
+  "repository": "https://github.com/SuffolkLITLab/DAYamlChecker",
+  "license": "MIT",
+  "publisher": "SuffolkLITLab"
+}
