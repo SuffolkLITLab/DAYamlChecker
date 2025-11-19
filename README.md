@@ -65,6 +65,8 @@ codex mcp add dayamlchecker -- "~/venv/bin/python" -m dayamlchecker.mcp.server
 codex mcp add dayamlchecker -- dayamlchecker-mcp
 ```
 
+Important: The `codex mcp add` command only registers the MCP server configuration in Codex's settings; it does not create virtual environments or install the `dayamlchecker` package into the target interpreter. Make sure the selected interpreter has `dayamlchecker` installed before you add the server.
+
 ### Click-to-install for VS Code
 
 If you want VS Code users to add the MCP server with a single click, include one of the links below. These open VS Code and pre-fill the Add MCP Server dialog. They rely on an interpreter being present at the configured path — the local link expects a repository `.venv` and the global link expects a global venv such as `~/venv`.
@@ -78,5 +80,19 @@ If you want VS Code users to add the MCP server with a single click, include one
  
 
 Note: Some clients may not expand `~`, so replace it with the absolute path if the link doesn't work for you (e.g. `/home/yourname/venv/bin/python`). Also ensure the package is installed in the selected venv (`pip install "dayamlchecker[mcp]"`), and the `.venv` path exists with a Python binary.
+
+Important: The `Add` links above only register the MCP server configuration in VS Code — they do **not** install the `dayamlchecker` Python package or create a virtual environment. Before clicking the link, make sure the runtime is installed in the selected venv. For example:
+
+```bash
+# create a repo venv and install the package (recommended)
+python -m venv .venv
+source .venv/bin/activate
+pip install "dayamlchecker[mcp]"
+
+# or for a global venv
+python -m venv ~/venv
+source ~/venv/bin/activate
+pip install "dayamlchecker[mcp]"
+```
 
 Note: If you have `dayamlchecker` installed in the same, activated virtual environment from which you're running the `codex mcp add` command (or if `dayamlchecker-mcp` is on the PATH for the user that runs Codex), you can use the short command `dayamlchecker-mcp` and do not need to pass an absolute path. If Codex or your Codex IDE is running outside the workspace or under a different process, prefer an absolute path to the Python executable or the CLI for reliability.

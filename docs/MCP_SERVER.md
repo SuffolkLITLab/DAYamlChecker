@@ -32,6 +32,8 @@ dayamlchecker-gen-mcp
 
 Optional flags: `--venv <path>`, `--python <path>`, `--non-interactive`, and `--transport <stdio|sse|streamable-http>`.
 
+Important: Any VS Code click-to-install links or `.vscode/mcp.json` files only register configuration for the MCP server in VS Code. They do not create virtual environments or install the `dayamlchecker` package for you. Before using these UI actions, make sure the selected interpreter has `dayamlchecker` installed (for example: `python -m venv .venv && source .venv/bin/activate && pip install "dayamlchecker[mcp]"`).
+
 ### Alternative invocation (advanced / development)
 
 If you're a developer or prefer not to install the package, you can copy and customize the mcp.json in .vscode/mcp.json
@@ -148,6 +150,8 @@ codex mcp add dayamlchecker -- dayamlchecker-mcp
 ```
 
 Note: If you have `dayamlchecker` installed in the same, activated virtual environment from which you're running the `codex mcp add` command (or if `dayamlchecker-mcp` is on the PATH for the user that runs Codex), you can use the short command `dayamlchecker-mcp` and do not need to pass an absolute path. If Codex or your Codex IDE is running outside the workspace or under a different process, prefer an absolute path to the Python executable or the CLI for reliability.
+
+Important: `codex mcp add` only adds or registers the MCP server configuration in Codex's configuration; it does not create a venv or install Python packages. Make sure `dayamlchecker` is installed in the indicated interpreter before using the server.
 
 ## Tool Usage
 
