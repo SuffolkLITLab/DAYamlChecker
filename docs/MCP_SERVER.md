@@ -36,7 +36,23 @@ Important: Any VS Code click-to-install links or `.vscode/mcp.json` files only r
 
 ### Troubleshooting: ModuleNotFoundError
 
-If you run `dayamlchecker-gen-mcp` (or the packaged script) and get a `ModuleNotFoundError` for `dayamlchecker.generate_mcp_config`, install the package into the selected interpreter and re-run:
+If you run `dayamlchecker-gen-mcp` (or the packaged script) and get a `ModuleNotFoundError` for `dayamlchecker.generate_mcp_config`, try these steps:
+
+1. For regular users, upgrade from PyPI to get the newest release:
+
+```bash
+source ~/venv/bin/activate
+pip install -U "dayamlchecker[mcp]"
+```
+
+1. Confirm the console script is the one in the active environment:
+
+```bash
+which dayamlchecker-gen-mcp
+dayamlchecker-gen-mcp --help
+```
+
+1. Developer-only: if you are actively working on this repository and need the local CLI, install the repo into the venv in editable mode:
 
 ```bash
 source ~/venv/bin/activate

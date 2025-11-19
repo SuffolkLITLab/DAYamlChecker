@@ -103,7 +103,23 @@ If you run `dayamlchecker-gen-mcp` and see an error like:
 ModuleNotFoundError: No module named 'dayamlchecker.generate_mcp_config'
 ```
 
-It means the installed `dayamlchecker` package in that venv doesn't include the `generate_mcp_config` module (for example, the package is an older release or was installed from PyPI). Install the local package into that venv instead:
+Try these steps (end users):
+
+1. Upgrade the package from PyPI — new releases often add new CLI features:
+
+```bash
+source ~/venv/bin/activate
+pip install -U "dayamlchecker[mcp]"
+```
+
+1. Verify `dayamlchecker-gen-mcp` is on your PATH and is the one in the activated venv:
+
+```bash
+which dayamlchecker-gen-mcp
+dayamlchecker-gen-mcp --help
+```
+
+If you're a developer working on the package and want to use the generator from the local repo, use an editable install instead:
 
 ```bash
 source ~/venv/bin/activate
