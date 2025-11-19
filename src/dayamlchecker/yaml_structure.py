@@ -576,7 +576,7 @@ def find_errors_from_string(full_content: str, input_file: Optional[str] = None)
                     errMess.problem_mark.line += line_number - 1
             all_errors.append(
                 YAMLError(
-                    err_str=errMess,
+                    err_str=str(errMess),
                     line_number=line_number,
                     file_name=input_file,
                     experimental=False,
