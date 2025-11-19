@@ -537,6 +537,26 @@ class SafeLineLoader(SafeLoader):
     """https://stackoverflow.com/questions/13319067/parsing-yaml-return-with-line-number"""
 
     def construct_mapping(self, node, deep=False):
+        # Detect duplicate keys in the mapping node and raise a helpful
+        # MarkedYAMLError with the problem and line information. PyYAML
+        # otherwise allows duplicate keys and silently takes the last
+        # occurrence, which is not ideal for our linter.
+        seen_keys = set()
+        for key_node, _ in node.value:
+            # Only check scalar keys
+            if hasattr(key_node, 'value'):
+                key = key_node.value
+                if key in seen_keys:
+                    # Raise YAML marked error so find_errors_from_string will
+                    # capture this as a parsing error tied to a specific line.
+                    raise yaml.error.MarkedYAMLError(
+                        context=f"while constructing a mapping",
+                        context_mark=node.start_mark,
+                        problem=f"found duplicate key {key!r}",
+                        problem_mark=key_node.start_mark,
+                    )
+                seen_keys.add(key)
+
         mapping = super(SafeLineLoader, self).construct_mapping(node, deep=deep)
         mapping["__line__"] = node.start_mark.line + 1
         return mapping
@@ -576,7 +596,7 @@ def find_errors_from_string(full_content: str, input_file: Optional[str] = None)
                     errMess.problem_mark.line += line_number - 1
             all_errors.append(
                 YAMLError(
-                    err_str=errMess,
+                    err_str=str(errMess),
                     line_number=line_number,
                     file_name=input_file,
                     experimental=False,
