@@ -95,4 +95,20 @@ source ~/venv/bin/activate
 pip install "dayamlchecker[mcp]"
 ```
 
+### Troubleshooting: ModuleNotFoundError
+
+If you run `dayamlchecker-gen-mcp` and see an error like:
+
+```text
+ModuleNotFoundError: No module named 'dayamlchecker.generate_mcp_config'
+```
+
+It means the installed `dayamlchecker` package in that venv doesn't include the `generate_mcp_config` module (for example, the package is an older release or was installed from PyPI). Install the local package into that venv instead:
+
+```bash
+source ~/venv/bin/activate
+cd /path/to/DAYamlChecker
+pip install -e ".[mcp]"
+```
+
 Note: If you have `dayamlchecker` installed in the same, activated virtual environment from which you're running the `codex mcp add` command (or if `dayamlchecker-mcp` is on the PATH for the user that runs Codex), you can use the short command `dayamlchecker-mcp` and do not need to pass an absolute path. If Codex or your Codex IDE is running outside the workspace or under a different process, prefer an absolute path to the Python executable or the CLI for reliability.

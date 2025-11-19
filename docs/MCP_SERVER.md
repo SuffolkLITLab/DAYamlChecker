@@ -34,6 +34,16 @@ Optional flags: `--venv <path>`, `--python <path>`, `--non-interactive`, and `--
 
 Important: Any VS Code click-to-install links or `.vscode/mcp.json` files only register configuration for the MCP server in VS Code. They do not create virtual environments or install the `dayamlchecker` package for you. Before using these UI actions, make sure the selected interpreter has `dayamlchecker` installed (for example: `python -m venv .venv && source .venv/bin/activate && pip install "dayamlchecker[mcp]"`).
 
+### Troubleshooting: ModuleNotFoundError
+
+If you run `dayamlchecker-gen-mcp` (or the packaged script) and get a `ModuleNotFoundError` for `dayamlchecker.generate_mcp_config`, install the package into the selected interpreter and re-run:
+
+```bash
+source ~/venv/bin/activate
+cd /path/to/DAYamlChecker
+pip install -e ".[mcp]"
+```
+
 ### Alternative invocation (advanced / development)
 
 If you're a developer or prefer not to install the package, you can copy and customize the mcp.json in .vscode/mcp.json
