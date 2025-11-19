@@ -21,6 +21,44 @@ The primary way to use this server is with Visual Studio Code and GitHub Copilot
 
 ### Automatic Setup (Recommended)
 
+#### Convenience script: generate `.vscode/mcp.json`
+
+To make it easy for VS Code users to wire up the MCP server, there's a helper script at `tools/generate_mcp_config.py` in the project. It:
+
+* Detects a local `.venv` in your repository root and uses that interpreter by default.
+* Lets you specify a `--venv` directory or a `--python` path to an arbitrary interpreter.
+* Lets you override the command (e.g. `dayamlchecker-mcp`) or use the default `python -m dayamlchecker.mcp.server` which is the most portable choice.
+* By default it writes the config with a `stdio` transport. You can specify `--transport sse` for SSE mode.
+
+Run the script from the workspace root (or pass `--workspace`):
+
+```bash
+# Use the default local .venv if present
+python tools/generate_mcp_config.py
+
+# Or specify a venv path (e.g., tildes are supported):
+python tools/generate_mcp_config.py --venv ~/.venv
+
+# Or specify a python interpreter explicitly
+python tools/generate_mcp_config.py --python /usr/bin/python3
+```
+
+Common example for users who keep a reusable venv in `~/.venv`:
+
+```bash
+python tools/generate_mcp_config.py --venv ~/.venv
+```
+
+The script writes `.vscode/mcp.json` and prints follow-up instructions to open the project in VS Code. You can use `--non-interactive` if you do not want to be prompted.
+
+If you installed the package in your environment, you can also run the packaged console script:
+
+```bash
+dayamlchecker-gen-mcp
+```
+
+#### Manual use of template mcp.json
+
 This repository includes a `.vscode/mcp.json` configuration file. If you open this folder in VS Code, the editor can automatically detect and run the MCP server using the virtual environment.
 
 1. **Ensure the virtual environment exists** in the project root (`.venv`) and the package is installed (see Installation above).

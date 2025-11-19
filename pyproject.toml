@@ -23,3 +23,4 @@ mcp = ["mcp[cli]"]
 
 [project.scripts]
 dayamlchecker-mcp = "dayamlchecker.mcp.server:main"
+dayamlchecker-gen-mcp = "dayamlchecker.generate_mcp_config:main"
