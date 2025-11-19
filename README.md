@@ -28,25 +28,39 @@ For detailed instructions on installation, manual configuration, and usage with 
 
 ### Generate a VS Code MCP configuration
 
-To make it easy for VS Code users to install locally, there's a helper script included in `tools/` that will create a `.vscode/mcp.json` for the current workspace. It detects a local `.venv` by default or you can specify a custom venv or python path.
+To make it easy for VS Code users to install locally, install DAYamlChecker with the `mcp` extra, then run the packaged generator to create `.vscode/mcp.json`:
 
 ```bash
-# Use the auto-detect .venv behavior
-python tools/generate_mcp_config.py
+# Install in the active environment
+pip install "dayamlchecker[mcp]"
 
-# Use a specific venv located in ~/.venv
-python tools/generate_mcp_config.py --venv ~/.venv
-
-# Use a specific interpreter directly
-python tools/generate_mcp_config.py --python /usr/bin/python3
-```
-
-If you want to avoid the interactive prompts, add `--non-interactive` to use the detected values.
-
-If you installed the package (`pip install "dayamlchecker[mcp]"`) you can also use the installed console script:
-
-```bash
-# If the package is installed, and you want to run as a command
+# Generate workspace MCP config
 dayamlchecker-gen-mcp
 ```
 
+Optional flags: `--venv <path>`, `--python <path>`, and `--non-interactive`.
+
+For example, if you have a global venv in ~/venv, and a github repository
+you want to make the MCP available in named docassemble-AssemblyLine:
+
+```bash
+cd ~/docassemble-AssemblyLine
+source ~/venv/bin/activate
+pip install dayamlchecker[mcp]
+dayamlchecker-gen-mcp --venv ~/venv
+```
+
+### Codex CLI (optional)
+
+If you use Codex CLI/IDE and want Codex to call this MCP server:
+
+```bash
+cd /path/to/your/repo
+codex mcp add dayamlchecker -- "$(pwd)/.venv/bin/python" -m dayamlchecker.mcp.server
+
+# Or add using a global venv
+codex mcp add dayamlchecker -- "~/.venv/bin/python" -m dayamlchecker.mcp.server
+
+# If the package is installed globally
+codex mcp add dayamlchecker -- dayamlchecker-mcp
+```

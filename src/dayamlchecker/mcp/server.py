@@ -10,6 +10,9 @@ def validate_docassemble_yaml(yaml_text: str) -> Dict[str, Any]:
     """
     Validate a Docassemble interview YAML string using DAYamlChecker.
 
+    This tool should be used whenever the model generates or modifies Docassemble YAML
+    and needs to check for correctness, structure errors, or line-level issues.
+    
     Args:
         yaml_text: The YAML content as a string.
 
