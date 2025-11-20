@@ -14,6 +14,9 @@ authors = [
   { name="Bryce Willey", email="bryce.steven.willey@gmail.com" },
 ]
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
 [build-system]
 requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
