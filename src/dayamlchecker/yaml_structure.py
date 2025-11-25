@@ -695,6 +695,7 @@ def process_file(input_file):
         "documentation.yml",
         "docstring.yml",
         "example-list.yml",
+        "examples.yml"
     ]:
         if input_file.endswith(dumb_da_file):
             print()
