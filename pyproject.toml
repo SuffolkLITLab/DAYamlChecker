@@ -1,6 +1,6 @@
 [project]
 name = "dayamlchecker"
-version = "0.2.2"
+version = "0.2.3"
 description = "An LSP for Docassemble YAML interviews"
 readme = "README.md"
 requires-python = ">=3.12"
