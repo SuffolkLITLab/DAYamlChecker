@@ -2,7 +2,7 @@
   "name": "dayamlchecker",
   "title": "DAYamlChecker YAML Validator MCP Server",
   "description": "A tool for validating Docassemble YAML interviews via MCP.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "transport": "stdio",
   "command": "dayamlchecker-mcp",
   "args": [],
