@@ -109,14 +109,26 @@ class ValidationCode(PythonText):
                     calls_validation_error = True
                     break
         if not calls_validation_error:
-            # If the block is "transformation-only" (it performs assignments but
-            # contains no conditionals/raises/asserts), suppress the warning.
-            # Use AST to detect Assign/AugAssign/AnnAssign and If/Raise/Assert nodes.
-            has_assignment = any(isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign)) for n in ast.walk(tree))
-            has_conditional = any(isinstance(n, (ast.If, ast.IfExp)) for n in ast.walk(tree))
+            # Suppress warning for transformation-only code blocks.
+            # This includes assignments (even behind conditionals) and common
+            # mutation helpers like define(...), which are intentionally used to
+            # normalize output in many interviews.
+            has_assignment = any(
+                isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+                for n in ast.walk(tree)
+            )
+            has_define_call = any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == "define"
+                for n in ast.walk(tree)
+            )
+            has_expr_call = any(
+                isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+                for n in ast.walk(tree)
+            )
             has_raise_or_assert = any(isinstance(n, (ast.Raise, ast.Assert)) for n in ast.walk(tree))
-            if has_assignment and not (has_conditional or has_raise_or_assert):
-                # transformation-only validation code — do not warn
+            if (has_assignment or has_define_call or has_expr_call) and not has_raise_or_assert:
                 return
 
             # Otherwise, emit a warning suggesting use of validation_error().
@@ -390,8 +402,22 @@ class DAFields:
         def references_screen_variable(var_expr):
             if not isinstance(var_expr, str):
                 return False
-            for candidate in self._variable_candidates(var_expr):
-                if candidate in screen_variables:
+            candidates = self._variable_candidates(var_expr)
+            if any(candidate in screen_variables for candidate in candidates):
+                return True
+            # In generic-object screens, x.<attr> often aliases another object path
+            # like children[i].<attr>. Allow suffix match only when one side is x.<...>.
+            for candidate in candidates:
+                if candidate.startswith("x.") and any(
+                    screen_var.endswith("." + candidate.split(".", 1)[1])
+                    for screen_var in screen_variables
+                ):
+                    return True
+            for screen_var in screen_variables:
+                if screen_var.startswith("x.") and any(
+                    candidate.endswith("." + screen_var.split(".", 1)[1])
+                    for candidate in candidates
+                ):
                     return True
             return False
 

@@ -255,6 +255,24 @@ fields:
         show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
         self.assertEqual(len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}")
 
+    def test_show_if_x_alias_expression_valid_same_screen(self):
+        """Valid: show if expression can match x.<attr> field alias used in generic-object screens"""
+        valid = """
+question: |
+  Child information
+fields:
+  - Who are this child's parents?: x.parents
+    datatype: checkboxes
+    choices:
+      - Parent 1
+      - Other
+  - Name of other parent: children[i].other_parent
+    show if: children[i].parents["Other"]
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
+        self.assertEqual(len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}")
+
     def test_show_if_variable_not_on_screen(self):
         """Error: show if variable references field NOT on same screen"""
         invalid = """
@@ -500,9 +518,9 @@ validation code: |
         # Should NOT warn because this is a pure transformation (assignment) with no conditionals
         self.assertFalse(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Did not expect missing validation_error warning for pure transformation code, got: {errs}")
 
-    def test_validation_code_transformation_with_conditional_warns(self):
-        """Warn when validation code has assignments but also contains a conditional (not transformation-only)"""
-        invalid = """
+    def test_validation_code_transformation_with_conditional_no_warn(self):
+        """No warning when validation code transforms values inside a conditional"""
+        valid = """
 question: |
   What is your phone number?
 fields:
@@ -511,10 +529,21 @@ validation code: |
   if True:
     phone_number = phone_number.strip()
 """
-        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
-        # Should warn because although there's an assignment, the presence of a conditional
-        # means this is not a pure transformation and the code should likely call validation_error
-        self.assertTrue(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Expected missing validation_error warning when conditional present, got: {errs}")
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Did not expect missing validation_error warning for conditional transformation code, got: {errs}")
+
+    def test_validation_code_define_call_no_warn(self):
+        """No warning when validation code uses define() as a transformation helper"""
+        valid = """
+question: |
+  Catchall
+fields:
+  - Value: x_value
+validation code: |
+  define("x_value", x_value)
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Did not expect missing validation_error warning for define() transformation code, got: {errs}")
 
     def test_fields_code_dict_valid(self):
         """Valid: fields can be a dict with code reference"""
