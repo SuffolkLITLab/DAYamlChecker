@@ -585,7 +585,7 @@ big_dict = {
     "terms": {},
     "auto terms": {},
     "help": {},
-    "fields": {},
+    "fields": {"type": DAFields},
     "buttons": {},
     "field": {"type": DAPythonVar},
     "template": {},
@@ -1108,17 +1108,6 @@ def find_errors_from_string(
                             file_name=input_file,
                         )
                     )
-
-        if "fields" in doc:
-            fields_test = DAFields(doc["fields"])
-            for err in fields_test.errors:
-                all_errors.append(
-                    YAMLError(
-                        err_str=f"{err[0]}",
-                        line_number=line_number + err[1] - 1,
-                        file_name=input_file,
-                    )
-                )
 
         line_number += lines_in_code
     return all_errors
