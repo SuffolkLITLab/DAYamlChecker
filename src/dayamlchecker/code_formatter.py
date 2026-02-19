@@ -384,7 +384,6 @@ def _collect_yaml_files(paths: list[Path]) -> list[Path]:
             yaml_files.extend(path.rglob("*.yaml"))
         elif path.suffix.lower() in (".yml", ".yaml"):
             yaml_files.append(path)
-    # Remove duplicates while preserving order
     seen = set()
     result = []
     for f in yaml_files:
