@@ -33,15 +33,44 @@ def write_mcp_config(path: Path, name: str, command: str, args: list, transport:
 def main(argv=None):
     import argparse
 
-    parser = argparse.ArgumentParser(description="Generate .vscode/mcp.json for DAYamlChecker")
-    parser.add_argument("--workspace", default=os.getcwd(), help="Workspace root (default: current directory)")
-    parser.add_argument("--venv", help="Path to venv root (e.g., ~/venv or /home/user/venv)")
-    parser.add_argument("--python", help="Path to python executable to use (overrides venv) - e.g. /usr/bin/python3")
-    parser.add_argument("--command", help="Command to run for the MCP server (e.g. dayamlchecker-mcp). If not provided, by default we'll use python -m dayamlchecker.mcp.server", default=None)
-    parser.add_argument("--args", help="JSON array of args to pass to the command (for example: '[-m, dayamlchecker.mcp.server]')")
-    parser.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio", help="Transport type for MCP server (stdio is default)")
-    parser.add_argument("--name", default="dayamlchecker", help="Server name in mcp.json")
-    parser.add_argument("--non-interactive", action="store_true", help="Do not prompt; write with defaults or provided flags")
+    parser = argparse.ArgumentParser(
+        description="Generate .vscode/mcp.json for DAYamlChecker"
+    )
+    parser.add_argument(
+        "--workspace",
+        default=os.getcwd(),
+        help="Workspace root (default: current directory)",
+    )
+    parser.add_argument(
+        "--venv", help="Path to venv root (e.g., ~/venv or /home/user/venv)"
+    )
+    parser.add_argument(
+        "--python",
+        help="Path to python executable to use (overrides venv) - e.g. /usr/bin/python3",
+    )
+    parser.add_argument(
+        "--command",
+        help="Command to run for the MCP server (e.g. dayamlchecker-mcp). If not provided, by default we'll use python -m dayamlchecker.mcp.server",
+        default=None,
+    )
+    parser.add_argument(
+        "--args",
+        help="JSON array of args to pass to the command (for example: '[-m, dayamlchecker.mcp.server]')",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="Transport type for MCP server (stdio is default)",
+    )
+    parser.add_argument(
+        "--name", default="dayamlchecker", help="Server name in mcp.json"
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Do not prompt; write with defaults or provided flags",
+    )
 
     args = parser.parse_args(argv)
     workspace_root = Path(args.workspace).resolve()
@@ -78,23 +107,33 @@ def main(argv=None):
             command_args = detected_args
 
     # If python inside workspace's .venv, use ${workspaceFolder} placeholder
-    if command and isinstance(command, str) and command.startswith(str(workspace_root / ".venv")):
+    if (
+        command
+        and isinstance(command, str)
+        and command.startswith(str(workspace_root / ".venv"))
+    ):
         rel = Path(command).relative_to(workspace_root)
-        placeholder = "${workspaceFolder}/" + str(rel).replace('\\\\', '/')
+        placeholder = "${workspaceFolder}/" + str(rel).replace("\\\\", "/")
         command_to_write = placeholder
     else:
         command_to_write = command
 
     mcp_config_file = workspace_root / ".vscode" / "mcp.json"
-    write_mcp_config(mcp_config_file, args.name, command_to_write, command_args, args.transport)
+    write_mcp_config(
+        mcp_config_file, args.name, command_to_write, command_args, args.transport
+    )
 
     print("\nNext steps:")
-    print(" - Open the project in VS Code. The MCP server should start automatically when you use tools or Copilot Chat.")
+    print(
+        " - Open the project in VS Code. The MCP server should start automatically when you use tools or Copilot Chat."
+    )
     if args.transport == "sse":
-        print(" - Note: If you picked 'sse', you may want to run the server via 'mcp run -t sse [command]' when debugging or deploying.")
+        print(
+            " - Note: If you picked 'sse', you may want to run the server via 'mcp run -t sse [command]' when debugging or deploying."
+        )
 
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

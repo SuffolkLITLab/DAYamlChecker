@@ -5,6 +5,7 @@ from dayamlchecker.yaml_structure import find_errors_from_string
 
 mcp = FastMCP("docassemble-yaml-checker")
 
+
 @mcp.tool()
 def validate_docassemble_yaml(yaml_text: str) -> Dict[str, Any]:
     """
@@ -12,7 +13,7 @@ def validate_docassemble_yaml(yaml_text: str) -> Dict[str, Any]:
 
     This tool should be used whenever the model generates or modifies Docassemble YAML
     and needs to check for correctness, structure errors, or line-level issues.
-    
+
     Args:
         yaml_text: The YAML content as a string.
 
@@ -27,11 +28,9 @@ def validate_docassemble_yaml(yaml_text: str) -> Dict[str, Any]:
     errors: List[Dict[str, Any]] = []
 
     for err in result:
-        errors.append({
-            "message": err.err_str,
-            "line": err.line_number,
-            "filename": err.file_name
-        })
+        errors.append(
+            {"message": err.err_str, "line": err.line_number, "filename": err.file_name}
+        )
 
     valid = len(errors) == 0
 
@@ -39,6 +38,7 @@ def validate_docassemble_yaml(yaml_text: str) -> Dict[str, Any]:
         "valid": valid,
         "errors": errors,
     }
+
 
 def main() -> None:
     """Entry point for running the MCP server over stdio."""

@@ -23,15 +23,23 @@ def main():
     if packaged_main:
         return packaged_main()
     # Fall back to running the local copy in the repo for development
-    script_path = pathlib.Path(__file__).resolve().parent.parent / "dayamlchecker" / "generate_mcp_config.py"
+    script_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "dayamlchecker"
+        / "generate_mcp_config.py"
+    )
     if script_path.exists():
         runpy.run_path(str(script_path), run_name="__main__")
         return 0
     else:
-        print("dayamlchecker.generate_mcp_config not installed and local script not found.")
-        print("Install the package into your venv with: pip install -e '.[mcp]' or pip install 'dayamlchecker[mcp]'.")
+        print(
+            "dayamlchecker.generate_mcp_config not installed and local script not found."
+        )
+        print(
+            "Install the package into your venv with: pip install -e '.[mcp]' or pip install 'dayamlchecker[mcp]'."
+        )
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())
