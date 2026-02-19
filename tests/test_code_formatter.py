@@ -72,7 +72,7 @@ class TestFormatPythonCode(unittest.TestCase):
         config = FormatterConfig(convert_indent_4_to_2=True)
         result = format_python_code(code, config)
         # Nested should be 4 spaces (2 * 2) instead of 8 (4 * 2)
-        self.assertIn("    x = 1", result)
+        self.assertIn("\n    x = 1", result)
 
 
 class TestFormatYamlString(unittest.TestCase):
