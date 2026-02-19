@@ -57,8 +57,7 @@ class TestFormatPythonCode(unittest.TestCase):
         config = FormatterConfig(convert_indent_4_to_2=True)
         result = format_python_code(code, config)
         # After Black formats with 4-space indent, we convert to 2-space
-        self.assertIn("  x = 1", result)
-        self.assertNotIn("    x = 1", result)
+        self.assertIn("\n  x = 1", result)
 
     def test_format_without_indent_conversion(self):
         code = "if True:\n    x = 1"
