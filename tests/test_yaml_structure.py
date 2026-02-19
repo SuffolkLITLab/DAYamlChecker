@@ -237,6 +237,24 @@ fields:
         show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
         self.assertEqual(len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}")
 
+    def test_show_if_nested_index_expression_valid_same_screen(self):
+        """Valid: show if nested index expression matches on-screen base field"""
+        valid = """
+question: |
+  Child information
+fields:
+  - Who are this child's parents?: children[i].parents
+    datatype: checkboxes
+    choices:
+      - Parent 1
+      - Other
+  - Name of other parent: children[i].other_parent
+    show if: children[i].parents["Other"]
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
+        self.assertEqual(len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}")
+
     def test_show_if_variable_not_on_screen(self):
         """Error: show if variable references field NOT on same screen"""
         invalid = """
@@ -497,6 +515,19 @@ validation code: |
         # Should warn because although there's an assignment, the presence of a conditional
         # means this is not a pure transformation and the code should likely call validation_error
         self.assertTrue(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Expected missing validation_error warning when conditional present, got: {errs}")
+
+    def test_fields_code_dict_valid(self):
+        """Valid: fields can be a dict with code reference"""
+        valid = """
+question: |
+  Interrogatories
+fields:
+  code: ints_fields
+continue button field: interrogatory_questions
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        field_errors = [e for e in errs if 'fields should be a list' in e.err_str.lower() or 'fields dict must have' in e.err_str.lower()]
+        self.assertEqual(len(field_errors), 0, f"Expected no fields-shape errors, got: {field_errors}")
 
 
 if __name__ == '__main__':
