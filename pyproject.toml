@@ -24,7 +24,6 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 mcp = ["mcp[cli]"]
 formatter = ["black>=24.0.0", "ruamel.yaml>=0.18.0"]
-dev = ["black>=24.0.0", "ruamel.yaml>=0.18.0"]
 
 [project.scripts]
 dayamlchecker = "dayamlchecker.yaml_structure:main"
