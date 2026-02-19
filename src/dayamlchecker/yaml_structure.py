@@ -1,4 +1,5 @@
 # Each doc, apply this to each block
+import ast
 import re
 import sys
 # os and Path imports were used in a short-lived implementation; the CLI filtering approach is preferred
@@ -57,9 +58,6 @@ class MakoMarkdownText(MakoText):
 
     def __init__(self, x):
         super().__init__(x)
-
-
-import ast
 
 
 class PythonText:
@@ -153,51 +151,99 @@ class JSShowIf:
     3) That val() calls use quoted string literals for variable names
     """
 
-    def __init__(self, x, modifier_key='js show if'):
+    def __init__(self, x, modifier_key='js show if', screen_variables=None):
         self.errors = []
+        self.screen_variables = screen_variables or set()
         if not isinstance(x, str):
             self.errors = [(f"{modifier_key} must be a string, is {type(x).__name__}", 1)]
             return
 
-        # First, check for val() presence using regex to handle whitespace
-        if not re.search(r'\bval\s*\(', x):
-            self.errors.append((
-                f"{modifier_key} must contain at least one val() call to reference an on-screen field",
-                1
-            ))
-
-        # Check for invalid val() calls: argument must be a quoted string literal, e.g. val("field_name")
-        # Match val( <anything up to the next closing parenthesis> )
-        unquoted_val_pattern = re.compile(r'val\s*\(\s*([^)]*?)\s*\)')
-        for match in unquoted_val_pattern.finditer(x):
-            content = match.group(1).strip()
-            # Valid only if the entire argument is a single quoted string literal
-            if not (
-                (content.startswith('"') and content.endswith('"')) or
-                (content.startswith("'") and content.endswith("'"))
-            ):
-                self.errors.append((
-                    f'val() argument must be a quoted string literal, not "{content}". Use val("...") or val(\'...\') instead',
-                    1
-                ))
-
         # Now check JavaScript syntax by removing Mako expressions first
-        # Mako syntax is demarcated by ${ }
         js_to_check = x
-        # Remove all ${ ... } mako expressions and replace with a safe literal
         mako_pattern = re.compile(r'\$\{[^}]*\}', re.DOTALL)
         js_to_check = mako_pattern.sub('true', js_to_check)
 
-        # Use esprima to validate JavaScript syntax
         try:
-            # parseScript throws esprima.Error on syntax problems
-            esprima.parseScript(js_to_check, tolerant=False)
+            parsed = esprima.parseScript(js_to_check, tolerant=False, loc=True).toDict()
         except esprima.Error as ex:
-            # We don't have precise YAML line mapping for the JS, so report at offset 1
             self.errors.append((
                 f"Invalid JavaScript syntax in {modifier_key}: {ex}",
+                getattr(ex, "lineNumber", 1) or 1,
+            ))
+            return
+
+        val_calls = []
+        stack = [parsed]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                if node.get("type") == "CallExpression":
+                    callee = node.get("callee")
+                    if isinstance(callee, dict) and callee.get("type") == "Identifier" and callee.get("name") == "val":
+                        val_calls.append(node)
+                stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
+            elif isinstance(node, list):
+                stack.extend(node)
+
+        if not val_calls:
+            self.errors.append((
+                f"{modifier_key} must contain at least one val() call to reference an on-screen field",
                 1,
             ))
+
+        for call in val_calls:
+            args = call.get("arguments") or []
+            valid_arg = (
+                len(args) == 1
+                and isinstance(args[0], dict)
+                and args[0].get("type") == "Literal"
+                and isinstance(args[0].get("value"), str)
+            )
+            if valid_arg:
+                var_name = args[0].get("value")
+                if self.screen_variables and not self._references_screen_variable(var_name):
+                    self.errors.append((
+                        f'{modifier_key} references val("{var_name}"), but "{var_name}" is not defined on this screen',
+                        (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
+                    ))
+                continue
+            bad_arg = "<missing>"
+            if args:
+                first_arg = args[0]
+                bad_arg = first_arg.get("raw") or first_arg.get("name") or first_arg.get("type", "<unknown>")
+            self.errors.append((
+                f'val() argument must be a quoted string literal, not "{bad_arg}". Use val("...") or val(\'...\') instead',
+                (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
+            ))
+
+    def _references_screen_variable(self, var_expr):
+        if not isinstance(var_expr, str):
+            return False
+        for candidate in self._variable_candidates(var_expr):
+            if candidate in self.screen_variables:
+                return True
+        return False
+
+    def _variable_candidates(self, var_expr):
+        expr = var_expr.strip()
+        candidates = {expr}
+        if "." in expr:
+            parts = expr.split(".")
+            for i in range(len(parts), 0, -1):
+                candidates.add(".".join(parts[:i]))
+        expanded = set()
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            expanded.add(candidate)
+            # Accept both full indexed paths and their base paths, e.g.:
+            # children[i].parents["Other"] -> children[i].parents
+            while candidate.endswith("]") and "[" in candidate:
+                candidate = candidate[:candidate.rfind("[")].strip()
+                if candidate:
+                    expanded.add(candidate)
+        return expanded
 
 
 class ShowIf:
@@ -287,10 +333,147 @@ class ObjectsAttrType:
 
 
 class DAFields:
+    modifier_keys = {
+        "default",
+        "default value",
+        "hint",
+        "help",
+        "label",
+        "datatype",
+        "choices",
+        "validation code",
+        "show if",
+        "hide if",
+        "js show if",
+        "js hide if",
+        "enable if",
+        "disable if",
+        "js enable if",
+        "js disable if",
+        "__line__",
+    }
+
+    js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
+    py_modifier_keys = ("show if", "hide if")
+
     def __init__(self, x):
         self.errors = []
+        if isinstance(x, dict):
+            if "code" not in x:
+                self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
+                return
+            if not isinstance(x.get("code"), str):
+                self.errors = [(f'fields: code must be a YAML string, is {type(x.get("code")).__name__}', 1)]
+            return
         if not isinstance(x, list):
-            self.errors = [(f"fields should be a list, is {x}", 1)]
+            self.errors = [(f"fields should be a list or dict, is {x}", 1)]
+            return
+        self._validate_field_modifiers(x)
+
+    def _line_for(self, field_item, code_line=1):
+        field_line = 1
+        if isinstance(field_item, dict):
+            field_line = field_item.get("__line__", 1)
+        return field_line + max(code_line - 1, 0)
+
+    def _extract_field_name(self, field_item):
+        if not isinstance(field_item, dict):
+            return None
+        for key, value in field_item.items():
+            if key in self.modifier_keys:
+                continue
+            if isinstance(value, str):
+                return value
+        return None
+
+    def _validate_python_modifier(self, modifier_key, modifier_value, field_item, screen_variables):
+        def references_screen_variable(var_expr):
+            if not isinstance(var_expr, str):
+                return False
+            for candidate in self._variable_candidates(var_expr):
+                if candidate in screen_variables:
+                    return True
+            return False
+
+        if isinstance(modifier_value, dict):
+            if "variable" in modifier_value and "code" not in modifier_value:
+                ref_var = modifier_value.get("variable")
+                if not isinstance(ref_var, str):
+                    self.errors.append((
+                        f"{modifier_key}: variable must be a string, got {type(ref_var).__name__}",
+                        self._line_for(field_item),
+                    ))
+                elif not references_screen_variable(ref_var):
+                    self.errors.append((
+                        f'{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens',
+                        self._line_for(field_item),
+                    ))
+            elif "code" in modifier_value:
+                validator = PythonText(modifier_value.get("code"))
+                for err in validator.errors:
+                    self.errors.append((
+                        f"{modifier_key}: code has {err[0].lower()}",
+                        self._line_for(field_item, err[1]),
+                    ))
+            else:
+                self.errors.append((
+                    f'{modifier_key} dict must have either "variable" or "code"',
+                    self._line_for(field_item),
+                ))
+        elif isinstance(modifier_value, str) and ":" not in modifier_value:
+            if not references_screen_variable(modifier_value):
+                self.errors.append((
+                    f"{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                    self._line_for(field_item),
+                ))
+
+    def _validate_field_modifiers(self, fields_list):
+        screen_variables = set()
+        for field_item in fields_list:
+            field_var_name = self._extract_field_name(field_item)
+            if field_var_name:
+                screen_variables.add(field_var_name)
+
+        for field_item in fields_list:
+            if not isinstance(field_item, dict):
+                continue
+
+            for js_key in self.js_modifier_keys:
+                if js_key in field_item:
+                    validator = JSShowIf(
+                        field_item[js_key],
+                        modifier_key=js_key,
+                        screen_variables=screen_variables,
+                    )
+                    for err in validator.errors:
+                        self.errors.append((err[0], self._line_for(field_item, err[1])))
+
+            for py_key in self.py_modifier_keys:
+                if py_key in field_item:
+                    self._validate_python_modifier(
+                        py_key, field_item[py_key], field_item, screen_variables
+                    )
+
+    def _variable_candidates(self, var_expr):
+        expr = var_expr.strip()
+        candidates = {expr}
+        if "." in expr:
+            parts = expr.split(".")
+            for i in range(len(parts), 0, -1):
+                candidates.add(".".join(parts[:i]))
+        expanded = set()
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            expanded.add(candidate)
+            # Accept both full indexed paths and their base paths, e.g.:
+            # children[i].parents["Other"] -> children[i].parents
+            while candidate.endswith("]") and "[" in candidate:
+                candidate = candidate[:candidate.rfind("[")].strip()
+                if candidate:
+                    expanded.add(candidate)
+        return expanded
 
 
 # type notes what the value for that dictionary key is,
@@ -388,30 +571,6 @@ big_dict = {
     "interview help": {},
     "continue button field": {
         "type": DAPythonVar,
-    },
-    "show if": {
-        "type": ShowIf,
-    },
-    "hide if": {
-        "type": ShowIf,
-    },
-    "js show if": {
-        "type": JSShowIf,
-    },
-    "js hide if": {
-        "type": JSShowIf,
-    },
-    "enable if": {
-        "type": ShowIf,
-    },
-    "disable if": {
-        "type": ShowIf,
-    },
-    "js enable if": {
-        "type": JSShowIf,
-    },
-    "js disable if": {
-        "type": JSShowIf,
     },
     "disable others": {},
     "order": {},
@@ -771,229 +930,6 @@ class SafeLineLoader(SafeLoader):
         return mapping
 
 
-def validate_question_fields(fields_list, doc, base_line_number, input_file):
-    """Validate show if/hide if and other field modifiers for a question's fields.
-    
-    Checks:
-    1) Fields with show if/hide if: variable only work if the variable is on the same screen
-    2) js show if/js hide if have valid JavaScript syntax and val() references
-    """
-    errors = []
-    
-    if not isinstance(fields_list, list):
-        return errors
-    
-    # Extract field variable names that are defined on this screen
-    screen_variables = set()
-    
-    for field_item in fields_list:
-        if isinstance(field_item, dict):
-            # Field dict can have variable name as value or label as key
-            for k, v in field_item.items():
-                if isinstance(v, str) and k not in ['default', 'default value', 'hint', 'help', 
-                                                       'label', 'datatype', 'choices', 'validation code',
-                                                       'show if', 'hide if', 'js show if', 'js hide if',
-                                                       'enable if', 'disable if', 'js enable if', 'js disable if']:
-                    screen_variables.add(v)
-                    break
-    
-    # Check each field for show if/hide if issues
-    for i, field_item in enumerate(fields_list):
-        if not isinstance(field_item, dict):
-            continue
-        
-        field_var_name = None
-        # Find the variable name for this field
-        for k, v in field_item.items():
-            if isinstance(v, str) and k not in ['default', 'default value', 'hint', 'help', 
-                                                   'label', 'datatype', 'choices', 'validation code',
-                                                   'show if', 'hide if', 'js show if', 'js hide if',
-                                                   'enable if', 'disable if', 'js enable if', 'js disable if']:
-                field_var_name = v
-                break
-        
-        # Validate js show if
-        if 'js show if' in field_item:
-            validator = JSShowIf(field_item['js show if'], modifier_key='js show if')
-            for err in validator.errors:
-                errors.append(
-                    YAMLError(
-                        err_str=f"{err[0]}",
-                        line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                        file_name=input_file,
-                    )
-                )
-        
-        # Validate js hide if
-        if 'js hide if' in field_item:
-            validator = JSShowIf(field_item['js hide if'], modifier_key='js hide if')
-            for err in validator.errors:
-                errors.append(
-                    YAMLError(
-                        err_str=f"{err[0]}",
-                        line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                        file_name=input_file,
-                    )
-                )
-        
-        # Validate js enable if
-        if 'js enable if' in field_item:
-            validator = JSShowIf(field_item['js enable if'], modifier_key='js enable if')
-            for err in validator.errors:
-                errors.append(
-                    YAMLError(
-                        err_str=f"{err[0]}",
-                        line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                        file_name=input_file,
-                    )
-                )
-        
-        # Validate js disable if
-        if 'js disable if' in field_item:
-            validator = JSShowIf(field_item['js disable if'], modifier_key='js disable if')
-            for err in validator.errors:
-                errors.append(
-                    YAMLError(
-                        err_str=f"{err[0]}",
-                        line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                        file_name=input_file,
-                    )
-                )
-        
-        # Check show if using variable reference (not code)
-        if 'show if' in field_item:
-            show_if = field_item['show if']
-            # Dict form with variable check (client-side) or code check (server-side)
-            if isinstance(show_if, dict):
-                if 'variable' in show_if and 'code' not in show_if:
-                    ref_var = show_if['variable']
-                    # ref_var must be a string; other YAML types (list/dict, etc.) are invalid here
-                    if not isinstance(ref_var, str):
-                        errors.append(
-                            YAMLError(
-                                err_str=f'show if: variable must be a string, got {type(ref_var).__name__}',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                    elif ref_var not in screen_variables:
-                        errors.append(
-                            YAMLError(
-                                err_str=f'show if: variable: {ref_var} is not defined on this screen. Use show if: {{ code: ... }} instead for variables from previous screens',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                elif 'code' in show_if:
-                    code_block = show_if.get('code')
-                    if not isinstance(code_block, str):
-                        errors.append(
-                            YAMLError(
-                                err_str=f'show if: code must be a YAML string',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                    else:
-                        try:
-                            ast.parse(code_block)
-                        except SyntaxError as ex:
-                            lineno = ex.lineno or 1
-                            msg = ex.msg or str(ex)
-                            errors.append(
-                                YAMLError(
-                                    err_str=f'show if: code has Python syntax error: {msg}',
-                                    line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1) + lineno,
-                                    file_name=input_file,
-                                )
-                            )
-                else:
-                    errors.append(
-                        YAMLError(
-                            err_str=f'show if dict must have either "variable" or "code"',
-                            line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                            file_name=input_file,
-                        )
-                    )
-            elif isinstance(show_if, str) and ':' not in show_if:
-                # Shorthand form - must be a field on this screen
-                if show_if not in screen_variables:
-                    errors.append(
-                        YAMLError(
-                            err_str=f'show if: {show_if} is not defined on this screen. Use show if: {{ code: ... }} instead for variables from previous screens',
-                            line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                            file_name=input_file,
-                        )
-                    )
-        
-        # Check hide if using variable reference (not code)
-        if 'hide if' in field_item:
-            hide_if = field_item['hide if']
-            if isinstance(hide_if, dict):
-                if 'variable' in hide_if and 'code' not in hide_if:
-                    ref_var = hide_if['variable']
-                    # ref_var must be a string; other YAML types (list/dict, etc.) are invalid here
-                    if not isinstance(ref_var, str):
-                        errors.append(
-                            YAMLError(
-                                err_str=f'hide if: variable must be a string, got {type(ref_var).__name__}',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                    elif ref_var not in screen_variables:
-                        errors.append(
-                            YAMLError(
-                                err_str=f'hide if: variable: {ref_var} is not defined on this screen. Use hide if: {{ code: ... }} instead for variables from previous screens',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                elif 'code' in hide_if:
-                    code_block = hide_if.get('code')
-                    if not isinstance(code_block, str):
-                        errors.append(
-                            YAMLError(
-                                err_str=f'hide if: code must be a YAML string',
-                                line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                                file_name=input_file,
-                            )
-                        )
-                    else:
-                        try:
-                            ast.parse(code_block)
-                        except SyntaxError as ex:
-                            lineno = ex.lineno or 1
-                            msg = ex.msg or str(ex)
-                            errors.append(
-                                YAMLError(
-                                    err_str=f'hide if: code has Python syntax error: {msg}',
-                                    line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1) + lineno,
-                                    file_name=input_file,
-                                )
-                            )
-                else:
-                    errors.append(
-                        YAMLError(
-                            err_str=f'hide if dict must have either "variable" or "code"',
-                            line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                            file_name=input_file,
-                        )
-                    )
-            elif isinstance(hide_if, str) and ':' not in hide_if:
-                # Shorthand form - must be a field on this screen
-                if hide_if not in screen_variables:
-                    errors.append(
-                        YAMLError(
-                            err_str=f'hide if: {hide_if} is not defined on this screen. Use hide if: {{ code: ... }} instead for variables from previous screens',
-                            line_number=base_line_number + (field_item.get("__line__", 1) if isinstance(field_item, dict) else 1),
-                            file_name=input_file,
-                        )
-                    )
-    
-    return errors
-
-
 def find_errors_from_string(full_content: str, input_file: Optional[str] = None) -> list[YAMLError]:
     """Return list of YAMLError found in the given full_content string
 
@@ -1094,10 +1030,16 @@ def find_errors_from_string(full_content: str, input_file: Optional[str] = None)
                         )
                     )
         
-        # Additional field-level validation for show if/hide if
-        if "fields" in doc and isinstance(doc["fields"], list):
-            field_errors = validate_question_fields(doc["fields"], doc, line_number, input_file)
-            all_errors.extend(field_errors)
+        if "fields" in doc:
+            fields_test = DAFields(doc["fields"])
+            for err in fields_test.errors:
+                all_errors.append(
+                    YAMLError(
+                        err_str=f"{err[0]}",
+                        line_number=line_number + err[1] - 1,
+                        file_name=input_file,
+                    )
+                )
         
         line_number += lines_in_code
     return all_errors

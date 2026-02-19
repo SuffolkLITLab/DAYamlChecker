@@ -92,6 +92,20 @@ fields:
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('quoted string' in e.err_str.lower() for e in errs), f"Expected quoted string error, got: {errs}")
 
+    def test_js_show_if_val_references_unknown_field(self):
+        """Error when val() references a field not present on this screen"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Favorite vegetable: vegetable
+    js show if: |
+      val("missing_field") === "apple"
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('not defined on this screen' in e.err_str.lower() for e in errs), f"Expected unknown field error, got: {errs}")
+
     def test_js_show_if_unquoted_val_dot_argument(self):
         """Error when val() uses unquoted dotted argument"""
         invalid = """
@@ -200,6 +214,24 @@ fields:
     show if:
       variable: fruit
       is: Apple
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
+        self.assertEqual(len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}")
+
+    def test_show_if_variable_expression_valid_same_screen(self):
+        """Valid: show if expression using on-screen base variable should pass"""
+        valid = """
+question: |
+  What information do you need?
+fields:
+  - Reminder methods: reminder_methods
+    datatype: checkboxes
+    choices:
+      - Email
+      - Text
+  - Email: email_address
+    show if: reminder_methods["Email"]
 """
         errs = find_errors_from_string(valid, input_file="<string_valid>")
         show_if_errors = [e for e in errs if 'show if' in e.err_str.lower() and 'not defined' in e.err_str.lower()]
@@ -469,4 +501,3 @@ validation code: |
 
 if __name__ == '__main__':
     unittest.main()
-
