@@ -63,6 +63,21 @@ fields:
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('val()' in e.err_str and 'at least one' in e.err_str for e in errs), f"Expected val() requirement error, got: {errs}")
 
+    def test_js_show_if_val_with_whitespace_valid(self):
+        """Valid: js show if accepts whitespace between val and ("""
+        valid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Favorite vegetable: vegetable
+    js show if: |
+      val ("fruit") === "apple"
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        js_show_if_errors = [e for e in errs if 'js show if' in e.err_str.lower() or 'val()' in e.err_str.lower()]
+        self.assertEqual(len(js_show_if_errors), 0, f"Expected no js show if errors, got: {js_show_if_errors}")
+
     def test_js_show_if_unquoted_val_argument(self):
         """Error when val() argument is not quoted"""
         invalid = """
@@ -73,6 +88,20 @@ fields:
   - Favorite vegetable: vegetable
     js show if: |
       val(fruit) === "apple"
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('quoted string' in e.err_str.lower() for e in errs), f"Expected quoted string error, got: {errs}")
+
+    def test_js_show_if_unquoted_val_dot_argument(self):
+        """Error when val() uses unquoted dotted argument"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Favorite vegetable: vegetable
+    js show if: |
+      val(foo.bar) === "apple"
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('quoted string' in e.err_str.lower() for e in errs), f"Expected quoted string error, got: {errs}")
@@ -116,11 +145,11 @@ fields:
   - Favorite fruit: fruit
   - Favorite vegetable: vegetable
     js show if: |
-      val("fruit") === "apple"
+      (val("fruit") === "apple"
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
-        # This one should actually be valid - let me test with truly bad syntax
-        pass
+        syntax_errors = [e for e in errs if 'invalid javascript' in e.err_str.lower()]
+        self.assertGreater(len(syntax_errors), 0, f"Expected at least one invalid JavaScript error, got: {syntax_errors}")
 
     def test_js_show_if_complex_valid(self):
         """Valid: complex js show if with multiple val() calls"""
@@ -188,6 +217,22 @@ fields:
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('not defined on this screen' in e.err_str.lower() for e in errs), f"Expected 'not defined on screen' error, got: {errs}")
 
+    def test_show_if_variable_non_string_type_error(self):
+        """Error: show if variable must be a string"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Why?: reason
+    show if:
+      variable:
+        - fruit
+      is: apple
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('show if: variable must be a string' in e.err_str.lower() for e in errs), f"Expected show if variable type error, got: {errs}")
+
     def test_show_if_code_valid_previous_screen(self):
         """Valid: show if with code can reference variables from previous screens"""
         valid = """
@@ -214,6 +259,22 @@ fields:
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('not defined on this screen' in e.err_str.lower() for e in errs), f"Expected 'not defined on screen' error, got: {errs}")
+
+    def test_hide_if_variable_non_string_type_error(self):
+        """Error: hide if variable must be a string"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Why?: reason
+    hide if:
+      variable:
+        - fruit
+      is: apple
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('hide if: variable must be a string' in e.err_str.lower() for e in errs), f"Expected hide if variable type error, got: {errs}")
 
     def test_js_show_if_multiple_val_calls(self):
         """Valid: js show if with multiple val() calls"""
@@ -244,8 +305,33 @@ fields:
       val("watches_tv") === false
 """
         errs = find_errors_from_string(valid, input_file="<string_valid>")
-        js_errors = [e for e in errs if 'js hide if' in e.err_str.lower() or ('val()' in e.err_str and 'hide' not in e.err_str.lower())]
+        js_errors = [
+            e
+            for e in errs
+            if (
+                'js hide if' in e.err_str.lower()
+                or ('val()' in e.err_str and 'hide' not in e.err_str.lower())
+                or 'invalid javascript' in e.err_str.lower()
+            )
+        ]
         self.assertEqual(len(js_errors), 0, f"Expected no js hide if errors, got: {js_errors}")
+
+    def test_js_hide_if_invalid_syntax_mentions_hide(self):
+        """Error: invalid js hide if should mention js hide if in message"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - TV watcher?: watches_tv
+  - Favorite show: tv_show
+    js hide if: |
+      (val("watches_tv") === false
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any('invalid javascript syntax in js hide if' in e.err_str.lower() for e in errs),
+            f"Expected js hide if syntax error, got: {errs}",
+        )
 
     # Python AST / code-block tests
     def test_python_code_block_valid(self):
