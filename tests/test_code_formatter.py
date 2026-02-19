@@ -64,7 +64,7 @@ class TestFormatPythonCode(unittest.TestCase):
         config = FormatterConfig(convert_indent_4_to_2=False)
         result = format_python_code(code, config)
         # Black uses 4-space indent by default
-        self.assertIn("    x = 1", result)
+        self.assertIn("\n    x = 1", result)
 
     def test_format_nested_indentation(self):
         code = "if True:\n    if True:\n        x = 1"
