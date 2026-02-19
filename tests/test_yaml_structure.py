@@ -299,6 +299,87 @@ fields:
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(any('show if: code has python syntax error' in e.err_str.lower() for e in errs), f"Expected show if code syntax error, got: {errs}")
 
+    def test_validation_code_valid(self):
+        """Valid: question-level validation code with correct Python syntax and uses validation_error"""
+        valid = """
+question: |
+  There are 10 fruit in all.
+fields:
+  - Apples: number_apples
+    datatype: integer
+  - Oranges: number_oranges
+    datatype: integer
+validation code: |
+  if number_apples + number_oranges != 10:
+    validation_error("The numbers must add up to 10!")
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        # There should be no syntax errors and no warning about missing validation_error
+        self.assertFalse(any('python syntax error' in e.err_str.lower() for e in errs), f"Unexpected Python syntax error: {errs}")
+        self.assertFalse(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Unexpected missing validation_error warning: {errs}")
+
+    def test_validation_code_invalid(self):
+        """Error: question-level validation code with invalid Python"""
+        invalid = """
+question: |
+  What is your input?
+fields:
+  - Input: user_input
+    datatype: text
+validation code: |
+  if True
+    validation_error("Invalid")
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('python syntax error' in e.err_str.lower() for e in errs), f"Expected Python syntax error in validation code, got: {errs}")
+
+    def test_validation_code_missing_validation_error_warns(self):
+        """Warn when validation code does not call validation_error()"""
+        invalid = """
+question: |
+  There are 10 fruit in all.
+fields:
+  - Apples: number_apples
+    datatype: integer
+  - Oranges: number_oranges
+    datatype: integer
+validation code: |
+  if number_apples + number_oranges != 10:
+    raise Exception('Bad total')
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Expected missing validation_error warning, got: {errs}")
+
+    def test_validation_code_with_transformation_no_warn(self):
+        """No warning when validation code only transforms values (assignments) and has no conditionals"""
+        valid = """
+question: |
+  What is your phone number?
+fields:
+  - Phone number: phone_number
+validation code: |
+  phone_number = phone_number.strip()
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        # Should NOT warn because this is a pure transformation (assignment) with no conditionals
+        self.assertFalse(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Did not expect missing validation_error warning for pure transformation code, got: {errs}")
+
+    def test_validation_code_transformation_with_conditional_warns(self):
+        """Warn when validation code has assignments but also contains a conditional (not transformation-only)"""
+        invalid = """
+question: |
+  What is your phone number?
+fields:
+  - Phone number: phone_number
+validation code: |
+  if True:
+    phone_number = phone_number.strip()
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        # Should warn because although there's an assignment, the presence of a conditional
+        # means this is not a pure transformation and the code should likely call validation_error
+        self.assertTrue(any('does not call validation_error' in e.err_str.lower() for e in errs), f"Expected missing validation_error warning when conditional present, got: {errs}")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -84,6 +84,51 @@ class PythonText:
             self.errors = [(f"Python syntax error: {msg}", lineno)]
 
 
+class ValidationCode(PythonText):
+    """Validator for question-level `validation code`.
+
+    In addition to Python syntax checking (inherited from PythonText), this
+    emits a *warning* if the code does not call `validation_error(...)`,
+    because validation code should normally call that function to explain
+    validation failures to the user.
+    """
+
+    def __init__(self, x):
+        super().__init__(x)
+        # If there are already syntax errors, skip the usage check
+        if self.errors:
+            return
+        try:
+            tree = ast.parse(x)
+        except SyntaxError:
+            return
+        # Walk AST and search for a call to validation_error(...)
+        calls_validation_error = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == 'validation_error':
+                    calls_validation_error = True
+                    break
+        if not calls_validation_error:
+            # If the block is "transformation-only" (it performs assignments but
+            # contains no conditionals/raises/asserts), suppress the warning.
+            # Use AST to detect Assign/AugAssign/AnnAssign and If/Raise/Assert nodes.
+            has_assignment = any(isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign)) for n in ast.walk(tree))
+            has_conditional = any(isinstance(n, (ast.If, ast.IfExp)) for n in ast.walk(tree))
+            has_raise_or_assert = any(isinstance(n, (ast.Raise, ast.Assert)) for n in ast.walk(tree))
+            if has_assignment and not (has_conditional or has_raise_or_assert):
+                # transformation-only validation code — do not warn
+                return
+
+            # Otherwise, emit a warning suggesting use of validation_error().
+            # Use line number 1 because we don't have a more specific mapping here
+            self.errors.append((
+                'validation code does not call validation_error(); consider calling validation_error(...) to provide user-facing error messages',
+                1,
+            ))
+
+
 
 class PythonBool:
     """Some text that needs to explicitly be a python bool, i.e. True, False, bool(1), but not 1"""
@@ -295,7 +340,9 @@ big_dict = {
     "allow reordering": {},
     "columns": {},
     "delete buttons": {},
-    "validation code": {},
+    "validation code": {
+        "type": ValidationCode,
+    },
     "translations": {},
     "include": {},
     "default screen parts": {},
