@@ -1,9 +1,11 @@
 # Each doc, apply this to each block
 import ast
+import argparse
+import os
+from pathlib import Path
 import re
 import sys
 
-# os and Path imports were used in a short-lived implementation; the CLI filtering approach is preferred
 from typing import Optional
 import yaml
 from yaml.loader import SafeLoader
@@ -1161,10 +1163,78 @@ def process_file(input_file):
         print(f"{err}")
 
 
-def main():
-    for input_file in sys.argv[1:]:
-        process_file(input_file)
+def _collect_yaml_files(
+    paths: list[Path], include_default_ignores: bool = True
+) -> list[Path]:
+    """Expand files/directories into a unique, sorted list of YAML files."""
+    def _is_default_ignored_dir(dirname: str) -> bool:
+        return (
+            dirname.startswith(".git")
+            or dirname.startswith(".github")
+            or dirname == "sources"
+        )
+
+    yaml_files = []
+    for path in paths:
+        if path.is_dir():
+            for root, dirnames, filenames in os.walk(path, topdown=True):
+                if include_default_ignores and _is_default_ignored_dir(Path(root).name):
+                    dirnames[:] = []
+                    continue
+                if include_default_ignores:
+                    dirnames[:] = [
+                        dirname
+                        for dirname in dirnames
+                        if not _is_default_ignored_dir(dirname)
+                    ]
+                root_path = Path(root)
+                for filename in filenames:
+                    if filename.lower().endswith((".yml", ".yaml")):
+                        yaml_files.append(root_path / filename)
+        elif path.suffix.lower() in (".yml", ".yaml"):
+            yaml_files.append(path)
+
+    seen = set()
+    result = []
+    for file_path in yaml_files:
+        resolved = file_path.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            result.append(file_path)
+    return sorted(result)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Validate Docassemble YAML files",
+    )
+    parser.add_argument(
+        "files",
+        nargs="+",
+        type=Path,
+        help="YAML files or directories to validate (directories are searched recursively)",
+    )
+    parser.add_argument(
+        "--no-default-ignores",
+        action="store_true",
+        help=(
+            "Do not ignore default directories during recursive search "
+            "(.git*, .github*, sources)"
+        ),
+    )
+    args = parser.parse_args()
+
+    yaml_files = _collect_yaml_files(
+        args.files, include_default_ignores=not args.no_default_ignores
+    )
+    if not yaml_files:
+        print("No YAML files found.", file=sys.stderr)
+        return 1
+
+    for input_file in yaml_files:
+        process_file(str(input_file))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
