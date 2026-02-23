@@ -371,7 +371,7 @@ def format_yaml_file(
 
 
 def _collect_yaml_files(
-    paths: list[Path], include_default_ignores: bool = True
+    paths: list[Path], check_all: bool = False
 ) -> list[Path]:
     """
     Expand paths to a list of YAML files.
