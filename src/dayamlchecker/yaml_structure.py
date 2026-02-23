@@ -1215,7 +1215,7 @@ def main() -> int:
         help="YAML files or directories to validate (directories are searched recursively)",
     )
     parser.add_argument(
-        "--no-default-ignores",
+        "--check-all",
         action="store_true",
         help=(
             "Do not ignore default directories during recursive search "
@@ -1225,7 +1225,7 @@ def main() -> int:
     args = parser.parse_args()
 
     yaml_files = _collect_yaml_files(
-        args.files, include_default_ignores=not args.no_default_ignores
+        args.files, check_all=args.check_all
     )
     if not yaml_files:
         print("No YAML files found.", file=sys.stderr)
