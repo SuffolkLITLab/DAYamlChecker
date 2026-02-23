@@ -479,7 +479,7 @@ Examples:
 
     # Collect all YAML files from paths (handles directories recursively)
     yaml_files = _collect_yaml_files(
-        args.files, include_default_ignores=not args.no_default_ignores
+        args.files, check_all=args.check_all
     )
     
     if not yaml_files:
