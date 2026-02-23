@@ -1164,7 +1164,7 @@ def process_file(input_file):
 
 
 def _collect_yaml_files(
-    paths: list[Path], include_default_ignores: bool = True
+    paths: list[Path], check_all: bool = False
 ) -> list[Path]:
     """Expand files/directories into a unique, sorted list of YAML files."""
     def _is_default_ignored_dir(dirname: str) -> bool:
