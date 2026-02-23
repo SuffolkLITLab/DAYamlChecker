@@ -1171,6 +1171,7 @@ def _collect_yaml_files(
         return (
             dirname.startswith(".git")
             or dirname.startswith(".github")
+            or dirname.startswith(".venv")
             or dirname == "sources"
         )
 
