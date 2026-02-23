@@ -1178,10 +1178,10 @@ def _collect_yaml_files(
     for path in paths:
         if path.is_dir():
             for root, dirnames, filenames in os.walk(path, topdown=True):
-                if include_default_ignores and _is_default_ignored_dir(Path(root).name):
+                if not check_all and _is_default_ignored_dir(Path(root).name):
                     dirnames[:] = []
                     continue
-                if include_default_ignores:
+                if not check_all:
                     dirnames[:] = [
                         dirname
                         for dirname in dirnames
