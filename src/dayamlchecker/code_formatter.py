@@ -462,7 +462,7 @@ Examples:
         help="Only output errors",
     )
     parser.add_argument(
-        "--no-default-ignores",
+        "--check-all",
         action="store_true",
         help=(
             "Do not ignore default directories during recursive search "
