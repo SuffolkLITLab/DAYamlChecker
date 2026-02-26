@@ -383,6 +383,7 @@ class ObjectsAttrType:
 
 class DAFields:
     modifier_keys = {
+        "code",
         "default",
         "default value",
         "hint",
@@ -407,6 +408,7 @@ class DAFields:
 
     def __init__(self, x):
         self.errors = []
+        self.has_dynamic_fields_code = False
         if isinstance(x, dict):
             if "code" not in x:
                 self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
@@ -483,7 +485,8 @@ class DAFields:
                         )
                     )
             elif "code" in modifier_value:
-                validator = PythonText(modifier_value.get("code"))
+                code_text = modifier_value.get("code")
+                validator = PythonText(code_text)
                 for err in validator.errors:
                     self.errors.append(
                         (
@@ -491,6 +494,22 @@ class DAFields:
                             self._line_for(field_item, err[1]),
                         )
                     )
+                if (
+                    modifier_key == "show if"
+                    and isinstance(code_text, str)
+                    and not validator.errors
+                ):
+                    same_screen_refs = self._find_screen_variable_references_in_code(
+                        code_text, screen_variables
+                    )
+                    if same_screen_refs:
+                        refs = ", ".join(sorted(same_screen_refs))
+                        self.errors.append(
+                            (
+                                f"{modifier_key}: code references variable(s) defined on this screen ({refs}). Use {modifier_key}: <var> or {modifier_key}: {{ variable: <var>, is: ... }} instead",
+                                self._line_for(field_item),
+                            )
+                        )
             else:
                 self.errors.append(
                     (
@@ -507,7 +526,30 @@ class DAFields:
                     )
                 )
 
+    def _find_screen_variable_references_in_code(self, code_text, screen_variables):
+        try:
+            tree = ast.parse(code_text)
+        except SyntaxError:
+            return set()
+
+        name_refs = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        matches = set()
+        for screen_var in screen_variables:
+            if _SIMPLE_IDENTIFIER_RE.match(screen_var) and screen_var in name_refs:
+                matches.add(screen_var)
+                continue
+            # For dotted/indexed vars, require explicit textual reference.
+            if _find_variable_reference_lines(code_text, screen_var):
+                matches.add(screen_var)
+        return matches
+
     def _validate_field_modifiers(self, fields_list):
+        self.has_dynamic_fields_code = any(
+            isinstance(field_item, dict)
+            and "code" in field_item
+            and len(set(field_item.keys()) - {"code", "__line__"}) == 0
+            for field_item in fields_list
+        )
         screen_variables = set()
         for field_item in fields_list:
             field_var_name = self._extract_field_name(field_item)
@@ -526,7 +568,17 @@ class DAFields:
                         screen_variables=screen_variables,
                     )
                     for err in validator.errors:
-                        self.errors.append((err[0], self._line_for(field_item, err[1])))
+                        err_msg = err[0]
+                        if (
+                            self.has_dynamic_fields_code
+                            and "not defined on this screen" in err_msg.lower()
+                        ):
+                            err_msg = (
+                                "Warning: "
+                                + err_msg
+                                + " (unable to fully validate screen variables because this screen uses fields: code)"
+                            )
+                        self.errors.append((err_msg, self._line_for(field_item, err[1])))
 
             for py_key in self.py_modifier_keys:
                 if py_key in field_item:
@@ -982,6 +1034,303 @@ class YAMLError:
         return f"At {self.file_name}:{self.line_number}: {self.err_str}"
 
 
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
+_SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def _normalize_expr(expr: str) -> str:
+    normalized = re.sub(r"\s+", "", expr or "")
+    return normalized.replace('"', "'")
+
+
+def _contains_interview_order_marker(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.lower()
+        return "interview_order" in lowered or "interview order" in lowered
+    return False
+
+
+def _is_interview_order_style_block(doc: dict[str, Any]) -> bool:
+    mandatory = doc.get("mandatory")
+    mandatory_true = mandatory is True or (
+        isinstance(mandatory, str) and mandatory.strip().lower() == "true"
+    )
+    if mandatory_true:
+        return True
+    if _contains_interview_order_marker(doc.get("id")):
+        return True
+    if _contains_interview_order_marker(doc.get("comment")):
+        return True
+    return False
+
+
+def _extract_field_var_name(field_item: Any) -> Optional[str]:
+    if not isinstance(field_item, dict):
+        return None
+    modifier_keys = DAFields.modifier_keys
+    for key, value in field_item.items():
+        if key in modifier_keys:
+            continue
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _extract_names_from_python_expr(expr: str) -> set[str]:
+    names: set[str] = set()
+    try:
+        tree = ast.parse(expr)
+    except SyntaxError:
+        return names
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+    return names
+
+
+def _extract_controller_vars_for_field_modifier(modifier_value: Any) -> set[str]:
+    if isinstance(modifier_value, str):
+        return set(_IDENTIFIER_RE.findall(modifier_value))
+    if isinstance(modifier_value, dict):
+        vars_found: set[str] = set()
+        ref_var = modifier_value.get("variable")
+        if isinstance(ref_var, str):
+            vars_found.update(_IDENTIFIER_RE.findall(ref_var))
+        code = modifier_value.get("code")
+        if isinstance(code, str):
+            vars_found.update(_extract_names_from_python_expr(code))
+        return vars_found
+    return set()
+
+
+def _guard_candidates_for_modifier(modifier_key: str, modifier_value: Any) -> list[str]:
+    is_hide = modifier_key == "hide if"
+    guards: list[str] = []
+
+    if isinstance(modifier_value, str):
+        cond = modifier_value.strip()
+        if not cond:
+            return guards
+        if is_hide:
+            guards.append(f"not ({cond})")
+            guards.append(f"not {cond}")
+        else:
+            guards.append(cond)
+        return guards
+
+    if not isinstance(modifier_value, dict):
+        return guards
+
+    ref_var = modifier_value.get("variable")
+    has_is = "is" in modifier_value
+    is_val = modifier_value.get("is")
+    code = modifier_value.get("code")
+
+    if isinstance(ref_var, str):
+        if has_is:
+            if is_hide:
+                guards.append(f"{ref_var} != {repr(is_val)}")
+                guards.append(f"not ({ref_var} == {repr(is_val)})")
+            else:
+                guards.append(f"{ref_var} == {repr(is_val)}")
+        else:
+            if is_hide:
+                guards.append(f"not ({ref_var})")
+                guards.append(f"not {ref_var}")
+            else:
+                guards.append(ref_var)
+    elif isinstance(code, str):
+        if is_hide:
+            guards.append(f"not ({code.strip()})")
+        else:
+            guards.append(code.strip())
+
+    return [guard for guard in guards if guard]
+
+
+def _extract_conditional_fields_from_doc(
+    doc: dict[str, Any], line_number: int
+) -> list[dict[str, Any]]:
+    fields = doc.get("fields")
+    if not isinstance(fields, list):
+        return []
+
+    conditional_fields: list[dict[str, Any]] = []
+    for field_item in fields:
+        field_var = _extract_field_var_name(field_item)
+        if not field_var or not isinstance(field_item, dict):
+            continue
+
+        for modifier_key in ("show if", "hide if"):
+            if modifier_key not in field_item:
+                continue
+            modifier_value = field_item[modifier_key]
+            guards = _guard_candidates_for_modifier(modifier_key, modifier_value)
+            if not guards:
+                continue
+            conditional_fields.append(
+                {
+                    "field_var": field_var,
+                    "guards": guards,
+                    "line_number": line_number + field_item.get("__line__", 1),
+                }
+            )
+    return conditional_fields
+
+
+def _find_variable_reference_lines(code: str, variable_expr: str) -> list[int]:
+    lines = code.splitlines()
+    if _SIMPLE_IDENTIFIER_RE.match(variable_expr):
+        pattern = re.compile(rf"\b{re.escape(variable_expr)}\b")
+    else:
+        pattern = re.compile(re.escape(variable_expr))
+    return [i + 1 for i, line in enumerate(lines) if pattern.search(line)]
+
+
+def _statement_span(stmts: list[ast.stmt]) -> Optional[tuple[int, int]]:
+    if not stmts:
+        return None
+    starts = [getattr(stmt, "lineno", None) for stmt in stmts]
+    ends = [
+        getattr(stmt, "end_lineno", getattr(stmt, "lineno", None)) for stmt in stmts
+    ]
+    valid_starts = [x for x in starts if isinstance(x, int)]
+    valid_ends = [x for x in ends if isinstance(x, int)]
+    if not valid_starts or not valid_ends:
+        return None
+    return (min(valid_starts), max(valid_ends))
+
+
+def _extract_branch_guards_by_line(code: str) -> dict[int, list[str]]:
+    guards_by_line: dict[int, list[str]] = {}
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return guards_by_line
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        cond = ast.get_source_segment(code, node.test)
+        if not cond:
+            try:
+                cond = ast.unparse(node.test)
+            except Exception:
+                cond = ""
+        if not cond:
+            continue
+
+        # The condition line itself is a guard context for references inside
+        # the test expression (e.g., if showifdef("x") and x: ...).
+        if isinstance(getattr(node, "lineno", None), int):
+            guards_by_line.setdefault(node.lineno, []).append(cond)
+
+        body_span = _statement_span(node.body)
+        if body_span:
+            for line in range(body_span[0], body_span[1] + 1):
+                guards_by_line.setdefault(line, []).append(cond)
+
+        orelse_span = _statement_span(node.orelse)
+        if orelse_span:
+            negated = f"not ({cond})"
+            for line in range(orelse_span[0], orelse_span[1] + 1):
+                guards_by_line.setdefault(line, []).append(negated)
+
+    return guards_by_line
+
+
+def _has_showifdef_guard(active_guards: list[str], field_var: str) -> bool:
+    quoted_var = re.escape(field_var)
+    showifdef_pattern = re.compile(rf"showifdef\s*\(\s*['\"]{quoted_var}['\"]\s*\)")
+    return any(showifdef_pattern.search(guard or "") for guard in active_guards)
+
+
+def _has_matching_guard(active_guards: list[str], expected_guards: list[str]) -> bool:
+    expected_norm = [_normalize_expr(guard) for guard in expected_guards if guard]
+    if not expected_norm:
+        return True
+    for guard in active_guards:
+        guard_norm = _normalize_expr(guard)
+        if any(
+            expected in guard_norm or guard_norm in expected
+            for expected in expected_norm
+        ):
+            return True
+    return False
+
+
+def _find_unmatched_interview_order_references(
+    doc: dict[str, Any], conditional_fields: list[dict[str, Any]]
+) -> list[tuple[str, int]]:
+    code = doc.get("code")
+    if not isinstance(code, str):
+        return []
+    if not _is_interview_order_style_block(doc):
+        return []
+
+    guards_by_line = _extract_branch_guards_by_line(code)
+    unmatched: list[tuple[str, int]] = []
+    for conditional in conditional_fields:
+        field_var = conditional["field_var"]
+        expected_guards = conditional["guards"]
+        for ref_line in _find_variable_reference_lines(code, field_var):
+            active_guards = guards_by_line.get(ref_line, [])
+            if _has_showifdef_guard(active_guards, field_var):
+                continue
+            if not _has_matching_guard(active_guards, expected_guards):
+                unmatched.append((field_var, ref_line))
+    return unmatched
+
+
+def _max_screen_visibility_nesting_depth(doc: dict[str, Any]) -> int:
+    fields = doc.get("fields")
+    if not isinstance(fields, list):
+        return 0
+
+    screen_vars = {
+        field_var
+        for field_var in (_extract_field_var_name(item) for item in fields)
+        if field_var
+    }
+    if not screen_vars:
+        return 0
+
+    adjacency: dict[str, set[str]] = {var: set() for var in screen_vars}
+    for field_item in fields:
+        if not isinstance(field_item, dict):
+            continue
+        target_var = _extract_field_var_name(field_item)
+        if not target_var:
+            continue
+        for modifier_key in ("show if", "hide if"):
+            if modifier_key not in field_item:
+                continue
+            controllers = _extract_controller_vars_for_field_modifier(
+                field_item[modifier_key]
+            )
+            for controller in controllers:
+                if controller in screen_vars:
+                    adjacency.setdefault(controller, set()).add(target_var)
+
+    visiting: set[str] = set()
+    memo: dict[str, int] = {}
+
+    def depth(var_name: str) -> int:
+        if var_name in memo:
+            return memo[var_name]
+        if var_name in visiting:
+            return 0
+        visiting.add(var_name)
+        max_child = 0
+        for child in adjacency.get(var_name, set()):
+            max_child = max(max_child, 1 + depth(child))
+        visiting.remove(var_name)
+        memo[var_name] = max_child
+        return max_child
+
+    return max((depth(var) for var in adjacency.keys()), default=0)
+
+
 class SafeLineLoader(SafeLoader):
     """https://stackoverflow.com/questions/13319067/parsing-yaml-return-with-line-number"""
 
@@ -1031,6 +1380,7 @@ def find_errors_from_string(
         for key in types_of_blocks.keys()
         if types_of_blocks[key].get("exclusive", True)
     ]
+    prior_conditional_fields: list[dict[str, Any]] = []
 
     line_number = 1
     for source_code in document_match.split(full_content):
@@ -1112,6 +1462,38 @@ def find_errors_from_string(
                             file_name=input_file,
                         )
                     )
+
+        unmatched_refs = _find_unmatched_interview_order_references(
+            doc, prior_conditional_fields
+        )
+        for field_var, ref_line in unmatched_refs:
+            all_errors.append(
+                YAMLError(
+                    err_str=(
+                        f'interview-order style block references "{field_var}" without a matching guard '
+                        f"for that field's show/hide logic; this can cause the interview to get stuck"
+                    ),
+                    line_number=doc["__line__"] + line_number + ref_line,
+                    file_name=input_file,
+                )
+            )
+
+        nesting_depth = _max_screen_visibility_nesting_depth(doc)
+        if nesting_depth > 2:
+            all_errors.append(
+                YAMLError(
+                    err_str=(
+                        f"Warning: show if/hide if visibility logic is nested {nesting_depth} levels "
+                        "on this screen (more than 2)"
+                    ),
+                    line_number=doc["__line__"] + line_number,
+                    file_name=input_file,
+                )
+            )
+
+        prior_conditional_fields.extend(
+            _extract_conditional_fields_from_doc(doc, line_number)
+        )
 
         line_number += lines_in_code
     return all_errors
