@@ -139,6 +139,32 @@ fields:
             f"Expected unknown field error, got: {errs}",
         )
 
+    def test_js_show_if_unknown_field_with_dynamic_fields_code_warns(self):
+        """Warn (not strict error) when js show if cannot be fully validated due to fields: code"""
+        warning_yaml = """
+question: |
+  Dynamic fields
+fields:
+  - code: |
+      [
+        {"field": "other_parties[0].vacated", "label": "P1", "datatype": "yesno"}
+      ]
+  - label: Vacated date
+    field: vacated_date
+    datatype: date
+    js show if: |
+      val("other_parties[0].vacated")
+"""
+        errs = find_errors_from_string(warning_yaml, input_file="<string_warn>")
+        self.assertTrue(
+            any(
+                e.err_str.lower().startswith("warning:")
+                and "unable to fully validate screen variables" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected downgraded warning for dynamic fields: code, got: {errs}",
+        )
+
     def test_js_show_if_unquoted_val_dot_argument(self):
         """Error when val() uses unquoted dotted argument"""
         invalid = """
@@ -453,6 +479,44 @@ fields:
             f"Expected hide if variable type error, got: {errs}",
         )
 
+    def test_enable_if_variable_not_on_screen(self):
+        """Error: enable if variable references field NOT on same screen"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - What's your favorite fruit?: favorite_fruit
+    enable if: some_previous_var
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "enable if" in e.err_str.lower()
+                and "not defined on this screen" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected enable if 'not defined on screen' error, got: {errs}",
+        )
+
+    def test_disable_if_variable_not_on_screen(self):
+        """Error: disable if variable references field NOT on same screen"""
+        invalid = """
+question: |
+  What information do you need?
+fields:
+  - What's your favorite fruit?: favorite_fruit
+    disable if: some_previous_var
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "disable if" in e.err_str.lower()
+                and "not defined on this screen" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected disable if 'not defined on screen' error, got: {errs}",
+        )
+
     def test_js_show_if_multiple_val_calls(self):
         """Valid: js show if with multiple val() calls"""
         valid = """
@@ -568,6 +632,28 @@ fields:
             f"Expected no show if code errors, got: {errs}",
         )
 
+    def test_show_if_code_same_screen_variable_errors(self):
+        """Error: show if code must not reference variables defined on same screen"""
+        invalid = """
+question: |
+  Sample
+fields:
+  - Some value: a
+  - Conditional field: b
+    show if:
+      code: |
+        a == 1
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "show if: code references variable(s) defined on this screen"
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected same-screen show if code reference error, got: {errs}",
+        )
+
     def test_show_if_code_invalid_field(self):
         """Error: field-level show if with invalid Python code"""
         invalid = """
@@ -588,6 +674,50 @@ fields:
                 for e in errs
             ),
             f"Expected show if code syntax error, got: {errs}",
+        )
+
+    def test_show_if_code_previous_screen_variable_still_valid(self):
+        """Valid: show if code can reference prior-screen variables"""
+        valid = """
+question: |
+  Sample
+fields:
+  - Conditional field: b
+    show if:
+      code: |
+        prior_screen_var == 1
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(
+                "show if: code references variable(s) defined on this screen"
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected no same-screen show if code reference error, got: {errs}",
+        )
+
+    def test_show_if_code_dotted_previous_var_no_false_positive(self):
+        """Valid: show if code using dotted previous-screen var should not match same-base on-screen vars"""
+        valid = """
+question: |
+  Intake facts
+fields:
+  - Disability type: tenant.disability_type
+    required: False
+  - Explain: explanation
+    show if:
+      code: |
+        tenant.is_disabled
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(
+                "show if: code references variable(s) defined on this screen"
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected no same-base dotted false positive, got: {errs}",
         )
 
     def test_validation_code_valid(self):
@@ -723,6 +853,223 @@ continue button field: interrogatory_questions
             len(field_errors),
             0,
             f"Expected no fields-shape errors, got: {field_errors}",
+        )
+
+    def test_interview_order_reference_without_matching_guard_errors(self):
+        """Error when interview-order style code references a conditionally shown field without guard"""
+        invalid = """
+question: |
+  Eviction details
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+id: interview_order
+mandatory: True
+code: |
+  other_details
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                'references "other_details" without a matching guard'
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected interview-order guard error, got: {errs}",
+        )
+
+    def test_interview_order_reference_with_matching_guard_valid(self):
+        """No error when interview-order style code guards conditional field usage"""
+        valid = """
+question: |
+  Eviction details
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+id: interview_order
+mandatory: True
+code: |
+  if eviction_reason == "Other":
+    other_details
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("without a matching guard" in e.err_str.lower() for e in errs),
+            f"Expected no interview-order guard error, got: {errs}",
+        )
+
+    def test_interview_order_reference_with_showifdef_guard_valid(self):
+        """No error when interview-order code uses showifdef('<field>') as guard"""
+        valid = """
+question: |
+  Eviction details
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+id: interview_order
+mandatory: True
+code: |
+  if showifdef("other_details") and other_details:
+    pass
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("without a matching guard" in e.err_str.lower() for e in errs),
+            f"Expected no interview-order guard error with showifdef guard, got: {errs}",
+        )
+
+    def test_interview_order_all_conditional_modifiers_without_guard_error(self):
+        """Each conditional modifier should trigger interview-order guard mismatch when unguarded"""
+        cases = [
+            ("show if", "eviction_reason == 'Other'"),
+            ("hide if", "eviction_reason == 'Other'"),
+            ("enable if", "eviction_reason == 'Other'"),
+            ("disable if", "eviction_reason == 'Other'"),
+            ("js show if", 'val("eviction_reason") === "Other"'),
+            ("js hide if", 'val("eviction_reason") === "Other"'),
+            ("js enable if", 'val("eviction_reason") === "Other"'),
+            ("js disable if", 'val("eviction_reason") === "Other"'),
+        ]
+        for modifier, condition in cases:
+            with self.subTest(modifier=modifier):
+                yaml_text = f"""
+question: |
+  Eviction details
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    {modifier}: |
+      {condition}
+---
+id: interview_order
+mandatory: True
+code: |
+  other_details
+"""
+                errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
+                self.assertTrue(
+                    any("without a matching guard" in e.err_str.lower() for e in errs),
+                    f"Expected interview-order guard error for {modifier}, got: {errs}",
+                )
+
+    def test_interview_order_all_conditional_modifiers_with_guard_valid(self):
+        """Each conditional modifier should pass when interview-order code has a matching guard"""
+        cases = [
+            ("show if", "eviction_reason == 'Other'", "if eviction_reason == 'Other':"),
+            ("hide if", "eviction_reason == 'Other'", "if eviction_reason != 'Other':"),
+            (
+                "enable if",
+                "eviction_reason == 'Other'",
+                "if eviction_reason == 'Other':",
+            ),
+            (
+                "disable if",
+                "eviction_reason == 'Other'",
+                "if eviction_reason != 'Other':",
+            ),
+            ("js show if", 'val("eviction_reason") === "Other"', "if eviction_reason:"),
+            (
+                "js hide if",
+                'val("eviction_reason") === "Other"',
+                "if not eviction_reason:",
+            ),
+            (
+                "js enable if",
+                'val("eviction_reason") === "Other"',
+                "if eviction_reason:",
+            ),
+            (
+                "js disable if",
+                'val("eviction_reason") === "Other"',
+                "if not eviction_reason:",
+            ),
+        ]
+        for modifier, condition, guard in cases:
+            with self.subTest(modifier=modifier):
+                yaml_text = f"""
+question: |
+  Eviction details
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    {modifier}: |
+      {condition}
+---
+id: interview_order
+mandatory: True
+code: |
+  {guard}
+    other_details
+"""
+                errs = find_errors_from_string(yaml_text, input_file="<string_valid>")
+                self.assertFalse(
+                    any("without a matching guard" in e.err_str.lower() for e in errs),
+                    f"Expected no interview-order guard error for {modifier}, got: {errs}",
+                )
+
+    def test_show_hide_nesting_depth_over_two_warns(self):
+        """Warn when a single page has show/hide dependency depth greater than two"""
+        warning_yaml = """
+question: |
+  Nested visibility
+fields:
+  - A: a
+  - B: b
+    show if: a
+  - C: c
+    show if: b
+  - D: d
+    show if: c
+"""
+        errs = find_errors_from_string(warning_yaml, input_file="<string_warn>")
+        self.assertTrue(
+            any("nested 3 levels" in e.err_str.lower() for e in errs),
+            f"Expected nesting warning, got: {errs}",
+        )
+
+    def test_show_hide_nesting_depth_two_no_warning(self):
+        """No warning when show/hide dependency depth is at most two"""
+        valid = """
+question: |
+  Visibility depth two
+fields:
+  - A: a
+  - B: b
+    show if: a
+  - C: c
+    show if: b
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("visibility logic is nested" in e.err_str.lower() for e in errs),
+            f"Did not expect nesting warning, got: {errs}",
         )
 
 

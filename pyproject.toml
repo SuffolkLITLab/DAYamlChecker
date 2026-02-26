@@ -38,3 +38,5 @@ dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
 
 [tool.mypy]
 mypy_path = "src"
+exclude = ["^build/"]
+explicit_package_bases = true
