@@ -1,5 +1,5 @@
 from typing import Any, Dict, List
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found]
 
 from dayamlchecker.yaml_structure import find_errors_from_string
 

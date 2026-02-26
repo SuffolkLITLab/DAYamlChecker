@@ -24,6 +24,7 @@ from typing import Any
 
 import black
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 __all__ = [
     "format_yaml_file",
@@ -38,9 +39,7 @@ class FormatterConfig:
     """Configuration for the code formatter."""
 
     # Keys that contain Python code to format
-    python_keys: set[str] = field(
-        default_factory=lambda: {"code", "validation code"}
-    )
+    python_keys: set[str] = field(default_factory=lambda: {"code", "validation code"})
 
     # Black configuration
     black_line_length: int = 88
@@ -100,13 +99,13 @@ def _convert_indent_4_to_2(text: str) -> str:
         # Count leading spaces
         stripped = line.lstrip(" ")
         leading_count = len(line) - len(stripped)
-        
+
         if leading_count > 0 and leading_count % 4 == 0:
             new_indent = " " * (leading_count // 2)
             result_lines.append(new_indent + stripped)
         else:
             result_lines.append(line)
-    
+
     return "".join(result_lines)
 
 
@@ -243,7 +242,9 @@ def _find_block_body_span(lines: list[str], header_line: int) -> tuple[int, int,
     return start, end, first_body_indent
 
 
-def _collect_text_replacements_for_doc(doc: Any, lines: list[str], config: FormatterConfig, path: tuple[str, ...] = ()) -> list[tuple[int, int, str, tuple[str, ...]]]:
+def _collect_text_replacements_for_doc(
+    doc: Any, lines: list[str], config: FormatterConfig, path: tuple[str, ...] = ()
+) -> list[tuple[int, int, str, tuple[str, ...]]]:
     """Walk a CommentedMap/CommentedSeq and collect textual replacements for
     block scalar bodies that need formatting.
 
@@ -252,13 +253,17 @@ def _collect_text_replacements_for_doc(doc: Any, lines: list[str], config: Forma
     """
     replacements: list[tuple[int, int, str, tuple[str, ...]]] = []
 
-    if isinstance(doc, dict):
+    if isinstance(doc, CommentedMap):
         for key, value in list(doc.items()):
             key_str = str(key)
             current_path = path + (key_str,)
 
             # Only consider keys we care about and plain strings
-            if key_str in config.python_keys and isinstance(value, str) and hasattr(doc.lc, 'key'):
+            if (
+                key_str in config.python_keys
+                and isinstance(value, str)
+                and hasattr(doc.lc, "key")
+            ):
                 try:
                     key_line, _ = doc.lc.key(key)
                 except Exception:
@@ -267,24 +272,38 @@ def _collect_text_replacements_for_doc(doc: Any, lines: list[str], config: Forma
 
                 if key_line is not None:
                     # Determine the body span in the original text
-                    body_start, body_end, body_indent = _find_block_body_span(lines, key_line)
+                    body_start, body_end, body_indent = _find_block_body_span(
+                        lines, key_line
+                    )
 
                     if body_end >= body_start:
                         # Format using the detected body indent so we reinsert with the
                         # same indentation level
-                        formatted = format_python_code(value, config, original_indent=body_indent)
-                        
+                        formatted = format_python_code(
+                            value, config, original_indent=body_indent
+                        )
+
                         # Normalize newlines for comparison
                         if _normalize_newlines(formatted) != _normalize_newlines(value):
-                            replacements.append((body_start, body_end, formatted, current_path))
+                            replacements.append(
+                                (body_start, body_end, formatted, current_path)
+                            )
             else:
                 # Recurse into nested structures
-                if isinstance(value, (dict, list)):
-                    replacements.extend(_collect_text_replacements_for_doc(value, lines, config, current_path))
+                if isinstance(value, (CommentedMap, CommentedSeq)):
+                    replacements.extend(
+                        _collect_text_replacements_for_doc(
+                            value, lines, config, current_path
+                        )
+                    )
 
-    elif isinstance(doc, list):
+    elif isinstance(doc, CommentedSeq):
         for idx, item in enumerate(doc):
-            replacements.extend(_collect_text_replacements_for_doc(item, lines, config, path + (str(idx),)))
+            replacements.extend(
+                _collect_text_replacements_for_doc(
+                    item, lines, config, path + (str(idx),)
+                )
+            )
 
     return replacements
 
@@ -338,7 +357,7 @@ def format_yaml_string(
             if end >= start and not lines[end].endswith("\n") and new_lines:
                 new_lines[-1] = new_lines[-1].rstrip("\n")
 
-            lines[start:end + 1] = new_lines
+            lines[start : end + 1] = new_lines
 
     return "".join(lines), bool(all_replacements)
 
@@ -371,14 +390,17 @@ def format_yaml_file(
 
 
 def _collect_yaml_files(
-    paths: list[Path], check_all: bool = False
+    paths: list[Path],
+    check_all: bool = False,
+    include_default_ignores: bool | None = None,
 ) -> list[Path]:
     """
     Expand paths to a list of YAML files.
-    
+
     - Files are included if they have .yml or .yaml extension
     - Directories are recursively searched for YAML files
     """
+
     def _is_default_ignored_dir(dirname: str) -> bool:
         return (
             dirname.startswith(".git")
@@ -387,15 +409,18 @@ def _collect_yaml_files(
             or dirname == "sources"
         )
 
-    yaml_files = []
+    if include_default_ignores is None:
+        include_default_ignores = not check_all
+
+    yaml_files: list[Path] = []
     for path in paths:
         if path.is_dir():
             # Recursively find all YAML files, pruning ignored directories
             for root, dirnames, filenames in os.walk(path, topdown=True):
-                if not check_all and _is_default_ignored_dir(Path(root).name):
+                if include_default_ignores and _is_default_ignored_dir(Path(root).name):
                     dirnames[:] = []
                     continue
-                if not check_all:
+                if include_default_ignores:
                     dirnames[:] = [
                         dirname
                         for dirname in dirnames
@@ -457,7 +482,8 @@ Examples:
         help="Disable 4-to-2 space indentation conversion",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Only output errors",
     )
@@ -478,10 +504,7 @@ Examples:
     )
 
     # Collect all YAML files from paths (handles directories recursively)
-    yaml_files = _collect_yaml_files(
-        args.files, check_all=args.check_all
-    )
-    
+    yaml_files = _collect_yaml_files(args.files, check_all=args.check_all)
     if not yaml_files:
         print("No YAML files found.", file=sys.stderr)
         return 1
@@ -525,7 +548,9 @@ Examples:
     if not args.quiet:
         total = files_changed + files_unchanged + files_error
         print()
-        print(f"Summary: {files_changed} reformatted, {files_unchanged} unchanged, {files_error} errors ({total} total)")
+        print(
+            f"Summary: {files_changed} reformatted, {files_unchanged} unchanged, {files_error} errors ({total} total)"
+        )
 
     return exit_code
 

@@ -245,5 +245,5 @@ class TestFormatterConfig(unittest.TestCase):
         self.assertNotIn("validation code", config.python_keys)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,9 @@ authors = [
 [tool.setuptools]
 package-dir = { "" = "src" }
 
+[tool.setuptools.package-data]
+dayamlchecker = ["py.typed"]
+
 [build-system]
 requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
@@ -32,3 +35,6 @@ dayamlchecker = "dayamlchecker.yaml_structure:main"
 dayamlchecker-mcp = "dayamlchecker.mcp.server:main"
 dayamlchecker-gen-mcp = "dayamlchecker.generate_mcp_config:main"
 dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
+
+[tool.mypy]
+mypy_path = "src"

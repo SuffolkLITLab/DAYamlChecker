@@ -11,16 +11,21 @@ script so developers can use this wrapper without installing the package.
 """
 import runpy
 import pathlib
+from typing import Callable
+
+packaged_main: Callable[[], int] | None
 
 try:
     # Prefer the installed package entrypoint when available
-    from dayamlchecker.generate_mcp_config import main as packaged_main
+    from dayamlchecker.generate_mcp_config import main as _packaged_main
+
+    packaged_main = _packaged_main
 except Exception:
     packaged_main = None
 
 
-def main():
-    if packaged_main:
+def main() -> int:
+    if packaged_main is not None:
         return packaged_main()
     # Fall back to running the local copy in the repo for development
     script_path = (

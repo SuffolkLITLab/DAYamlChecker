@@ -1,17 +1,19 @@
 # Each doc, apply this to each block
 import ast
 import argparse
-import os
 from pathlib import Path
 import re
 import sys
 
-from typing import Optional
+from typing import Any, Optional
 import yaml
 from yaml.loader import SafeLoader
-from mako.template import Template as MakoTemplate
-from mako.exceptions import SyntaxException, CompileException
-import esprima
+from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
+from mako.exceptions import (  # type: ignore[import-untyped]
+    SyntaxException,
+    CompileException,
+)
+import esprima  # type: ignore[import-untyped]
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -25,7 +27,7 @@ import esprima
 #   https://docassemble.org/docs/interviews.html#jinja2
 
 
-__all__ = ["find_errors_from_string", "find_errors"]
+__all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
 
 
 # Ensure that if there's a space in the str, it's between quotes.
@@ -562,7 +564,7 @@ class DAFields:
 
 # TODO(brycew): composable validators! One validator that works with just lists of single entry dicts with a str as the key, and a DAPythonVar as the value, and another that expects a code block, then an OR validator that takes both and works with either.
 # Works with smaller blocks, prevents a lot of duplicate nested code
-big_dict = {
+big_dict: dict[str, dict[str, Any]] = {
     "question": {
         "type": MakoMarkdownText,
     },
@@ -661,7 +663,7 @@ big_dict = {
 
 # ordered by priority
 # TODO: brycew: consider making required_attrs
-types_of_blocks = {
+types_of_blocks: dict[str, dict[str, Any]] = {
     "include": {
         "exclusive": True,
         "allowed_attrs": ["include"],
@@ -1138,6 +1140,14 @@ def find_errors(input_file: str) -> list[YAMLError]:
     return find_errors_from_string(full_content, input_file=input_file)
 
 
+def _collect_yaml_files(
+    paths: list[Path], include_default_ignores: bool = True
+) -> list[Path]:
+    from dayamlchecker.code_formatter import _collect_yaml_files as _formatter_collect
+
+    return _formatter_collect(paths, include_default_ignores=include_default_ignores)
+
+
 def process_file(input_file):
     for dumb_da_file in [
         "pgcodecache.yml",
@@ -1163,48 +1173,6 @@ def process_file(input_file):
         print(f"{err}")
 
 
-def _collect_yaml_files(
-    paths: list[Path], check_all: bool = False
-) -> list[Path]:
-    """Expand files/directories into a unique, sorted list of YAML files."""
-    def _is_default_ignored_dir(dirname: str) -> bool:
-        return (
-            dirname.startswith(".git")
-            or dirname.startswith(".github")
-            or dirname.startswith(".venv")
-            or dirname == "sources"
-        )
-
-    yaml_files = []
-    for path in paths:
-        if path.is_dir():
-            for root, dirnames, filenames in os.walk(path, topdown=True):
-                if not check_all and _is_default_ignored_dir(Path(root).name):
-                    dirnames[:] = []
-                    continue
-                if not check_all:
-                    dirnames[:] = [
-                        dirname
-                        for dirname in dirnames
-                        if not _is_default_ignored_dir(dirname)
-                    ]
-                root_path = Path(root)
-                for filename in filenames:
-                    if filename.lower().endswith((".yml", ".yaml")):
-                        yaml_files.append(root_path / filename)
-        elif path.suffix.lower() in (".yml", ".yaml"):
-            yaml_files.append(path)
-
-    seen = set()
-    result = []
-    for file_path in yaml_files:
-        resolved = file_path.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            result.append(file_path)
-    return sorted(result)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
@@ -1226,7 +1194,7 @@ def main() -> int:
     args = parser.parse_args()
 
     yaml_files = _collect_yaml_files(
-        args.files, check_all=args.check_all
+        args.files, include_default_ignores=not args.check_all
     )
     if not yaml_files:
         print("No YAML files found.", file=sys.stderr)

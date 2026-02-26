@@ -7,9 +7,10 @@ from pathlib import Path
 import json
 import os
 import sys
+from typing import Any
 
 
-def detect_default_python(workspace_root: Path):
+def detect_default_python(workspace_root: Path) -> tuple[str, list[str]]:
     local_venv = workspace_root / ".venv"
     if local_venv.exists():
         bin_py = local_venv / "bin" / "python"
@@ -20,9 +21,13 @@ def detect_default_python(workspace_root: Path):
     return sys.executable, ["-m", "dayamlchecker.mcp.server"]
 
 
-def write_mcp_config(path: Path, name: str, command: str, args: list, transport: str):
+def write_mcp_config(
+    path: Path, name: str, command: str, args: list[str], transport: str
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    config = {"servers": {name: {"type": transport, "command": command}}}
+    config: dict[str, Any] = {
+        "servers": {name: {"type": transport, "command": command}}
+    }
     if args:
         config["servers"][name]["args"] = args
     with open(path, "w", encoding="utf-8") as f:
@@ -30,7 +35,7 @@ def write_mcp_config(path: Path, name: str, command: str, args: list, transport:
     print(f"Wrote {path}")
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -78,12 +83,18 @@ def main(argv=None):
         print(f"Workspace root not found: {workspace_root}")
         return 2
 
-    command = None
-    command_args = None
+    command: str
+    command_args: list[str]
     if args.command:
         command = args.command
         if args.args:
-            command_args = json.loads(args.args)
+            parsed_args = json.loads(args.args)
+            if not isinstance(parsed_args, list) or not all(
+                isinstance(item, str) for item in parsed_args
+            ):
+                print("--args must be a JSON array of strings")
+                return 2
+            command_args = parsed_args
         else:
             command_args = []
     else:
