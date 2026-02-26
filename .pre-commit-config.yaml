@@ -1,0 +1,24 @@
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black
+        language: system
+        types: [python]
+
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: system
+        args: [".", --exclude, "^build/", --explicit-package-bases]
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        args: [-q]
+        pass_filenames: false
+        always_run: true
