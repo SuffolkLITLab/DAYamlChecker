@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--args",
-        help="JSON array of args to pass to the command (for example: '[-m, dayamlchecker.mcp.server]')",
+        help='JSON array of args to pass to the command (for example: ["-m", "dayamlchecker.mcp.server"])',
     )
     parser.add_argument(
         "--transport",

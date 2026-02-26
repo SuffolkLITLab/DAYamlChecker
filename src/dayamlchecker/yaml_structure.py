@@ -1230,7 +1230,8 @@ def _find_variable_reference_lines(code: str, variable_expr: str) -> list[int]:
     if _SIMPLE_IDENTIFIER_RE.match(variable_expr):
         pattern = re.compile(rf"\b{re.escape(variable_expr)}\b")
     else:
-        pattern = re.compile(re.escape(variable_expr))
+        # Avoid prefix false positives like matching "foo.bar" inside "foo.bar2".
+        pattern = re.compile(rf"{re.escape(variable_expr)}(?!\w)")
     return [i + 1 for i, line in enumerate(lines) if pattern.search(line)]
 
 
@@ -1298,10 +1299,7 @@ def _has_matching_guard(active_guards: list[str], expected_guards: list[str]) ->
         return True
     for guard in active_guards:
         guard_norm = _normalize_expr(guard)
-        if any(
-            expected in guard_norm or guard_norm in expected
-            for expected in expected_norm
-        ):
+        if any(expected in guard_norm for expected in expected_norm):
             return True
     return False
 
