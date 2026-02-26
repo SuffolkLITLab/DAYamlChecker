@@ -7,8 +7,31 @@ on:
 
 jobs:
   test:
-    name: Run ALActions python tests
+    name: Run type checks and tests
     runs-on: ubuntu-latest
     steps:
-      - name: Run python tests via ALActions
-        uses: SuffolkLITLab/ALActions/pythontests@main
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+          pip install pytest
+
+      - name: Run mypy
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE/src
+          python -m mypy . --exclude '^build/' --explicit-package-bases
+
+      - name: Check formatting with black
+        run: black --check .
+
+      - name: Run tests
+        run: pytest -q
