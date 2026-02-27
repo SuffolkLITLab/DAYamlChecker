@@ -332,15 +332,7 @@ class TestFormatYamlStringJinja(unittest.TestCase):
 
     def test_jinja_mixed_blocks_only_clean_ones_formatted(self):
         # Second code block has no Jinja — only that block should be formatted.
-        yaml_content = (
-            "# use jinja\n"
-            "---\n"
-            "code: |\n"
-            "  x={{ y }}\n"
-            "---\n"
-            "code: |\n"
-            "  z=1\n"
-        )
+        yaml_content = "# use jinja\n---\ncode: |\n  x={{ y }}\n---\ncode: |\n  z=1\n"
         result, changed = format_yaml_string(yaml_content)
         self.assertTrue(changed)
         # First block (Jinja) must be untouched
@@ -529,7 +521,6 @@ class TestCollectYamlFiles(unittest.TestCase):
 
     def test_check_all_flag_disables_ignores(self):
         import tempfile
-        import os
         from dayamlchecker.code_formatter import _collect_yaml_files
 
         with tempfile.TemporaryDirectory() as tmp:

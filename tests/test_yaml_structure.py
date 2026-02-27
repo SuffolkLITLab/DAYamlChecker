@@ -1307,7 +1307,6 @@ class TestProcessFile(unittest.TestCase):
 
     def test_process_valid_file_prints_dot(self):
         import io
-        import sys
         from dayamlchecker.yaml_structure import process_file
 
         path = self._write_temp("---\nquestion: Hello\nfield: my_var\n")
@@ -1504,7 +1503,6 @@ class TestMakoCompileException(unittest.TestCase):
 
     def test_mako_compile_error_produces_error(self):
         from dayamlchecker.yaml_structure import MakoText
-        from unittest.mock import patch
 
         # Patch MakoTemplate to raise a generic Exception to simulate a compile
         # failure (MakoText only catches SyntaxException and CompileException;

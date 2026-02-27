@@ -53,7 +53,7 @@ class YAMLStr:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"{x} isn't a string", 1)]
+            self.errors = [(f"""{x} isn't a string""", 1)]
 
 
 class MakoText:
@@ -90,7 +90,7 @@ class PythonText:
         self.errors = []
         if not isinstance(x, str):
             self.errors = [
-                (f"code block must be a YAML string, is {type(x).__name__}", 1)
+                (f"""code block must be a YAML string, is {type(x).__name__}""", 1)
             ]
             return
         try:
@@ -99,7 +99,7 @@ class PythonText:
             # ex.lineno gives line number within the code block
             lineno = ex.lineno or 1
             msg = ex.msg or str(ex)
-            self.errors = [(f"Python syntax error: {msg}", lineno)]
+            self.errors = [(f"""Python syntax error: {msg}""", lineno)]
 
 
 class ValidationCode(PythonText):
@@ -193,7 +193,7 @@ class JSShowIf:
         self.screen_variables = screen_variables or set()
         if not isinstance(x, str):
             self.errors = [
-                (f"{modifier_key} must be a string, is {type(x).__name__}", 1)
+                (f"""{modifier_key} must be a string, is {type(x).__name__}""", 1)
             ]
             return
 
@@ -207,7 +207,7 @@ class JSShowIf:
         except esprima.Error as ex:
             self.errors.append(
                 (
-                    f"Invalid JavaScript syntax in {modifier_key}: {ex}",
+                    f"""Invalid JavaScript syntax in {modifier_key}: {ex}""",
                     getattr(ex, "lineNumber", 1) or 1,
                 )
             )
@@ -233,7 +233,7 @@ class JSShowIf:
         if not val_calls:
             self.errors.append(
                 (
-                    f"{modifier_key} must contain at least one val() call to reference an on-screen field",
+                    f"""{modifier_key} must contain at least one val() call to reference an on-screen field""",
                     1,
                 )
             )
@@ -341,7 +341,7 @@ class ShowIf:
                 if not isinstance(code_block, str):
                     self.errors.append(
                         (
-                            f"show if: code must be a YAML string",
+                            "show if: code must be a YAML string",
                             1,
                         )
                     )
@@ -353,13 +353,16 @@ class ShowIf:
                         msg = ex.msg or str(ex)
                         self.errors.append(
                             (
-                                f"show if: code has Python syntax error: {msg}",
+                                f"""show if: code has Python syntax error: {msg}""",
                                 lineno,
                             )
                         )
             else:
                 self.errors.append(
-                    (f'show if dict must have either "variable" key or "code" key', 1)
+                    (
+                        """show if dict must have either "variable" key or "code" key""",
+                        1,
+                    )
                 )
 
 
@@ -369,9 +372,9 @@ class DAPythonVar:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"The python var needs to be a YAML string, is {x}", 1)]
+            self.errors = [(f"""The python var needs to be a YAML string, is {x}""", 1)]
         elif " " in x and not space_in_str.search(x):
-            self.errors = [(f"The python var cannot have whitespace (is {x})", 1)]
+            self.errors = [(f"""The python var cannot have whitespace (is {x})""", 1)]
 
 
 class DAType:
@@ -387,11 +390,11 @@ class ObjectsAttrType:
         # The full typing desc of the var: TODO: how to use this?
         self.errors = []
         if not (isinstance(x, list) or isinstance(x, dict)):
-            self.errors = [f"Objects block needs to be a list or a dict, is {x}"]
+            self.errors = [f"""Objects block needs to be a list or a dict, is {x}"""]
         # for entry in x:
         #   ...
         # if not isinstance(x, Union[list[dict[DAPythonVar, DAType]], dict[DAPythonVar, DAType]]):
-        #  self.errors = [(f"Not objectAttrType isinstance! {x}", 1)]
+        #  self.errors = [(f"""Not objectAttrType isinstance! {x}""", 1)]
 
 
 class DAFields:
@@ -448,7 +451,7 @@ class DAFields:
                 if not isinstance(x.get("code"), str):
                     self.errors = [
                         (
-                            f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
+                            f"fields: code must be a YAML string, is {type(x.get('code')).__name__}",
                             1,
                         )
                     ]
@@ -462,7 +465,7 @@ class DAFields:
             self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
             return
         if not isinstance(x, list):
-            self.errors = [(f"fields should be a list or dict, is {x}", 1)]
+            self.errors = [(f"""fields should be a list or dict, is {x}""", 1)]
             return
         self._validate_field_modifiers(x)
 
@@ -513,14 +516,14 @@ class DAFields:
                 if not isinstance(ref_var, str):
                     self.errors.append(
                         (
-                            f"{modifier_key}: variable must be a string, got {type(ref_var).__name__}",
+                            f"""{modifier_key}: variable must be a string, got {type(ref_var).__name__}""",
                             self._line_for(field_item),
                         )
                     )
                 elif not references_screen_variable(ref_var):
                     self.errors.append(
                         (
-                            f"{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                            f"""{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens""",
                             self._line_for(field_item),
                         )
                     )
@@ -529,7 +532,7 @@ class DAFields:
                 for err in validator.errors:
                     self.errors.append(
                         (
-                            f"{modifier_key}: code has {err[0].lower()}",
+                            f"""{modifier_key}: code has {err[0].lower()}""",
                             self._line_for(field_item, err[1]),
                         )
                     )
@@ -544,7 +547,7 @@ class DAFields:
             if not references_screen_variable(modifier_value):
                 self.errors.append(
                     (
-                        f"{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                        f"""{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens""",
                         self._line_for(field_item),
                     )
                 )
@@ -690,7 +693,6 @@ big_dict: dict[str, dict[str, Any]] = {
     "on change": {},
     "image sets": {},
     "images": {},
-    "interview help": {},
     "continue button field": {
         "type": DAPythonVar,
     },
@@ -1020,8 +1022,8 @@ class YAMLError:
 
     def __str__(self):
         if not self.experimental:
-            return f"REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"
-        return f"At {self.file_name}:{self.line_number}: {self.err_str}"
+            return f"""REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"""
+        return f"""At {self.file_name}:{self.line_number}: {self.err_str}"""
 
 
 class SafeLineLoader(SafeLoader):
@@ -1041,9 +1043,9 @@ class SafeLineLoader(SafeLoader):
                     # Raise YAML marked error so find_errors_from_string will
                     # capture this as a parsing error tied to a specific line.
                     raise yaml.error.MarkedYAMLError(
-                        context=f"while constructing a mapping",
+                        context="""while constructing a mapping""",
                         context_mark=node.start_mark,
-                        problem=f"found duplicate key {key!r}",
+                        problem=f"""found duplicate key {key!r}""",
                         problem_mark=key_node.start_mark,
                     )
                 seen_keys.add(key)
@@ -1111,7 +1113,7 @@ def find_errors_from_string(
 
     line_number = 1
     for source_code in document_match.split(full_content):
-        lines_in_code = sum(l == "\n" for l in source_code)
+        lines_in_code = sum(source_line == "\n" for source_line in source_code)
         source_code = remove_trailing_dots.sub("", source_code)
         source_code = fix_tabs.sub("  ", source_code)
         try:
@@ -1141,7 +1143,7 @@ def find_errors_from_string(
         if len(any_types) == 0:
             all_errors.append(
                 YAMLError(
-                    err_str=f"No possible types found: {doc}",
+                    err_str=f"""No possible types found: {doc}""",
                     line_number=line_number,
                     file_name=input_file,
                 )
@@ -1155,7 +1157,7 @@ def find_errors_from_string(
             else:
                 all_errors.append(
                     YAMLError(
-                        err_str=f"Too many types this block could be: {posb_types}",
+                        err_str=f"""Too many types this block could be: {posb_types}""",
                         line_number=line_number,
                         file_name=input_file,
                     )
@@ -1172,7 +1174,7 @@ def find_errors_from_string(
         if len(weird_keys) > 0:
             all_errors.append(
                 YAMLError(
-                    err_str=f"Keys that shouldn't exist! {weird_keys}",
+                    err_str=f"""Keys that shouldn't exist! {weird_keys}""",
                     line_number=line_number,
                     file_name=input_file,
                     experimental=False,
@@ -1184,7 +1186,7 @@ def find_errors_from_string(
                 for err in test.errors:
                     all_errors.append(
                         YAMLError(
-                            err_str=f"{err[0]}",
+                            err_str=f"""{err[0]}""",
                             line_number=err[1] + doc["__line__"] + line_number,
                             file_name=input_file,
                         )
@@ -1232,7 +1234,7 @@ def process_file(input_file, verbose: bool = False):
     ]:
         if input_file.endswith(dumb_da_file):
             print()
-            print(f"ignoring {dumb_da_file}")
+            print(f"""ignoring {dumb_da_file}""")
             return
 
     with open(input_file, "r") as f:
@@ -1243,12 +1245,12 @@ def process_file(input_file, verbose: bool = False):
     if is_jinja and verbose:
         rendered, render_errors = preprocess_jinja(full_content)
         print()
-        print(f"--- Jinja-rendered output of {input_file} ---")
+        print(f"""--- Jinja-rendered output of {input_file} ---""")
         print(rendered)
-        print(f"--- end of {input_file} ---")
+        print(f"""--- end of {input_file} ---""")
         if render_errors:
             for e in render_errors:
-                print(f"  Jinja error: {e}")
+                print(f"""  Jinja error: {e}""")
 
     all_errors = find_errors_from_string(full_content, input_file=input_file)
 
@@ -1257,10 +1259,10 @@ def process_file(input_file, verbose: bool = False):
         return
     print()
     print(
-        f"Found {len(all_errors)} errors{' (in Jinja-preprocessed file)' if is_jinja else ''}:"
+        f"""Found {len(all_errors)} errors{" (in Jinja-preprocessed file)" if is_jinja else ""}:"""
     )
     for err in all_errors:
-        print(f"{err}")
+        print(f"""{err}""")
 
 
 def main() -> int:
