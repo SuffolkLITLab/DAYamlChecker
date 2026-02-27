@@ -14,6 +14,12 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from dayamlchecker._jinja import (
+    JinjaWithoutHeaderError,
+    _contains_jinja_syntax,
+    _has_jinja_header,
+    preprocess_jinja,
+)
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -23,11 +29,18 @@ import esprima  # type: ignore[import-untyped]
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# * if "# use jinja" at top, process whole file with Jinja:
+# [DONE] if "# use jinja" at top, process whole file with Jinja:
 #   https://docassemble.org/docs/interviews.html#jinja2
+#   Jinja files are pre-processed via preprocess_jinja() before checking,
+#   and the formatter skips Jinja-syntax code blocks while formatting the rest.
 
 
-__all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
+__all__ = [
+    "find_errors_from_string",
+    "find_errors",
+    "_collect_yaml_files",
+    "JinjaWithoutHeaderError",
+]
 
 
 # Ensure that if there's a space in the str, it's between quotes.
@@ -405,19 +418,48 @@ class DAFields:
     js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
     py_modifier_keys = ("show if", "hide if")
 
+    # Keys that are valid at the field-item level (i.e. inside a single field dict).
+    # When `fields` is written as a bare dict (single-field shorthand rather than a
+    # list), at least one of these keys must be present for it to look like a valid
+    # field descriptor rather than a malformed code-reference dict.
+    _field_item_keys = modifier_keys | {
+        "field",
+        "input type",
+        "note",
+        "html",
+        "raw html",
+        "address autocomplete",
+        "object",
+        "object multiselect",
+        "object radio",
+        "uncheck others",
+        "shuffle",
+        "required",
+        "read only",
+        "min",
+        "max",
+    }
+
     def __init__(self, x):
         self.errors = []
         if isinstance(x, dict):
-            if "code" not in x:
-                self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
+            if "code" in x:
+                # Code-reference form: fields: {code: some_python_list_var}
+                if not isinstance(x.get("code"), str):
+                    self.errors = [
+                        (
+                            f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
+                            1,
+                        )
+                    ]
                 return
-            if not isinstance(x.get("code"), str):
-                self.errors = [
-                    (
-                        f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
-                        1,
-                    )
-                ]
+            # Single-field shorthand: fields is a bare dict describing one field.
+            # Docassemble allows omitting the surrounding list when there is exactly
+            # one field.  Accept it silently if it has at least one recognised key;
+            # otherwise flag it so genuinely broken dicts are still caught.
+            if x.keys() & self._field_item_keys:
+                return
+            self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
             return
         if not isinstance(x, list):
             self.errors = [(f"fields should be a list or dict, is {x}", 1)]
@@ -1026,6 +1068,41 @@ def find_errors_from_string(
     if not input_file:
         input_file = "<string input>"
 
+    # Check for Jinja syntax before attempting YAML parsing, since Jinja
+    # constructs are not valid YAML and would cause parse errors.
+    if _contains_jinja_syntax(full_content):
+        if _has_jinja_header(full_content):
+            # Valid Jinja file: pre-process through Jinja2 then check the
+            # rendered output as normal YAML.
+            rendered, render_errors = preprocess_jinja(full_content)
+            if render_errors:
+                return [
+                    YAMLError(
+                        err_str=e,
+                        line_number=1,
+                        file_name=input_file,
+                        experimental=False,
+                    )
+                    for e in render_errors
+                ]
+            # Strip the '# use jinja' header from the rendered output so the
+            # recursive call does not re-enter this branch.
+            rendered_body = rendered.split("\n", 1)[1] if "\n" in rendered else ""
+            return find_errors_from_string(rendered_body, input_file=input_file)
+        return [
+            YAMLError(
+                err_str=(
+                    "File contains Jinja syntax but is missing '# use jinja' on the "
+                    "first line. Per docassemble documentation, add '# use jinja' as "
+                    "the very first line to enable Jinja2 processing, or remove the "
+                    "Jinja syntax from the file."
+                ),
+                line_number=1,
+                file_name=input_file,
+                experimental=False,
+            )
+        ]
+
     exclusive_keys = [
         key
         for key in types_of_blocks.keys()
@@ -1120,8 +1197,9 @@ def find_errors_from_string(
 def find_errors(input_file: str) -> list[YAMLError]:
     """Return list of YAMLError found in the given input_file
 
-    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
-    it is ignored and an empty list is returned.
+    If the file starts with the '# use jinja' header it is skipped and an empty
+    list is returned.  If Jinja syntax is detected *without* that header a
+    YAMLError is returned explaining the problem.
 
     Args:
         input_file (str): Path to the YAML file to check.
@@ -1131,11 +1209,6 @@ def find_errors(input_file: str) -> list[YAMLError]:
     """
     with open(input_file, "r") as f:
         full_content = f.read()
-
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return []
 
     return find_errors_from_string(full_content, input_file=input_file)
 
@@ -1148,7 +1221,7 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
-def process_file(input_file):
+def process_file(input_file, verbose: bool = False):
     for dumb_da_file in [
         "pgcodecache.yml",
         "title_documentation.yml",
@@ -1162,13 +1235,30 @@ def process_file(input_file):
             print(f"ignoring {dumb_da_file}")
             return
 
-    all_errors = find_errors(input_file)
+    with open(input_file, "r") as f:
+        full_content = f.read()
+
+    is_jinja = _has_jinja_header(full_content)
+
+    if is_jinja and verbose:
+        rendered, render_errors = preprocess_jinja(full_content)
+        print()
+        print(f"--- Jinja-rendered output of {input_file} ---")
+        print(rendered)
+        print(f"--- end of {input_file} ---")
+        if render_errors:
+            for e in render_errors:
+                print(f"  Jinja error: {e}")
+
+    all_errors = find_errors_from_string(full_content, input_file=input_file)
 
     if len(all_errors) == 0:
-        print(".", end="")
+        print("j" if is_jinja else ".", end="")
         return
     print()
-    print(f"Found {len(all_errors)} errors:")
+    print(
+        f"Found {len(all_errors)} errors{' (in Jinja-preprocessed file)' if is_jinja else ''}:"
+    )
     for err in all_errors:
         print(f"{err}")
 
@@ -1191,6 +1281,12 @@ def main() -> int:
             "(.git*, .github*, sources)"
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="For Jinja files, print the rendered YAML that was actually checked",
+    )
     args = parser.parse_args()
 
     yaml_files = _collect_yaml_files(
@@ -1201,7 +1297,8 @@ def main() -> int:
         return 1
 
     for input_file in yaml_files:
-        process_file(str(input_file))
+        process_file(str(input_file), verbose=args.verbose)
+    print()
     return 0
 
 

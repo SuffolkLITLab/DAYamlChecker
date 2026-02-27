@@ -59,28 +59,35 @@ def _run_formatter(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_formatter_skips_jinja_file_with_message():
+    """A Jinja file with no code blocks should still be handled without error."""
     with TemporaryDirectory() as tmp:
         jinja_file = Path(tmp) / "interview.yml"
-        jinja_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\n", encoding="utf-8"
+        )
 
         result = _run_formatter(str(jinja_file))
 
         assert result.returncode == 0
-        assert "Skipped (Jinja)" in result.stdout
 
 
 def test_formatter_jinja_count_in_summary():
+    """A Jinja file with a clean (non-Jinja) code block is counted as reformatted."""
     with TemporaryDirectory() as tmp:
         jinja_file = Path(tmp) / "interview.yml"
-        jinja_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x=1\n",
+            encoding="utf-8",
+        )
 
-        result = _run_formatter(str(jinja_file))
+        result = _run_formatter("--verbose", str(jinja_file))
 
-        assert "skipped (Jinja)" in result.stdout
-        assert "1 skipped (Jinja)" in result.stdout
+        assert "1 reformatted" in result.stdout
+        assert "skipped (Jinja)" not in result.stdout
 
 
 def test_formatter_jinja_not_in_summary_when_zero():
+    """The old 'skipped (Jinja)' label should never appear in output."""
     with TemporaryDirectory() as tmp:
         regular_file = Path(tmp) / "interview.yml"
         regular_file.write_text("---\nquestion: Hello world\n", encoding="utf-8")
@@ -90,36 +97,105 @@ def test_formatter_jinja_not_in_summary_when_zero():
         assert "skipped (Jinja)" not in result.stdout
 
 
-def test_formatter_jinja_file_not_modified():
+def test_formatter_jinja_file_with_clean_code_is_formatted():
+    """A Jinja file whose code block has no Jinja syntax should be formatted."""
     with TemporaryDirectory() as tmp:
         jinja_file = Path(tmp) / "interview.yml"
-        original = "---\nquestion: Hello {{ user }}\ncode: |\n  x=1\n"
+        original = "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x=1\n"
         jinja_file.write_text(original, encoding="utf-8")
 
-        _run_formatter(str(jinja_file))
+        result = _run_formatter(str(jinja_file))
 
+        assert result.returncode == 0
+        assert "R" in result.stdout
+        formatted = jinja_file.read_text(encoding="utf-8")
+        assert "x = 1" in formatted
+        assert "{{ user }}" in formatted
+        assert formatted.startswith("# use jinja\n")
+
+
+def test_formatter_jinja_file_already_formatted_unchanged():
+    """A Jinja file with already-formatted code should be reported unchanged."""
+    with TemporaryDirectory() as tmp:
+        jinja_file = Path(tmp) / "interview.yml"
+        original = "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x = 1\n"
+        jinja_file.write_text(original, encoding="utf-8")
+
+        result = _run_formatter(str(jinja_file))
+
+        assert result.returncode == 0
+        assert "." in result.stdout
         assert jinja_file.read_text(encoding="utf-8") == original
 
 
-def test_formatter_quiet_suppresses_jinja_message():
+def test_formatter_jinja_file_with_jinja_in_code_block_not_modified():
+    """A code block that itself contains Jinja syntax must not be touched."""
     with TemporaryDirectory() as tmp:
         jinja_file = Path(tmp) / "interview.yml"
-        jinja_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+        original = (
+            "# use jinja\n"
+            "---\n"
+            "code: |\n"
+            "  {% for item in items %}\n"
+            "  x = {{ item }}\n"
+            "  {% endfor %}\n"
+        )
+        jinja_file.write_text(original, encoding="utf-8")
+
+        result = _run_formatter(str(jinja_file))
+
+        assert result.returncode == 0
+        assert jinja_file.read_text(encoding="utf-8") == original
+
+
+def test_formatter_quiet_suppresses_output():
+    with TemporaryDirectory() as tmp:
+        jinja_file = Path(tmp) / "interview.yml"
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\n", encoding="utf-8"
+        )
 
         result = _run_formatter("--quiet", str(jinja_file))
 
         assert result.returncode == 0
-        assert "Skipped (Jinja)" not in result.stdout
+        # quiet suppresses all normal output
+        assert result.stdout.strip() == ""
 
 
-def test_formatter_summary_omits_zero_counts():
+def test_formatter_summary_shows_unchanged_for_already_formatted_jinja():
+    """A Jinja file with already-formatted code blocks appears as 'unchanged'."""
     with TemporaryDirectory() as tmp:
         jinja_file = Path(tmp) / "interview.yml"
-        jinja_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\n", encoding="utf-8"
+        )
 
-        result = _run_formatter(str(jinja_file))
+        result = _run_formatter("--verbose", str(jinja_file))
 
-        # When everything is Jinja-skipped, reformatted/unchanged should not appear
-        assert "reformatted" not in result.stdout
-        assert "unchanged" not in result.stdout
-        assert "skipped (Jinja)" in result.stdout
+        assert "unchanged" in result.stdout
+        assert "skipped (Jinja)" not in result.stdout
+
+
+def test_formatter_jinja_without_header_is_error():
+    """A file with Jinja syntax but no '# use jinja' header should be flagged as an error."""
+    with TemporaryDirectory() as tmp:
+        bad_file = Path(tmp) / "interview.yml"
+        bad_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+
+        result = _run_formatter(str(bad_file))
+
+        assert result.returncode == 1
+        assert "Error" in result.stderr
+        assert "# use jinja" in result.stderr
+
+
+def test_formatter_jinja_without_header_not_modified():
+    """A file incorrectly containing Jinja syntax must not be modified."""
+    with TemporaryDirectory() as tmp:
+        bad_file = Path(tmp) / "interview.yml"
+        original = "---\nquestion: Hello {{ user }}\ncode: |\n  x=1\n"
+        bad_file.write_text(original, encoding="utf-8")
+
+        _run_formatter(str(bad_file))
+
+        assert bad_file.read_text(encoding="utf-8") == original
