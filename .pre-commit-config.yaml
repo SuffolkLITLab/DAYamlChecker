@@ -11,7 +11,7 @@ repos:
         name: mypy
         entry: python -m mypy
         language: system
-        args: [".", --exclude, "^build/", --explicit-package-bases]
+        args: [".", "--exclude", "^build/", "--explicit-package-bases"]
         types: [python]
         pass_filenames: false
 
