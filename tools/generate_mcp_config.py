@@ -4,11 +4,11 @@
 This script delegates to the package version (`python -m dayamlchecker.generate_mcp_config`) so
 contributors can run it from the repo using `python tools/generate_mcp_config.py` while the
 packaged console script `dayamlchecker-gen-mcp` (installed via `pip`) is available for users.
-"""
 
-"""Run the packaged `generate_mcp_config` if available, otherwise run the local
+Run the packaged `generate_mcp_config` if available, otherwise run the local
 script so developers can use this wrapper without installing the package.
 """
+
 import runpy
 import pathlib
 from typing import Callable
