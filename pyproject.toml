@@ -30,13 +30,6 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 mcp = ["mcp[cli]"]
 
-[dependency-groups]
-dev = [
-    "mypy>=1.0.0",
-    "types-PyYAML",
-    "pytest>=8.0.0",
-]
-
 [project.scripts]
 dayamlchecker = "dayamlchecker.yaml_structure:main"
 dayamlchecker-mcp = "dayamlchecker.mcp.server:main"
