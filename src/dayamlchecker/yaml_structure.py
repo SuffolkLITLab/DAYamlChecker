@@ -451,7 +451,7 @@ class DAFields:
                 if not isinstance(x.get("code"), str):
                     self.errors = [
                         (
-                            f"fields: code must be a YAML string, is {type(x.get('code')).__name__}",
+                            f"""fields: code must be a YAML string, is {type(x.get("code")).__name__}""",
                             1,
                         )
                     ]
@@ -1223,7 +1223,31 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
-def process_file(input_file, verbose: bool = False):
+def process_file(
+    input_file,
+    minimal: bool = False,
+    quiet: bool = False,
+    display_path: str | None = None,
+) -> str:
+    """Process a single file and report its validation status.
+
+    Args:
+        input_file: Path to the YAML file to check.
+        minimal: If True, use a compact output format. Successful files print
+            a single character ('.' for normal files or 'j' for Jinja files),
+            and errors trigger a brief summary followed by each error message.
+        quiet: If True, suppress output for successful and skipped files.
+            Errors are still printed unless combined with other output handling.
+        display_path: Optional path string to use in output instead of the
+            full ``input_file`` path (e.g. a relative path).
+
+    Returns:
+        A string indicating the result of processing:
+        - "ok": The file was checked and no errors were found.
+        - "error": The file was checked and one or more errors were found.
+        - "skipped": The file was not checked because it matches a known
+          pattern of files to ignore.
+    """
     for dumb_da_file in [
         "pgcodecache.yml",
         "title_documentation.yml",
@@ -1233,36 +1257,40 @@ def process_file(input_file, verbose: bool = False):
         "examples.yml",
     ]:
         if input_file.endswith(dumb_da_file):
-            print()
-            print(f"""ignoring {dumb_da_file}""")
-            return
+            if not minimal and not quiet:
+                print(f"skipped: {display_path or input_file}")
+            return "skipped"
 
     with open(input_file, "r") as f:
         full_content = f.read()
 
     is_jinja = _has_jinja_header(full_content)
 
-    if is_jinja and verbose:
-        rendered, render_errors = preprocess_jinja(full_content)
-        print()
-        print(f"""--- Jinja-rendered output of {input_file} ---""")
-        print(rendered)
-        print(f"""--- end of {input_file} ---""")
-        if render_errors:
-            for e in render_errors:
-                print(f"""  Jinja error: {e}""")
-
-    all_errors = find_errors_from_string(full_content, input_file=input_file)
+    all_errors = find_errors_from_string(
+        full_content, input_file=display_path or input_file
+    )
 
     if len(all_errors) == 0:
-        print("j" if is_jinja else ".", end="")
-        return
-    print()
-    print(
-        f"""Found {len(all_errors)} errors{" (in Jinja-preprocessed file)" if is_jinja else ""}:"""
-    )
-    for err in all_errors:
-        print(f"""{err}""")
+        if minimal:
+            print("j" if is_jinja else ".", end="")
+        elif not quiet:
+            label = "ok (jinja)" if is_jinja else "ok"
+            print(f"{label}: {display_path or input_file}")
+        return "ok"
+
+    if minimal:
+        print()
+        print(
+            f"""Found {len(all_errors)} errors{" (in Jinja-preprocessed file)" if is_jinja else ""}:"""
+        )
+        for err in all_errors:
+            print(f"{err}")
+    else:
+        jinja_note = " (jinja)" if is_jinja else ""
+        print(f"errors ({len(all_errors)}){jinja_note}: {display_path or input_file}")
+        for err in all_errors:
+            print(f"  {err}")
+    return "error"
 
 
 def main() -> int:
@@ -1283,13 +1311,37 @@ def main() -> int:
             "(.git*, .github*, sources)"
         ),
     )
-    parser.add_argument(
-        "-v",
-        "--verbose",
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
+        "-m",
+        "--minimal",
         action="store_true",
-        help="For Jinja files, print the rendered YAML that was actually checked",
+        help="Show compact dot/letter progress instead of per-file lines",
+    )
+    output_group.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress all output except errors",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Do not print the summary line after processing",
     )
     args = parser.parse_args()
+
+    # Precompute resolved base dirs for relative path display
+    base_dirs = [p.resolve() if p.is_dir() else p.resolve().parent for p in args.files]
+
+    def _display(file_path: Path) -> Path:
+        resolved = file_path.resolve()
+        for base in base_dirs:
+            try:
+                return resolved.relative_to(base)
+            except ValueError:
+                continue
+        return resolved
 
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
@@ -1298,9 +1350,40 @@ def main() -> int:
         print("No YAML files found.", file=sys.stderr)
         return 1
 
+    files_ok = 0
+    files_error = 0
+    files_skipped = 0
+
     for input_file in yaml_files:
-        process_file(str(input_file), verbose=args.verbose)
-    print()
+        status = process_file(
+            str(input_file),
+            minimal=args.minimal,
+            quiet=args.quiet,
+            display_path=str(_display(input_file)),
+        )
+        if status == "ok":
+            files_ok += 1
+        elif status == "error":
+            files_error += 1
+        else:
+            files_skipped += 1
+
+    if args.minimal:
+        print()  # terminate dot line
+
+    if not args.quiet and not args.no_summary:
+        total = files_ok + files_error + files_skipped
+        summary_parts = []
+        if files_ok:
+            summary_parts.append(f"""{files_ok} ok""")
+        if files_error:
+            summary_parts.append(f"""{files_error} errors""")
+        if files_skipped:
+            summary_parts.append(f"""{files_skipped} skipped""")
+        if not summary_parts:
+            summary_parts.append("0 files processed")
+        print(f"""Summary: {", ".join(summary_parts)} ({total} total)""")
+
     return 0
 
 

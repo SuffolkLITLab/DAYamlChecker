@@ -574,17 +574,18 @@ Examples:
         action="store_true",
         help="Disable 4-to-2 space indentation conversion",
     )
-    parser.add_argument(
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
+        "-m",
+        "--minimal",
+        action="store_true",
+        help="Show compact dot/letter progress instead of per-file lines",
+    )
+    output_group.add_argument(
         "-q",
         "--quiet",
         action="store_true",
-        help="Only output errors",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print a summary line after processing",
+        help="Suppress all output except errors",
     )
     parser.add_argument(
         "--check-all",
@@ -593,6 +594,11 @@ Examples:
             "Do not ignore default directories during recursive search "
             "(.git*, .github*, sources)"
         ),
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Do not print the summary line after processing",
     )
 
     args = parser.parse_args()
@@ -614,6 +620,12 @@ Examples:
                 continue
         return resolved
 
+    def _emit_error(message: str) -> None:
+        if args.minimal:
+            print("E", end="", flush=True)
+        elif not args.quiet:
+            print(message, file=sys.stderr)
+
     # Collect all YAML files from paths (handles directories recursively)
     yaml_files = _collect_yaml_files(args.files, check_all=args.check_all)
     if not yaml_files:
@@ -628,12 +640,11 @@ Examples:
 
     for file_path in yaml_files:
         if not file_path.exists():
-            msg = f"File not found: {_display(file_path)}"
+            msg = f"""File not found: {_display(file_path)}"""
             error_messages.append(msg)
             files_error += 1
             exit_code = 1
-            if not args.quiet:
-                print("E", end="", flush=True)
+            _emit_error(f"""error: {_display(file_path)} (file not found)""")
             continue
 
         try:
@@ -644,14 +655,15 @@ Examples:
             # _format_jinja_yaml_string path (only clean code blocks formatted).
             if _contains_jinja_syntax(content) and not _has_jinja_header(content):
                 msg = (
-                    f"{_display(file_path)} contains Jinja syntax but is "
+                    f"""{_display(file_path)} contains Jinja syntax but is """
                     "missing '# use jinja' on the first line."
                 )
                 error_messages.append(msg)
                 files_error += 1
                 exit_code = 1
-                if not args.quiet:
-                    print("E", end="", flush=True)
+                _emit_error(
+                    f"""error: {_display(file_path)} (Jinja syntax without '# use jinja' header)"""
+                )
                 continue
 
             formatted, changed = format_yaml_string(content, config)
@@ -661,39 +673,46 @@ Examples:
             if changed:
                 files_changed += 1
                 if args.check:
-                    print(f"Would reformat: {_display(file_path)}")
+                    print(f"""Would reformat: {_display(file_path)}""")
                     exit_code = 1
-                elif not args.quiet:
+                elif args.minimal:
                     print("R", end="", flush=True)
+                elif not args.quiet:
+                    print(f"""reformatted: {_display(file_path)}""")
             else:
                 files_unchanged += 1
-                if not args.quiet and not args.check:
-                    print(".", end="", flush=True)
+                if not args.check:
+                    if args.minimal:
+                        print(".", end="", flush=True)
+                    elif not args.quiet:
+                        print(f"""unchanged: {_display(file_path)}""")
 
         except Exception as e:
-            msg = f"Error processing {_display(file_path)}: {e}"
+            msg = f"""Error processing {_display(file_path)}: {e}"""
             error_messages.append(msg)
             files_error += 1
             exit_code = 1
-            if not args.quiet:
-                print("E", end="", flush=True)
+            _emit_error(f"""error: {_display(file_path)}: {e}""")
 
-    if not args.quiet and not args.check:
-        print()
-        if args.verbose:
-            total = files_changed + files_unchanged + files_error
-            summary_parts = []
-            if files_changed:
-                summary_parts.append(f"{files_changed} reformatted")
-            if files_unchanged:
-                summary_parts.append(f"{files_unchanged} unchanged")
-            if files_error:
-                summary_parts.append(f"{files_error} errors")
-            if not summary_parts:
-                summary_parts.append("0 files processed")
-            print(f"Summary: {', '.join(summary_parts)} ({total} total)")
-        for msg in error_messages:
-            print(f"  Error: {msg}", file=sys.stderr)
+    if not args.check:
+        if args.minimal:
+            print()  # terminate dot line
+        if args.minimal or args.quiet:
+            for msg in error_messages:
+                print(f"""  Error: {msg}""", file=sys.stderr)
+        else:
+            if not args.no_summary:
+                total = files_changed + files_unchanged + files_error
+                summary_parts = []
+                if files_changed:
+                    summary_parts.append(f"""{files_changed} reformatted""")
+                if files_unchanged:
+                    summary_parts.append(f"""{files_unchanged} unchanged""")
+                if files_error:
+                    summary_parts.append(f"""{files_error} errors""")
+                if not summary_parts:
+                    summary_parts.append("0 files processed")
+                print(f"""Summary: {", ".join(summary_parts)} ({total} total)""")
 
     return exit_code
 
