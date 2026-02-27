@@ -30,6 +30,7 @@ def main() -> int:
     # Fall back to running the local copy in the repo for development
     script_path = (
         pathlib.Path(__file__).resolve().parent.parent
+        / "src"
         / "dayamlchecker"
         / "generate_mcp_config.py"
     )
