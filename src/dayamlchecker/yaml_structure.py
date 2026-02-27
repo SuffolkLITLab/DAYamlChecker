@@ -1087,7 +1087,7 @@ def find_errors_from_string(
                 ]
             # Strip the '# use jinja' header from the rendered output so the
             # recursive call does not re-enter this branch.
-            rendered_body = rendered.split("\n", 1)[1] if "\n" in rendered else ""
+            _, _sep, rendered_body = rendered.partition("\n")
             return find_errors_from_string(rendered_body, input_file=input_file)
         return [
             YAMLError(

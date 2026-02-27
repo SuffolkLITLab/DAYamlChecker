@@ -180,13 +180,15 @@ def test_formatter_jinja_without_header_is_error():
     """A file with Jinja syntax but no '# use jinja' header should be flagged as an error."""
     with TemporaryDirectory() as tmp:
         bad_file = Path(tmp) / "interview.yml"
-        bad_file.write_text("---\nquestion: Hello {{ user }}\n", encoding="utf-8")
+        original = "---\nquestion: Hello {{ user }}\n"
+        bad_file.write_text(original, encoding="utf-8")
 
         result = _run_formatter(str(bad_file))
 
         assert result.returncode == 1
         assert "Error" in result.stderr
         assert "# use jinja" in result.stderr
+        assert bad_file.read_text(encoding="utf-8") == original
 
 
 def test_formatter_jinja_without_header_not_modified():

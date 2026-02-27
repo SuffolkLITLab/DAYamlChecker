@@ -1531,7 +1531,7 @@ class TestJSShowIfNonString(unittest.TestCase):
 
 
 class TestShowIfMalformedCodePrefix(unittest.TestCase):
-    """ShoeIf string values that start with 'code:' should be flagged."""
+    """ShowIf string values that start with 'code:' should be flagged."""
 
     def test_show_if_code_colon_prefix_produces_error(self):
         from dayamlchecker.yaml_structure import ShowIf
