@@ -43,6 +43,28 @@ __all__ = [
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
 
 
+def _variable_candidates(var_expr: str) -> set[str]:
+    expr = var_expr.strip()
+    candidates = {expr}
+    if "." in expr:
+        parts = expr.split(".")
+        for i in range(len(parts), 0, -1):
+            candidates.add(".".join(parts[:i]))
+    expanded = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        expanded.add(candidate)
+        # Accept both full indexed paths and their base paths, e.g.:
+        # children[i].parents["Other"] -> children[i].parents
+        while candidate.endswith("]") and "[" in candidate:
+            candidate = candidate[: candidate.rfind("[")].strip()
+            if candidate:
+                expanded.add(candidate)
+    return expanded
+
+
 class YAMLStr:
     """Should be a direct YAML string, not a list or dict"""
 
@@ -272,31 +294,10 @@ class JSShowIf:
     def _references_screen_variable(self, var_expr):
         if not isinstance(var_expr, str):
             return False
-        for candidate in self._variable_candidates(var_expr):
+        for candidate in _variable_candidates(var_expr):
             if candidate in self.screen_variables:
                 return True
         return False
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 class ShowIf:
@@ -487,7 +488,7 @@ class DAFields:
         def references_screen_variable(var_expr):
             if not isinstance(var_expr, str):
                 return False
-            candidates = self._variable_candidates(var_expr)
+            candidates = _variable_candidates(var_expr)
             if any(candidate in screen_variables for candidate in candidates):
                 return True
             # In generic-object screens, x.<attr> often aliases another object path
@@ -574,27 +575,6 @@ class DAFields:
                     self._validate_python_modifier(
                         py_key, field_item[py_key], field_item, screen_variables
                     )
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 # type notes what the value for that dictionary key is,
@@ -1348,7 +1328,7 @@ def main() -> int:
             f"""Summary: {files_ok} ok, {files_error} errors, {files_skipped} skipped ({total} total)"""
         )
 
-    return 0
+    return 1 if files_error > 0 else 0
 
 
 if __name__ == "__main__":
