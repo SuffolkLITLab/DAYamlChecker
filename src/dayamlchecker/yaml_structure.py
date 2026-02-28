@@ -15,8 +15,6 @@ from mako.exceptions import (  # type: ignore[import-untyped]
 )
 import esprima  # type: ignore[import-untyped]
 from dayamlchecker._jinja import (
-    JinjaWithoutHeaderError,
-    _contains_jinja_syntax,
     _has_jinja_header,
     preprocess_jinja,
 )
@@ -35,7 +33,6 @@ __all__ = [
     "find_errors_from_string",
     "find_errors",
     "_collect_yaml_files",
-    "JinjaWithoutHeaderError",
 ]
 
 
@@ -1046,40 +1043,24 @@ def find_errors_from_string(
     if not input_file:
         input_file = "<string input>"
 
-    # Check for Jinja syntax before attempting YAML parsing, since Jinja
-    # constructs are not valid YAML and would cause parse errors.
-    if _contains_jinja_syntax(full_content):
-        if _has_jinja_header(full_content):
-            # Valid Jinja file: pre-process through Jinja2 then check the
-            # rendered output as normal YAML.
-            rendered, render_errors = preprocess_jinja(full_content)
-            if render_errors:
-                return [
-                    YAMLError(
-                        err_str=e,
-                        line_number=1,
-                        file_name=input_file,
-                        experimental=False,
-                    )
-                    for e in render_errors
-                ]
-            # Strip the '# use jinja' header from the rendered output so the
-            # recursive call does not re-enter this branch.
-            _, _sep, rendered_body = rendered.partition("\n")
-            return find_errors_from_string(rendered_body, input_file=input_file)
-        return [
-            YAMLError(
-                err_str=(
-                    "File contains Jinja syntax but is missing '# use jinja' on the "
-                    "first line. Per docassemble documentation, add '# use jinja' as "
-                    "the very first line to enable Jinja2 processing, or remove the "
-                    "Jinja syntax from the file."
-                ),
-                line_number=1,
-                file_name=input_file,
-                experimental=False,
-            )
-        ]
+    # Pre-process Jinja2 templates before YAML parsing only when the file
+    # explicitly opts in with '# use jinja' on the first line.
+    if _has_jinja_header(full_content):
+        rendered, render_errors = preprocess_jinja(full_content)
+        if render_errors:
+            return [
+                YAMLError(
+                    err_str=e,
+                    line_number=1,
+                    file_name=input_file,
+                    experimental=False,
+                )
+                for e in render_errors
+            ]
+        # Strip the '# use jinja' header from the rendered output so the
+        # recursive call does not re-enter this branch.
+        _, _sep, rendered_body = rendered.partition("\n")
+        return find_errors_from_string(rendered_body, input_file=input_file)
 
     exclusive_keys = [
         key

@@ -8,7 +8,6 @@ from dayamlchecker.code_formatter import (
     _strip_common_indent,
 )
 from dayamlchecker._jinja import (
-    JinjaWithoutHeaderError,
     _contains_jinja_syntax,
     _has_jinja_header,
 )
@@ -360,21 +359,25 @@ class TestFormatYamlStringJinja(unittest.TestCase):
         # Header preserved
         self.assertTrue(result.startswith("# use jinja\n"))
 
-    # --- invalid: Jinja syntax present but no '# use jinja' header ---
+    # --- Jinja-like syntax without '# use jinja' header: treated as plain YAML ---
 
-    def test_jinja_variable_without_header_raises(self):
+    def test_jinja_variable_without_header_no_error(self):
+        # {{ }} in a YAML value is valid YAML; formatter should return it unchanged.
         yaml_content = "---\nquestion: Hello {{ user }}\n"
-        with self.assertRaises(JinjaWithoutHeaderError):
-            format_yaml_string(yaml_content)
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+        self.assertEqual(result, yaml_content)
 
-    def test_jinja_block_tag_without_header_raises(self):
+    def test_jinja_block_tag_without_header_yaml_error(self):
+        # {% %} on its own line is not valid YAML; the YAML parser raises.
         yaml_content = "---\n{% if condition %}\nquestion: test\n{% endif %}\n"
-        with self.assertRaises(JinjaWithoutHeaderError):
+        with self.assertRaises(Exception):
             format_yaml_string(yaml_content)
 
-    def test_jinja_comment_without_header_raises(self):
+    def test_jinja_comment_without_header_yaml_error(self):
+        # {# #} is not valid YAML; the YAML parser raises.
         yaml_content = "{# template comment #}\nquestion: test\n"
-        with self.assertRaises(JinjaWithoutHeaderError):
+        with self.assertRaises(Exception):
             format_yaml_string(yaml_content)
 
 

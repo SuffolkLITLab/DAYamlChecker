@@ -27,7 +27,6 @@ import black
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from dayamlchecker._jinja import (
-    JinjaWithoutHeaderError,
     _contains_jinja_syntax,
     _has_jinja_header,
 )
@@ -37,7 +36,6 @@ __all__ = [
     "format_yaml_string",
     "format_python_code",
     "FormatterConfig",
-    "JinjaWithoutHeaderError",
 ]
 
 
@@ -415,20 +413,15 @@ def format_yaml_string(
     yaml.width = 4096  # Prevent line wrapping in strings
     # Use ruamel's parser to obtain position metadata; we'll replace text
 
-    # Handle Jinja templates before attempting YAML parsing,
-    # since Jinja syntax is not valid YAML and would cause parse errors.
-    if _contains_jinja_syntax(yaml_content):
-        if _has_jinja_header(yaml_content):
-            # Valid: Jinja processing explicitly enabled via '# use jinja' header.
-            # Format Python code blocks that don't themselves contain Jinja syntax;
-            # leave everything else (Jinja expressions, block tags, comments)
-            # exactly as-is.
-            return _format_jinja_yaml_string(yaml_content, config)
-        raise JinjaWithoutHeaderError(
-            "File contains Jinja syntax but is missing '# use jinja' on the first line. "
-            "Per docassemble documentation, add '# use jinja' as the very first line to "
-            "enable Jinja2 processing, or remove the Jinja syntax from the file."
-        )
+    # Files that explicitly opt in via '# use jinja' must be pre-processed
+    # through Jinja2 before the YAML parser sees them, because Jinja syntax is
+    # not valid YAML.  Files without the header are passed straight to the
+    # YAML parser; if Jinja-like syntax happens to appear (e.g. as literal
+    # example text in a template field) but is valid YAML, it will be handled
+    # normally.  If it is not valid YAML the parser will surface a regular
+    # parse error.
+    if _has_jinja_header(yaml_content):
+        return _format_jinja_yaml_string(yaml_content, config)
 
     # Load as a stream to handle multi-document YAML
     documents = list(yaml.load_all(yaml_content))
