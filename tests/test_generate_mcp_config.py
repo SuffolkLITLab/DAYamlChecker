@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-import tempfile
 import subprocess
 import sys
 

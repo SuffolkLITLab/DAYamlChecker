@@ -14,6 +14,10 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from dayamlchecker._jinja import (
+    _has_jinja_header,
+    preprocess_jinja,
+)
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -23,15 +27,39 @@ import esprima  # type: ignore[import-untyped]
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# * if "# use jinja" at top, process whole file with Jinja:
-#   https://docassemble.org/docs/interviews.html#jinja2
 
 
-__all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
+__all__ = [
+    "find_errors_from_string",
+    "find_errors",
+    "_collect_yaml_files",
+]
 
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
+
+
+def _variable_candidates(var_expr: str) -> set[str]:
+    expr = var_expr.strip()
+    candidates = {expr}
+    if "." in expr:
+        parts = expr.split(".")
+        for i in range(len(parts), 0, -1):
+            candidates.add(".".join(parts[:i]))
+    expanded = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        expanded.add(candidate)
+        # Accept both full indexed paths and their base paths, e.g.:
+        # children[i].parents["Other"] -> children[i].parents
+        while candidate.endswith("]") and "[" in candidate:
+            candidate = candidate[: candidate.rfind("[")].strip()
+            if candidate:
+                expanded.add(candidate)
+    return expanded
 
 
 class YAMLStr:
@@ -40,7 +68,7 @@ class YAMLStr:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"{x} isn't a string", 1)]
+            self.errors = [(f"""{x} isn't a string""", 1)]
 
 
 class MakoText:
@@ -77,7 +105,7 @@ class PythonText:
         self.errors = []
         if not isinstance(x, str):
             self.errors = [
-                (f"code block must be a YAML string, is {type(x).__name__}", 1)
+                (f"""code block must be a YAML string, is {type(x).__name__}""", 1)
             ]
             return
         try:
@@ -86,7 +114,7 @@ class PythonText:
             # ex.lineno gives line number within the code block
             lineno = ex.lineno or 1
             msg = ex.msg or str(ex)
-            self.errors = [(f"Python syntax error: {msg}", lineno)]
+            self.errors = [(f"""Python syntax error: {msg}""", lineno)]
 
 
 class ValidationCode(PythonText):
@@ -180,7 +208,7 @@ class JSShowIf:
         self.screen_variables = screen_variables or set()
         if not isinstance(x, str):
             self.errors = [
-                (f"{modifier_key} must be a string, is {type(x).__name__}", 1)
+                (f"""{modifier_key} must be a string, is {type(x).__name__}""", 1)
             ]
             return
 
@@ -194,7 +222,7 @@ class JSShowIf:
         except esprima.Error as ex:
             self.errors.append(
                 (
-                    f"Invalid JavaScript syntax in {modifier_key}: {ex}",
+                    f"""Invalid JavaScript syntax in {modifier_key}: {ex}""",
                     getattr(ex, "lineNumber", 1) or 1,
                 )
             )
@@ -220,7 +248,7 @@ class JSShowIf:
         if not val_calls:
             self.errors.append(
                 (
-                    f"{modifier_key} must contain at least one val() call to reference an on-screen field",
+                    f"""{modifier_key} must contain at least one val() call to reference an on-screen field""",
                     1,
                 )
             )
@@ -263,31 +291,10 @@ class JSShowIf:
     def _references_screen_variable(self, var_expr):
         if not isinstance(var_expr, str):
             return False
-        for candidate in self._variable_candidates(var_expr):
+        for candidate in _variable_candidates(var_expr):
             if candidate in self.screen_variables:
                 return True
         return False
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 class ShowIf:
@@ -328,7 +335,7 @@ class ShowIf:
                 if not isinstance(code_block, str):
                     self.errors.append(
                         (
-                            f"show if: code must be a YAML string",
+                            "show if: code must be a YAML string",
                             1,
                         )
                     )
@@ -340,13 +347,16 @@ class ShowIf:
                         msg = ex.msg or str(ex)
                         self.errors.append(
                             (
-                                f"show if: code has Python syntax error: {msg}",
+                                f"""show if: code has Python syntax error: {msg}""",
                                 lineno,
                             )
                         )
             else:
                 self.errors.append(
-                    (f'show if dict must have either "variable" key or "code" key', 1)
+                    (
+                        """show if dict must have either "variable" key or "code" key""",
+                        1,
+                    )
                 )
 
 
@@ -356,9 +366,9 @@ class DAPythonVar:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"The python var needs to be a YAML string, is {x}", 1)]
+            self.errors = [(f"""The python var needs to be a YAML string, is {x}""", 1)]
         elif " " in x and not space_in_str.search(x):
-            self.errors = [(f"The python var cannot have whitespace (is {x})", 1)]
+            self.errors = [(f"""The python var cannot have whitespace (is {x})""", 1)]
 
 
 class DAType:
@@ -374,11 +384,11 @@ class ObjectsAttrType:
         # The full typing desc of the var: TODO: how to use this?
         self.errors = []
         if not (isinstance(x, list) or isinstance(x, dict)):
-            self.errors = [f"Objects block needs to be a list or a dict, is {x}"]
+            self.errors = [f"""Objects block needs to be a list or a dict, is {x}"""]
         # for entry in x:
         #   ...
         # if not isinstance(x, Union[list[dict[DAPythonVar, DAType]], dict[DAPythonVar, DAType]]):
-        #  self.errors = [(f"Not objectAttrType isinstance! {x}", 1)]
+        #  self.errors = [(f"""Not objectAttrType isinstance! {x}""", 1)]
 
 
 class DAFields:
@@ -405,22 +415,51 @@ class DAFields:
     js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
     py_modifier_keys = ("show if", "hide if")
 
+    # Keys that are valid at the field-item level (i.e. inside a single field dict).
+    # When `fields` is written as a bare dict (single-field shorthand rather than a
+    # list), at least one of these keys must be present for it to look like a valid
+    # field descriptor rather than a malformed code-reference dict.
+    _field_item_keys = modifier_keys | {
+        "field",
+        "input type",
+        "note",
+        "html",
+        "raw html",
+        "address autocomplete",
+        "object",
+        "object multiselect",
+        "object radio",
+        "uncheck others",
+        "shuffle",
+        "required",
+        "read only",
+        "min",
+        "max",
+    }
+
     def __init__(self, x):
         self.errors = []
         if isinstance(x, dict):
-            if "code" not in x:
-                self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
+            if "code" in x:
+                # Code-reference form: fields: {code: some_python_list_var}
+                if not isinstance(x.get("code"), str):
+                    self.errors = [
+                        (
+                            f"""fields: code must be a YAML string, is {type(x.get("code")).__name__}""",
+                            1,
+                        )
+                    ]
                 return
-            if not isinstance(x.get("code"), str):
-                self.errors = [
-                    (
-                        f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
-                        1,
-                    )
-                ]
+            # Single-field shorthand: fields is a bare dict describing one field.
+            # Docassemble allows omitting the surrounding list when there is exactly
+            # one field.  Accept it silently if it has at least one recognised key;
+            # otherwise flag it so genuinely broken dicts are still caught.
+            if x.keys() & self._field_item_keys:
+                return
+            self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
             return
         if not isinstance(x, list):
-            self.errors = [(f"fields should be a list or dict, is {x}", 1)]
+            self.errors = [(f"""fields should be a list or dict, is {x}""", 1)]
             return
         self._validate_field_modifiers(x)
 
@@ -446,7 +485,7 @@ class DAFields:
         def references_screen_variable(var_expr):
             if not isinstance(var_expr, str):
                 return False
-            candidates = self._variable_candidates(var_expr)
+            candidates = _variable_candidates(var_expr)
             if any(candidate in screen_variables for candidate in candidates):
                 return True
             # In generic-object screens, x.<attr> often aliases another object path
@@ -471,14 +510,14 @@ class DAFields:
                 if not isinstance(ref_var, str):
                     self.errors.append(
                         (
-                            f"{modifier_key}: variable must be a string, got {type(ref_var).__name__}",
+                            f"""{modifier_key}: variable must be a string, got {type(ref_var).__name__}""",
                             self._line_for(field_item),
                         )
                     )
                 elif not references_screen_variable(ref_var):
                     self.errors.append(
                         (
-                            f"{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                            f"""{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens""",
                             self._line_for(field_item),
                         )
                     )
@@ -487,7 +526,7 @@ class DAFields:
                 for err in validator.errors:
                     self.errors.append(
                         (
-                            f"{modifier_key}: code has {err[0].lower()}",
+                            f"""{modifier_key}: code has {err[0].lower()}""",
                             self._line_for(field_item, err[1]),
                         )
                     )
@@ -502,7 +541,7 @@ class DAFields:
             if not references_screen_variable(modifier_value):
                 self.errors.append(
                     (
-                        f"{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                        f"""{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens""",
                         self._line_for(field_item),
                     )
                 )
@@ -533,27 +572,6 @@ class DAFields:
                     self._validate_python_modifier(
                         py_key, field_item[py_key], field_item, screen_variables
                     )
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 # type notes what the value for that dictionary key is,
@@ -648,7 +666,6 @@ big_dict: dict[str, dict[str, Any]] = {
     "on change": {},
     "image sets": {},
     "images": {},
-    "interview help": {},
     "continue button field": {
         "type": DAPythonVar,
     },
@@ -978,8 +995,8 @@ class YAMLError:
 
     def __str__(self):
         if not self.experimental:
-            return f"REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"
-        return f"At {self.file_name}:{self.line_number}: {self.err_str}"
+            return f"""REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"""
+        return f"""At {self.file_name}:{self.line_number}: {self.err_str}"""
 
 
 class SafeLineLoader(SafeLoader):
@@ -999,9 +1016,9 @@ class SafeLineLoader(SafeLoader):
                     # Raise YAML marked error so find_errors_from_string will
                     # capture this as a parsing error tied to a specific line.
                     raise yaml.error.MarkedYAMLError(
-                        context=f"while constructing a mapping",
+                        context="""while constructing a mapping""",
                         context_mark=node.start_mark,
-                        problem=f"found duplicate key {key!r}",
+                        problem=f"""found duplicate key {key!r}""",
                         problem_mark=key_node.start_mark,
                     )
                 seen_keys.add(key)
@@ -1026,6 +1043,25 @@ def find_errors_from_string(
     if not input_file:
         input_file = "<string input>"
 
+    # Pre-process Jinja2 templates before YAML parsing only when the file
+    # explicitly opts in with '# use jinja' on the first line.
+    if _has_jinja_header(full_content):
+        rendered, render_errors = preprocess_jinja(full_content)
+        if render_errors:
+            return [
+                YAMLError(
+                    err_str=e,
+                    line_number=1,
+                    file_name=input_file,
+                    experimental=False,
+                )
+                for e in render_errors
+            ]
+        # Strip the '# use jinja' header from the rendered output so the
+        # recursive call does not re-enter this branch.
+        _, _sep, rendered_body = rendered.partition("\n")
+        return find_errors_from_string(rendered_body, input_file=input_file)
+
     exclusive_keys = [
         key
         for key in types_of_blocks.keys()
@@ -1034,7 +1070,7 @@ def find_errors_from_string(
 
     line_number = 1
     for source_code in document_match.split(full_content):
-        lines_in_code = sum(l == "\n" for l in source_code)
+        lines_in_code = sum(source_line == "\n" for source_line in source_code)
         source_code = remove_trailing_dots.sub("", source_code)
         source_code = fix_tabs.sub("  ", source_code)
         try:
@@ -1064,7 +1100,7 @@ def find_errors_from_string(
         if len(any_types) == 0:
             all_errors.append(
                 YAMLError(
-                    err_str=f"No possible types found: {doc}",
+                    err_str=f"""No possible types found: {doc}""",
                     line_number=line_number,
                     file_name=input_file,
                 )
@@ -1078,7 +1114,7 @@ def find_errors_from_string(
             else:
                 all_errors.append(
                     YAMLError(
-                        err_str=f"Too many types this block could be: {posb_types}",
+                        err_str=f"""Too many types this block could be: {posb_types}""",
                         line_number=line_number,
                         file_name=input_file,
                     )
@@ -1095,7 +1131,7 @@ def find_errors_from_string(
         if len(weird_keys) > 0:
             all_errors.append(
                 YAMLError(
-                    err_str=f"Keys that shouldn't exist! {weird_keys}",
+                    err_str=f"""Keys that shouldn't exist! {weird_keys}""",
                     line_number=line_number,
                     file_name=input_file,
                     experimental=False,
@@ -1107,7 +1143,7 @@ def find_errors_from_string(
                 for err in test.errors:
                     all_errors.append(
                         YAMLError(
-                            err_str=f"{err[0]}",
+                            err_str=f"""{err[0]}""",
                             line_number=err[1] + doc["__line__"] + line_number,
                             file_name=input_file,
                         )
@@ -1120,8 +1156,9 @@ def find_errors_from_string(
 def find_errors(input_file: str) -> list[YAMLError]:
     """Return list of YAMLError found in the given input_file
 
-    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
-    it is ignored and an empty list is returned.
+    If the file starts with the '# use jinja' header it is skipped and an empty
+    list is returned.  If Jinja syntax is detected *without* that header a
+    YAMLError is returned explaining the problem.
 
     Args:
         input_file (str): Path to the YAML file to check.
@@ -1131,11 +1168,6 @@ def find_errors(input_file: str) -> list[YAMLError]:
     """
     with open(input_file, "r") as f:
         full_content = f.read()
-
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return []
 
     return find_errors_from_string(full_content, input_file=input_file)
 
@@ -1148,7 +1180,27 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
-def process_file(input_file):
+def process_file(
+    input_file,
+    quiet: bool = False,
+    display_path: str | None = None,
+) -> str:
+    """Process a single file and report its validation status.
+
+    Args:
+        input_file: Path to the YAML file to check.
+        quiet: If True, suppress output for successful and skipped files.
+            Errors are still printed.
+        display_path: Optional path string to use in output instead of the
+            full ``input_file`` path (e.g. a relative path).
+
+    Returns:
+        A string indicating the result of processing:
+        - "ok": The file was checked and no errors were found.
+        - "error": The file was checked and one or more errors were found.
+        - "skipped": The file was not checked because it matches a known
+          pattern of files to ignore.
+    """
     for dumb_da_file in [
         "pgcodecache.yml",
         "title_documentation.yml",
@@ -1158,19 +1210,30 @@ def process_file(input_file):
         "examples.yml",
     ]:
         if input_file.endswith(dumb_da_file):
-            print()
-            print(f"ignoring {dumb_da_file}")
-            return
+            if not quiet:
+                print(f"""skipped: {display_path or input_file}""")
+            return "skipped"
 
-    all_errors = find_errors(input_file)
+    with open(input_file, "r") as f:
+        full_content = f.read()
+
+    is_jinja = _has_jinja_header(full_content)
+
+    all_errors = find_errors_from_string(
+        full_content, input_file=display_path or input_file
+    )
 
     if len(all_errors) == 0:
-        print(".", end="")
-        return
-    print()
-    print(f"Found {len(all_errors)} errors:")
+        if not quiet:
+            label = "ok (jinja)" if is_jinja else "ok"
+            print(f"""{label}: {display_path or input_file}""")
+        return "ok"
+
+    jinja_note = " (jinja)" if is_jinja else ""
+    print(f"""errors ({len(all_errors)}){jinja_note}: {display_path or input_file}""")
     for err in all_errors:
-        print(f"{err}")
+        print(f"""  {err}""")
+    return "error"
 
 
 def main() -> int:
@@ -1191,7 +1254,30 @@ def main() -> int:
             "(.git*, .github*, sources)"
         ),
     )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress all output except errors",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Do not print the summary line after processing",
+    )
     args = parser.parse_args()
+
+    # Precompute resolved base dirs for relative path display
+    base_dirs = [p.resolve() if p.is_dir() else p.resolve().parent for p in args.files]
+
+    def _display(file_path: Path) -> Path:
+        resolved = file_path.resolve()
+        for base in base_dirs:
+            try:
+                return resolved.relative_to(base)
+            except ValueError:
+                continue
+        return resolved
 
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
@@ -1200,9 +1286,30 @@ def main() -> int:
         print("No YAML files found.", file=sys.stderr)
         return 1
 
+    files_ok = 0
+    files_error = 0
+    files_skipped = 0
+
     for input_file in yaml_files:
-        process_file(str(input_file))
-    return 0
+        status = process_file(
+            str(input_file),
+            quiet=args.quiet,
+            display_path=str(_display(input_file)),
+        )
+        if status == "ok":
+            files_ok += 1
+        elif status == "error":
+            files_error += 1
+        else:
+            files_skipped += 1
+
+    if not args.quiet and not args.no_summary:
+        total = files_ok + files_error + files_skipped
+        print(
+            f"""Summary: {files_ok} ok, {files_error} errors, {files_skipped} skipped ({total} total)"""
+        )
+
+    return 1 if files_error > 0 else 0
 
 
 if __name__ == "__main__":

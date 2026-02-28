@@ -1,10 +1,15 @@
 import unittest
+from pathlib import Path
 from dayamlchecker.code_formatter import (
     format_python_code,
     format_yaml_string,
     FormatterConfig,
     _convert_indent_4_to_2,
     _strip_common_indent,
+)
+from dayamlchecker._jinja import (
+    _contains_jinja_syntax,
+    _has_jinja_header,
 )
 
 
@@ -230,6 +235,152 @@ code: |
         self.assertIn("if True:\n    x = 1", result)
 
 
+class TestContainsJinjaSyntax(unittest.TestCase):
+    def test_detects_variable_expression(self):
+        self.assertTrue(_contains_jinja_syntax("question: Hello {{ user }}!"))
+
+    def test_detects_block_tag(self):
+        self.assertTrue(_contains_jinja_syntax("{% if condition %}yes{% endif %}"))
+
+    def test_detects_comment_tag(self):
+        self.assertTrue(_contains_jinja_syntax("{# This is a comment #}"))
+
+    def test_detects_whitespace_control_tags(self):
+        self.assertTrue(_contains_jinja_syntax("{%- if x -%}\ncontent\n{%- endif -%}"))
+
+    def test_plain_yaml_not_detected(self):
+        self.assertFalse(
+            _contains_jinja_syntax("question: Hello world\ncode: |\n  x = 1\n")
+        )
+
+    def test_python_single_brace_dict_not_detected(self):
+        self.assertFalse(_contains_jinja_syntax("code: |\n  d = {key: value}\n"))
+
+    def test_empty_string_not_detected(self):
+        self.assertFalse(_contains_jinja_syntax(""))
+
+    def test_plain_text_with_percent_not_detected(self):
+        self.assertFalse(_contains_jinja_syntax("discount: 50%\n"))
+
+
+class TestHasJinjaHeader(unittest.TestCase):
+    def test_exact_header_detected(self):
+        self.assertTrue(_has_jinja_header("# use jinja\nquestion: test\n"))
+
+    def test_header_only_line(self):
+        self.assertTrue(_has_jinja_header("# use jinja"))
+
+    def test_header_with_leading_whitespace_not_detected(self):
+        # First line must be exactly '# use jinja'; leading spaces disqualify it
+        self.assertFalse(_has_jinja_header(" # use jinja\nquestion: test\n"))
+
+    def test_missing_space_not_detected(self):
+        self.assertFalse(_has_jinja_header("#use jinja\nquestion: test\n"))
+
+    def test_no_header_returns_false(self):
+        self.assertFalse(_has_jinja_header("---\nquestion: test\n"))
+
+    def test_empty_content_returns_false(self):
+        self.assertFalse(_has_jinja_header(""))
+
+
+class TestFormatYamlStringJinja(unittest.TestCase):
+    """Valid Jinja files (with '# use jinja' header) are skipped unchanged.
+    Files that contain Jinja syntax WITHOUT the header are an error.
+    """
+
+    # --- valid Jinja files (should be returned unchanged) ---
+
+    def test_jinja_variable_file_returned_unchanged(self):
+        yaml_content = (
+            "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x = 1\n"
+        )
+        result, changed = format_yaml_string(yaml_content)
+        self.assertEqual(result, yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_block_tag_returned_unchanged(self):
+        # No code blocks — nothing to format, returned unchanged.
+        yaml_content = (
+            "# use jinja\n---\n{% if condition %}\nquestion: test\n{% endif %}\n"
+        )
+        result, changed = format_yaml_string(yaml_content)
+        self.assertEqual(result, yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_comment_returned_unchanged(self):
+        # No code blocks — nothing to format, returned unchanged.
+        yaml_content = "# use jinja\n{# template comment #}\nquestion: test\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertEqual(result, yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_code_block_with_jinja_syntax_not_modified(self):
+        # A code block that itself contains Jinja syntax must be left alone.
+        yaml_content = (
+            "# use jinja\n"
+            "---\n"
+            "code: |\n"
+            "  {% for item in items %}\n"
+            "  x = {{ item }}\n"
+            "  {% endfor %}\n"
+        )
+        result, changed = format_yaml_string(yaml_content)
+        self.assertEqual(result, yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_mixed_blocks_only_clean_ones_formatted(self):
+        # Second code block has no Jinja — only that block should be formatted.
+        yaml_content = "# use jinja\n---\ncode: |\n  x={{ y }}\n---\ncode: |\n  z=1\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertTrue(changed)
+        # First block (Jinja) must be untouched
+        self.assertIn("x={{ y }}", result)
+        # Second block (clean) must be formatted
+        self.assertIn("z = 1", result)
+
+    def test_jinja_variable_file_already_formatted_unchanged(self):
+        # Already-formatted code block — no change expected.
+        yaml_content = (
+            "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x = 1\n"
+        )
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+        self.assertEqual(result, yaml_content)
+
+    def test_jinja_with_unformatted_code_is_now_formatted(self):
+        # A valid Jinja file whose code block has no Jinja syntax IS now formatted.
+        yaml_content = "# use jinja\n---\nquestion: Hello {{ user }}\ncode: |\n  x=1\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertTrue(changed)
+        self.assertIn("x = 1", result)
+        # Jinja expression preserved exactly
+        self.assertIn("{{ user }}", result)
+        # Header preserved
+        self.assertTrue(result.startswith("# use jinja\n"))
+
+    # --- Jinja-like syntax without '# use jinja' header: treated as plain YAML ---
+
+    def test_jinja_variable_without_header_no_error(self):
+        # {{ }} in a YAML value is valid YAML; formatter should return it unchanged.
+        yaml_content = "---\nquestion: Hello {{ user }}\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+        self.assertEqual(result, yaml_content)
+
+    def test_jinja_block_tag_without_header_yaml_error(self):
+        # {% %} on its own line is not valid YAML; the YAML parser raises.
+        yaml_content = "---\n{% if condition %}\nquestion: test\n{% endif %}\n"
+        with self.assertRaises(Exception):
+            format_yaml_string(yaml_content)
+
+    def test_jinja_comment_without_header_yaml_error(self):
+        # {# #} is not valid YAML; the YAML parser raises.
+        yaml_content = "{# template comment #}\nquestion: test\n"
+        with self.assertRaises(Exception):
+            format_yaml_string(yaml_content)
+
+
 class TestFormatterConfig(unittest.TestCase):
     def test_default_config(self):
         config = FormatterConfig()
@@ -243,6 +394,240 @@ class TestFormatterConfig(unittest.TestCase):
         self.assertIn("code", config.python_keys)
         self.assertIn("custom_code", config.python_keys)
         self.assertNotIn("validation code", config.python_keys)
+
+
+class TestReindent(unittest.TestCase):
+    """Tests for _reindent."""
+
+    def setUp(self):
+        from dayamlchecker.code_formatter import _reindent
+
+        self._fn = _reindent
+
+    def test_zero_indent_returns_unchanged(self):
+        text = "x = 1\ny = 2\n"
+        self.assertEqual(self._fn(text, 0), text)
+
+    def test_negative_indent_returns_unchanged(self):
+        text = "x = 1\n"
+        self.assertEqual(self._fn(text, -1), text)
+
+    def test_positive_indent_adds_prefix_to_non_empty_lines(self):
+        text = "x = 1\ny = 2\n"
+        result = self._fn(text, 2)
+        self.assertIn("  x = 1", result)
+        self.assertIn("  y = 2", result)
+
+    def test_blank_lines_not_indented(self):
+        text = "x = 1\n\ny = 2\n"
+        result = self._fn(text, 2)
+        lines = result.splitlines()
+        # blank line should remain blank (not gain spaces)
+        self.assertIn("", lines)
+
+
+class TestFindBlockBodySpan(unittest.TestCase):
+    """Tests for _find_block_body_span."""
+
+    def setUp(self):
+        from dayamlchecker.code_formatter import _find_block_body_span
+
+        self._fn = _find_block_body_span
+
+    def test_header_at_last_line_returns_empty_span(self):
+        # Only one line, header is at index 0 -> no body
+        lines = ["code: |\n"]
+        start, end, indent = self._fn(lines, 0)
+        self.assertGreater(start, end)
+
+    def test_basic_body_span(self):
+        lines = ["code: |\n", "  x = 1\n", "  y = 2\n"]
+        start, end, indent = self._fn(lines, 0)
+        self.assertEqual(start, 1)
+        self.assertEqual(end, 2)
+        self.assertEqual(indent, 2)
+
+    def test_blank_lines_inside_body_included(self):
+        lines = ["code: |\n", "  x = 1\n", "\n", "  y = 2\n", "question: |\\n"]
+        start, end, _ = self._fn(lines, 0)
+        # blank line at index 2 is part of the block
+        self.assertGreaterEqual(end, 3)
+
+    def test_dedented_line_ends_body(self):
+        lines = ["code: |\n", "  x = 1\n", "other: value\n"]
+        start, end, _ = self._fn(lines, 0)
+        self.assertEqual(end, 1)
+
+
+class TestFormatYamlFile(unittest.TestCase):
+    """Tests for format_yaml_file()."""
+
+    def test_format_writes_and_returns_changes(self):
+        import tempfile
+        import os
+        from dayamlchecker.code_formatter import format_yaml_file
+
+        content = "---\ncode: |\n  x=1\n"
+        with tempfile.NamedTemporaryFile(
+            suffix=".yml", mode="w", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            fname = f.name
+        try:
+            result, changed = format_yaml_file(fname, write=True)
+            self.assertTrue(changed)
+            self.assertIn("x = 1", result)
+            # File should be updated on disk
+            self.assertIn("x = 1", Path(fname).read_text(encoding="utf-8"))
+        finally:
+            os.unlink(fname)
+
+    def test_format_no_write_does_not_modify_file(self):
+        import tempfile
+        import os
+        from dayamlchecker.code_formatter import format_yaml_file
+
+        content = "---\ncode: |\n  x=1\n"
+        with tempfile.NamedTemporaryFile(
+            suffix=".yml", mode="w", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            fname = f.name
+        try:
+            result, changed = format_yaml_file(fname, write=False)
+            self.assertTrue(changed)
+            # Original file must be unchanged
+            self.assertEqual(Path(fname).read_text(encoding="utf-8"), content)
+        finally:
+            os.unlink(fname)
+
+    def test_format_unchanged_file_returns_false(self):
+        import tempfile
+        import os
+        from dayamlchecker.code_formatter import format_yaml_file
+
+        content = "---\ncode: |\n  x = 1\n"
+        with tempfile.NamedTemporaryFile(
+            suffix=".yml", mode="w", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            fname = f.name
+        try:
+            _, changed = format_yaml_file(fname)
+            self.assertFalse(changed)
+        finally:
+            os.unlink(fname)
+
+
+class TestCollectYamlFiles(unittest.TestCase):
+    """Tests for _collect_yaml_files in code_formatter."""
+
+    def test_check_all_flag_disables_ignores(self):
+        import tempfile
+        from dayamlchecker.code_formatter import _collect_yaml_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            visible = root / "visible.yml"
+            git_dir = root / ".git"
+            git_dir.mkdir()
+            hidden = git_dir / "hidden.yml"
+            visible.write_text("---\n", encoding="utf-8")
+            hidden.write_text("---\n", encoding="utf-8")
+
+            result = _collect_yaml_files([root], check_all=True)
+            paths = [p.name for p in result]
+            self.assertIn("hidden.yml", paths)
+
+    def test_venv_dir_is_ignored_by_default(self):
+        import tempfile
+        from dayamlchecker.code_formatter import _collect_yaml_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            venv_dir = root / ".venv"
+            venv_dir.mkdir()
+            (venv_dir / "env.yml").write_text("---\n", encoding="utf-8")
+            (root / "real.yml").write_text("---\n", encoding="utf-8")
+
+            result = _collect_yaml_files([root])
+            names = [p.name for p in result]
+            self.assertIn("real.yml", names)
+            self.assertNotIn("env.yml", names)
+
+    def test_single_yaml_file_path_collected(self):
+        import tempfile
+        import os
+        from dayamlchecker.code_formatter import _collect_yaml_files
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".yml", delete=False, mode="w", encoding="utf-8"
+        ) as f:
+            f.write("---\n")
+            fname = f.name
+        try:
+            result = _collect_yaml_files([Path(fname)])
+            self.assertEqual(len(result), 1)
+        finally:
+            os.unlink(fname)
+
+    def test_non_yaml_file_not_collected(self):
+        import tempfile
+        import os
+        from dayamlchecker.code_formatter import _collect_yaml_files
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".txt", delete=False, mode="w", encoding="utf-8"
+        ) as f:
+            f.write("hello\n")
+            fname = f.name
+        try:
+            result = _collect_yaml_files([Path(fname)])
+            self.assertEqual(result, [])
+        finally:
+            os.unlink(fname)
+
+
+class TestFormatterConfigDefaults(unittest.TestCase):
+    def test_prefer_literal_blocks_default_true(self):
+        config = FormatterConfig()
+        self.assertTrue(config.prefer_literal_blocks)
+
+    def test_strip_trailing_whitespace_default_true(self):
+        config = FormatterConfig()
+        self.assertTrue(config.strip_trailing_whitespace)
+
+    def test_black_target_versions_default_empty(self):
+        config = FormatterConfig()
+        self.assertEqual(config.black_target_versions, set())
+
+
+class TestFormatYamlStringEdgeCases(unittest.TestCase):
+    """Additional edge-case tests for format_yaml_string."""
+
+    def test_empty_yaml_no_change(self):
+        result, changed = format_yaml_string("")
+        self.assertFalse(changed)
+
+    def test_none_document_no_crash(self):
+        # A YAML stream with only '---' produces a None document
+        result, changed = format_yaml_string("---\n")
+        self.assertFalse(changed)
+
+    def test_no_trailing_newline_on_last_body_line_preserved(self):
+        # Body line that doesn't end with \n should not gain one after replacement
+        yaml_content = "code: |\n  x=1"
+        result, _ = format_yaml_string(yaml_content)
+        self.assertIn("x = 1", result)
+
+    def test_format_with_custom_line_length(self):
+        # A very short line length forces Black to break the line
+        config = FormatterConfig(black_line_length=20)
+        yaml_content = (
+            "---\ncode: |\n  very_long_variable_name = another_long_variable\n"
+        )
+        result, _ = format_yaml_string(yaml_content, config)
+        self.assertIsInstance(result, str)
 
 
 if __name__ == "__main__":
