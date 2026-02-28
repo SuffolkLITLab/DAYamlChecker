@@ -29,10 +29,6 @@ from dayamlchecker._jinja import (
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# [DONE] if "# use jinja" at top, process whole file with Jinja:
-#   https://docassemble.org/docs/interviews.html#jinja2
-#   Jinja files are pre-processed via preprocess_jinja() before checking,
-#   and the formatter skips Jinja-syntax code blocks while formatting the rest.
 
 
 __all__ = [
