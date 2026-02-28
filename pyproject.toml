@@ -30,12 +30,12 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 mcp = ["mcp[cli]"]
+tests = [
+    "pytest",
+]
 types = [
     "mypy",
     "types-PyYAML",
-]
-tests = [
-    "pytest",
 ]
 
 [project.scripts]
