@@ -5,10 +5,11 @@ description = "An LSP for Docassemble YAML interviews"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "black>=24.0.0",
     "esprima>=4.0.1",
+    "jinja2",
     "mako>=1.3.10",
     "pyyaml>=6.0.2",
-    "black>=24.0.0",
     "ruamel.yaml>=0.18.0",
 ]
 license = "MIT"
@@ -29,12 +30,22 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 mcp = ["mcp[cli]"]
+tests = [
+    "pytest",
+]
+types = [
+    "mypy",
+    "types-PyYAML",
+]
 
 [project.scripts]
 dayamlchecker = "dayamlchecker.yaml_structure:main"
 dayamlchecker-mcp = "dayamlchecker.mcp.server:main"
 dayamlchecker-gen-mcp = "dayamlchecker.generate_mcp_config:main"
 dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
 
 [tool.mypy]
 mypy_path = "src"

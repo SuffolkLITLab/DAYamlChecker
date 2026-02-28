@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black
+        language: python
+        additional_dependencies: ["."]
+        args: [.]
+        pass_filenames: false
+        stages: [push]
+
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: python
+        additional_dependencies: [".[types]"]
+        args: [".", "--exclude", '^(build/|\.venv/|\.mypy_cache/|\.pytest_cache/)', "--explicit-package-bases"]
+        pass_filenames: false
+        stages: [push]
+
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: python
+        additional_dependencies: [".[tests]"]
+        args: [-q]
+        pass_filenames: false
+        always_run: true
+        stages: [push]
