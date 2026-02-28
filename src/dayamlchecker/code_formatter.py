@@ -574,14 +574,7 @@ Examples:
         action="store_true",
         help="Disable 4-to-2 space indentation conversion",
     )
-    output_group = parser.add_mutually_exclusive_group()
-    output_group.add_argument(
-        "-m",
-        "--minimal",
-        action="store_true",
-        help="Show compact dot/letter progress instead of per-file lines",
-    )
-    output_group.add_argument(
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -621,10 +614,7 @@ Examples:
         return resolved
 
     def _emit_error(message: str) -> None:
-        if args.minimal:
-            print("E", end="", flush=True)
-        elif not args.quiet:
-            print(message, file=sys.stderr)
+        print(message, file=sys.stderr)
 
     # Collect all YAML files from paths (handles directories recursively)
     yaml_files = _collect_yaml_files(args.files, check_all=args.check_all)
@@ -636,12 +626,9 @@ Examples:
     files_changed = 0
     files_unchanged = 0
     files_error = 0
-    error_messages: list[str] = []
 
     for file_path in yaml_files:
         if not file_path.exists():
-            msg = f"""File not found: {_display(file_path)}"""
-            error_messages.append(msg)
             files_error += 1
             exit_code = 1
             _emit_error(f"""error: {_display(file_path)} (file not found)""")
@@ -654,11 +641,6 @@ Examples:
             # Files WITH the header are processed by format_yaml_string's
             # _format_jinja_yaml_string path (only clean code blocks formatted).
             if _contains_jinja_syntax(content) and not _has_jinja_header(content):
-                msg = (
-                    f"""{_display(file_path)} contains Jinja syntax but is """
-                    "missing '# use jinja' on the first line."
-                )
-                error_messages.append(msg)
                 files_error += 1
                 exit_code = 1
                 _emit_error(
@@ -675,44 +657,23 @@ Examples:
                 if args.check:
                     print(f"""Would reformat: {_display(file_path)}""")
                     exit_code = 1
-                elif args.minimal:
-                    print("R", end="", flush=True)
                 elif not args.quiet:
                     print(f"""reformatted: {_display(file_path)}""")
             else:
                 files_unchanged += 1
-                if not args.check:
-                    if args.minimal:
-                        print(".", end="", flush=True)
-                    elif not args.quiet:
-                        print(f"""unchanged: {_display(file_path)}""")
+                if not args.check and not args.quiet:
+                    print(f"""unchanged: {_display(file_path)}""")
 
         except Exception as e:
-            msg = f"""Error processing {_display(file_path)}: {e}"""
-            error_messages.append(msg)
             files_error += 1
             exit_code = 1
             _emit_error(f"""error: {_display(file_path)}: {e}""")
 
-    if not args.check:
-        if args.minimal:
-            print()  # terminate dot line
-        if args.minimal or args.quiet:
-            for msg in error_messages:
-                print(f"""  Error: {msg}""", file=sys.stderr)
-        else:
-            if not args.no_summary:
-                total = files_changed + files_unchanged + files_error
-                summary_parts = []
-                if files_changed:
-                    summary_parts.append(f"""{files_changed} reformatted""")
-                if files_unchanged:
-                    summary_parts.append(f"""{files_unchanged} unchanged""")
-                if files_error:
-                    summary_parts.append(f"""{files_error} errors""")
-                if not summary_parts:
-                    summary_parts.append("0 files processed")
-                print(f"""Summary: {", ".join(summary_parts)} ({total} total)""")
+    if not args.check and not args.quiet and not args.no_summary:
+        total = files_changed + files_unchanged + files_error
+        print(
+            f"""Summary: {files_changed} reformatted, {files_unchanged} unchanged, {files_error} errors ({total} total)"""
+        )
 
     return exit_code
 

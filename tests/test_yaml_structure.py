@@ -1305,7 +1305,7 @@ class TestProcessFile(unittest.TestCase):
                 except OSError:
                     pass
 
-    def test_process_valid_file_prints_dot(self):
+    def test_process_valid_file_prints_ok(self):
         import io
         from dayamlchecker.yaml_structure import process_file
 
@@ -1313,14 +1313,14 @@ class TestProcessFile(unittest.TestCase):
         out = io.StringIO()
         try:
             with patch("sys.stdout", out):
-                process_file(path, minimal=True)
+                process_file(path)
         finally:
             import os
 
             os.unlink(path)
-        self.assertIn(".", out.getvalue())
+        self.assertIn("ok", out.getvalue())
 
-    def test_process_jinja_file_prints_j(self):
+    def test_process_jinja_file_prints_ok_jinja(self):
         import io
         from dayamlchecker.yaml_structure import process_file
 
@@ -1328,12 +1328,12 @@ class TestProcessFile(unittest.TestCase):
         out = io.StringIO()
         try:
             with patch("sys.stdout", out):
-                process_file(path, minimal=True)
+                process_file(path)
         finally:
             import os
 
             os.unlink(path)
-        self.assertIn("j", out.getvalue())
+        self.assertIn("ok (jinja)", out.getvalue())
 
     def test_process_file_with_errors_prints_error_count(self):
         import io
@@ -1343,12 +1343,11 @@ class TestProcessFile(unittest.TestCase):
         out = io.StringIO()
         try:
             with patch("sys.stdout", out):
-                process_file(path, minimal=True)
+                process_file(path)
         finally:
             import os
 
             os.unlink(path)
-        self.assertIn("Found", out.getvalue())
         self.assertIn("errors", out.getvalue())
 
     def test_process_ignored_da_filename_skipped(self):

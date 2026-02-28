@@ -124,7 +124,7 @@ def test_formatter_jinja_file_already_formatted_unchanged():
         result = _run_formatter(str(jinja_file))
 
         assert result.returncode == 0
-        assert "." in result.stdout
+        assert "unchanged" in result.stdout
         assert jinja_file.read_text(encoding="utf-8") == original
 
 
