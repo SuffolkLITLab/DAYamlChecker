@@ -1575,7 +1575,11 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
-def process_file(input_file):
+def process_file(input_file) -> int:
+    """
+    Returns:
+        int: the number of errors found in the input_file
+    """
     for dumb_da_file in [
         "pgcodecache.yml",
         "title_documentation.yml",
@@ -1587,17 +1591,18 @@ def process_file(input_file):
         if input_file.endswith(dumb_da_file):
             print()
             print(f"ignoring {dumb_da_file}")
-            return
+            return 0
 
     all_errors = find_errors(input_file)
 
     if len(all_errors) == 0:
         print(".", end="")
-        return
+        return 0
     print()
     print(f"Found {len(all_errors)} errors:")
     for err in all_errors:
         print(f"{err}")
+    return len(all_errors)
 
 
 def main() -> int:
@@ -1627,9 +1632,12 @@ def main() -> int:
         print("No YAML files found.", file=sys.stderr)
         return 1
 
+    failed = False
     for input_file in yaml_files:
-        process_file(str(input_file))
-    return 0
+        error_count = process_file(str(input_file))
+        if error_count > 0:
+            failed = True
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
