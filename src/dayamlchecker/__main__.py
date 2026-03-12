@@ -1,3 +1,5 @@
 from .yaml_structure import main
 
-main()
+import sys
+
+sys.exit(main())
