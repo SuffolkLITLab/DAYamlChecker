@@ -1,8 +1,6 @@
 from typing import Any
 
-
 class SchemaError(Exception): ...
-
 
 class Match:
     schema: str
@@ -11,7 +9,6 @@ class Match:
     raw: str
     text: str
     url: str
-
 
 class LinkifyIt:
     def __init__(

@@ -112,22 +112,39 @@ def parse_args() -> argparse.Namespace:
 
 
 # File extensions likely to contain URLs worth checking.
-_TEXT_SUFFIXES: frozenset[str] = frozenset({
-    ".yml", ".yaml", ".py", ".md", ".html", ".json", ".js", ".txt", ".j2",
-})
+_TEXT_SUFFIXES: frozenset[str] = frozenset(
+    {
+        ".yml",
+        ".yaml",
+        ".py",
+        ".md",
+        ".html",
+        ".json",
+        ".js",
+        ".txt",
+        ".j2",
+    }
+)
 
 # Binary document formats to check
-_DOCUMENT_SUFFIXES: frozenset[str] = frozenset({
-    ".pdf", ".docx",
-})
+_DOCUMENT_SUFFIXES: frozenset[str] = frozenset(
+    {
+        ".pdf",
+        ".docx",
+    }
+)
 
 # URL prefixes to whitelist (API families and endpoints requiring authentication).
-_WHITELIST_URL_PREFIXES: frozenset[str] = frozenset({
-    "https://api.openai.com/v1/",
-    "https://generativelanguage.googleapis.com/v1beta/openai/",
-})
+_WHITELIST_URL_PREFIXES: frozenset[str] = frozenset(
+    {
+        "https://api.openai.com/v1/",
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+    }
+)
 
-_EXAMPLE_DOMAINS: frozenset[str] = frozenset({"example.com", "example.net", "example.org"})
+_EXAMPLE_DOMAINS: frozenset[str] = frozenset(
+    {"example.com", "example.net", "example.org"}
+)
 
 
 def _iter_package_dirs(
@@ -273,7 +290,10 @@ def extract_text_from_pdf(file_path: pathlib.Path) -> str:
                 text_parts.append(page_text)
         return "\n".join(text_parts)
     except Exception as e:
-        print(f"Warning: could not extract text from PDF {file_path}: {e}", file=sys.stderr)
+        print(
+            f"Warning: could not extract text from PDF {file_path}: {e}",
+            file=sys.stderr,
+        )
         return ""
 
 
@@ -283,7 +303,10 @@ def extract_text_from_docx(file_path: pathlib.Path) -> str:
         result = docx2python(file_path)
         return result.text
     except Exception as e:
-        print(f"Warning: could not extract text from DOCX {file_path}: {e}", file=sys.stderr)
+        print(
+            f"Warning: could not extract text from DOCX {file_path}: {e}",
+            file=sys.stderr,
+        )
         return ""
 
 
@@ -350,7 +373,9 @@ def parse_ignore_urls(raw: str) -> set[str]:
     return ignored_urls
 
 
-def extract_urls_from_file(file_path: pathlib.Path, linkify: LinkifyIt) -> tuple[list[str], list[str]]:
+def extract_urls_from_file(
+    file_path: pathlib.Path, linkify: LinkifyIt
+) -> tuple[list[str], list[str]]:
     # Extract text based on file type
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
@@ -454,7 +479,9 @@ def check_urls(
         try:
             # stream=True avoids downloading large response bodies; the
             # context manager ensures the connection is released promptly.
-            with session.get(url, allow_redirects=True, timeout=timeout, stream=True) as response:
+            with session.get(
+                url, allow_redirects=True, timeout=timeout, stream=True
+            ) as response:
                 if response.status_code in _DEAD_STATUS_CODES:
                     broken.append((url, response.status_code))
         except requests.RequestException as exc:
@@ -530,8 +557,7 @@ def run_url_check(
     )
     ignored_urls = set(ignore_urls)
     ignored_matches = sorted(
-        ignored_urls
-        & (set(collected.yaml_urls) | set(collected.document_urls))
+        ignored_urls & (set(collected.yaml_urls) | set(collected.document_urls))
     )
     for ignored in ignored_matches:
         collected.yaml_urls.pop(ignored, None)
@@ -675,9 +701,7 @@ def print_url_check_report(result: URLCheckResult) -> None:
                 ]
                 if not bucket:
                     continue
-                print(
-                    title_labels[category].format(source=source_labels[source_kind])
-                )
+                print(title_labels[category].format(source=source_labels[source_kind]))
                 for issue in bucket:
                     sources = ", ".join(issue.sources)
                     if issue.status_code is None:
