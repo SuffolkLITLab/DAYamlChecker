@@ -14,6 +14,13 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from dayamlchecker.check_questions_urls import (
+    infer_package_dirs,
+    infer_root as infer_url_check_root,
+    parse_ignore_urls,
+    print_url_check_report,
+    run_url_check,
+)
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -1625,6 +1632,58 @@ def main() -> int:
             "(.git*, .github*, sources)"
         ),
     )
+    parser.add_argument(
+        "--url-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Check URLs in the selected question/YAML files and related "
+            "document/template files (default: on)"
+        ),
+    )
+    parser.add_argument(
+        "--url-check-root",
+        type=Path,
+        default=None,
+        help=(
+            "Repository root for related document/template URL scanning "
+            "(default: inferred from the YAML paths)"
+        ),
+    )
+    parser.add_argument(
+        "--url-check-timeout",
+        type=int,
+        default=10,
+        help="HTTP timeout in seconds for each URL check (default: 10)",
+    )
+    parser.add_argument(
+        "--url-check-ignore-urls",
+        default="",
+        help="Comma/newline-separated absolute URLs to ignore during URL checking",
+    )
+    parser.add_argument(
+        "--url-check-skip-documents",
+        action="store_true",
+        help="Skip checking URLs in related data/templates files",
+    )
+    parser.add_argument(
+        "--yaml-url-severity",
+        choices=("error", "warning", "ignore"),
+        default="error",
+        help="How to report broken or malformed URLs in question/YAML files (default: error)",
+    )
+    parser.add_argument(
+        "--document-url-severity",
+        choices=("error", "warning", "ignore"),
+        default="warning",
+        help="How to report broken or malformed URLs in document/template files (default: warning)",
+    )
+    parser.add_argument(
+        "--unreachable-url-severity",
+        choices=("error", "warning", "ignore"),
+        default="warning",
+        help="How to report URLs that could not be reached at all (default: warning)",
+    )
     args = parser.parse_args()
 
     yaml_files = _collect_yaml_files(
@@ -1639,6 +1698,28 @@ def main() -> int:
         error_count = process_file(str(input_file))
         if error_count > 0:
             failed = True
+
+    if args.url_check:
+        url_check_root = (
+            args.url_check_root.resolve()
+            if args.url_check_root is not None
+            else infer_url_check_root(yaml_files, fallback=Path.cwd())
+        )
+        url_check_result = run_url_check(
+            root=url_check_root,
+            question_files=yaml_files,
+            package_dirs=infer_package_dirs(yaml_files),
+            timeout=args.url_check_timeout,
+            check_documents=not args.url_check_skip_documents,
+            ignore_urls=parse_ignore_urls(args.url_check_ignore_urls),
+            yaml_severity=args.yaml_url_severity,
+            document_severity=args.document_url_severity,
+            unreachable_severity=args.unreachable_url_severity,
+        )
+        print_url_check_report(url_check_result)
+        if url_check_result.has_errors():
+            failed = True
+
     return 1 if failed else 0
 
 

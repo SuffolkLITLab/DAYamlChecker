@@ -9,6 +9,8 @@ pip install .
 python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path "*/.venv/*" -not -path "*/build/*"` # i.e. a space separated list of files
 ```
 
+The main `dayamlchecker` CLI now also runs the URL checker by default. Broken URLs in question/YAML files fail the command; broken URLs in related `data/templates` documents are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-documents`, `--yaml-url-severity`, `--document-url-severity`, and `--unreachable-url-severity`.
+
 ## MCP / LLM integration
 
 DAYamlChecker includes an optional Model Context Protocol (MCP) server. This allows AI assistants like GitHub Copilot to validate Docassemble YAML directly within your editor.

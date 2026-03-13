@@ -10,6 +10,11 @@ dependencies = [
     "pyyaml>=6.0.2",
     "black>=24.0.0",
     "ruamel.yaml>=0.18.0",
+    "docx2python>=3.5.0",
+    "linkify-it-py>=2.0.3",
+    "pypdf>=5.0.0",
+    "requests>=2.31.0",
+    "urllib3>=2.0.0",
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
