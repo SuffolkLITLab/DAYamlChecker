@@ -29,6 +29,23 @@ import esprima  # type: ignore[import-untyped]
 
 __all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
 
+# Global identifiers for _extract_conditional_fields_from_doc below. Should cover all show/hide style modifiers
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
+_SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$")
+_JS_VAL_RE = re.compile(r"""val\s*\(\s*["']([^"']+)["']\s*\)""") # matches val("fieldName") or val('fieldName') and captures fieldName
+_SHOW_STYLE_MODIFIERS = {
+    "show if",
+    "enable if",
+    "js show if",
+    "js enable if",
+}
+_HIDE_STYLE_MODIFIERS = {
+    "hide if",
+    "disable if",
+    "js hide if",
+    "js disable if",
+}
+_CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -544,10 +561,10 @@ class DAFields:
         return matches
 
     def _validate_field_modifiers(self, fields_list):
-        self.has_dynamic_fields_code = any(
+        self.has_dynamic_fields_code = any( # looking for any example in the field list. Note that there can be `code` and traditional non-code mixed in the same field list
             isinstance(field_item, dict)
             and "code" in field_item
-            and len(set(field_item.keys()) - {"code", "__line__"}) == 0
+            and len(set(field_item.keys()) - {"code", "__line__"}) == 0 # "code" is the only key other than __line__, so this is a dynamic fields block
             for field_item in fields_list
         )
         screen_variables = set()
@@ -1034,24 +1051,6 @@ class YAMLError:
         if not self.experimental:
             return f"REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"
         return f"At {self.file_name}:{self.line_number}: {self.err_str}"
-
-
-_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
-_SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$")
-_JS_VAL_RE = re.compile(r"""val\s*\(\s*["']([^"']+)["']\s*\)""")
-_SHOW_STYLE_MODIFIERS = {
-    "show if",
-    "enable if",
-    "js show if",
-    "js enable if",
-}
-_HIDE_STYLE_MODIFIERS = {
-    "hide if",
-    "disable if",
-    "js hide if",
-    "js disable if",
-}
-_CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
 
 
 def _normalize_expr(expr: str) -> str:
