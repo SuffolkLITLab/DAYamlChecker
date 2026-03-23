@@ -16,6 +16,7 @@ from ruamel.yaml import YAML as _RuamelYAML
 from ruamel.yaml.constructor import DuplicateKeyError as _RuamelDuplicateKeyError
 from ruamel.yaml.error import MarkedYAMLError as _RuamelMarkedYAMLError
 
+from dayamlchecker._files import _collect_yaml_files
 from dayamlchecker._jinja import (
     _has_jinja_header,
     preprocess_jinja,
@@ -34,7 +35,6 @@ from dayamlchecker._jinja import (
 __all__ = [
     "find_errors_from_string",
     "find_errors",
-    "_collect_yaml_files",
 ]
 
 # Global identifiers for _extract_conditional_fields_from_doc below. Should cover all show/hide style modifiers
@@ -1613,14 +1613,6 @@ def find_errors(input_file: str) -> list[YAMLError]:
         full_content = f.read()
 
     return find_errors_from_string(full_content, input_file=input_file)
-
-
-def _collect_yaml_files(
-    paths: list[Path], include_default_ignores: bool = True
-) -> list[Path]:
-    from dayamlchecker.code_formatter import _collect_yaml_files as _formatter_collect
-
-    return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
 def process_file(

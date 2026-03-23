@@ -4,7 +4,10 @@ from unittest.mock import patch
 import jinja2
 
 from dayamlchecker._jinja import _SilentUndefined, preprocess_jinja
-from dayamlchecker.yaml_structure import find_errors_from_string
+from dayamlchecker.yaml_structure import (
+    _variable_candidates,
+    find_errors_from_string,
+)
 
 
 class TestYAMLStructure(unittest.TestCase):
@@ -887,6 +890,288 @@ fields:
             0,
             f"Expected no fields-shape errors, got: {field_errors}",
         )
+
+    # -- _variable_candidates coverage --
+
+    def test_variable_candidates_empty_string(self):
+        """_variable_candidates with an empty/whitespace string returns empty set."""
+        result = _variable_candidates("  ")
+        self.assertEqual(result, set())
+
+    def test_variable_candidates_indexed_path(self):
+        """_variable_candidates strips trailing brackets iteratively."""
+        result = _variable_candidates('children[i].parents["Other"]')
+        self.assertIn("children[i].parents", result)
+        self.assertIn("children", result)
+
+    # -- PythonText non-string input (lines 157–158) --
+
+    def test_python_code_block_non_string_error(self):
+        """Error: code block value must be a YAML string."""
+        invalid = """
+code:
+  - some_list_item
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("code block must be a yaml string" in e.err_str.lower() for e in errs),
+            f"Expected code-block type error, got: {errs}",
+        )
+
+    # -- ValidationCode with raise/assert suppresses warning (lines 216–217) --
+
+    def test_validation_code_with_raise_still_warns(self):
+        """Validation code that only raises (no validation_error) should still warn."""
+        yaml_str = """
+question: |
+  Test
+fields:
+  - Apples: apples
+    datatype: integer
+validation code: |
+  if apples < 0:
+    raise Exception("negative")
+"""
+        errs = find_errors_from_string(yaml_str, input_file="<string>")
+        self.assertTrue(
+            any("does not call validation_error" in e.err_str.lower() for e in errs),
+            f"Expected missing validation_error warning for raise-only code, got: {errs}",
+        )
+
+    # -- ShowIf malformed string (lines 366–369) --
+
+    def test_show_if_malformed_string_variable_colon(self):
+        """Error: 'show if: variable:foo' as a plain string is malformed."""
+        from dayamlchecker.yaml_structure import ShowIf
+
+        validator = ShowIf("variable:a")
+        self.assertTrue(
+            any(
+                "appears to be malformed" in str(e[0]).lower() for e in validator.errors
+            ),
+            f"Expected malformed show if error, got: {validator.errors}",
+        )
+
+    def test_show_if_malformed_string_code_colon(self):
+        """Error: 'show if: code:True' as a plain string is malformed."""
+        from dayamlchecker.yaml_structure import ShowIf
+
+        validator = ShowIf("code:True")
+        self.assertTrue(
+            any(
+                "appears to be malformed" in str(e[0]).lower() for e in validator.errors
+            ),
+            f"Expected malformed show if error, got: {validator.errors}",
+        )
+
+    # -- ShowIf dict missing variable/code keys (line ~399) --
+
+    def test_show_if_dict_missing_variable_and_code(self):
+        """Error: show if dict with neither 'variable' nor 'code' key."""
+        invalid = """
+question: Test
+fields:
+  - First: a
+  - Second: b
+    show if:
+      unknown_key: something
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("must have either" in e.err_str.lower() for e in errs),
+            f"Expected show if dict key error, got: {errs}",
+        )
+
+    # -- ShowIf code: non-string value --
+
+    def test_show_if_code_non_string_error(self):
+        """Error: show if: code must be a YAML string."""
+        invalid = """
+question: Test
+fields:
+  - First: a
+  - Second: b
+    show if:
+      code:
+        - a
+        - b
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "code block must be a yaml string" in e.err_str.lower()
+                or "code must be a yaml string" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected show if code type error, got: {[e.err_str for e in errs]}",
+        )
+
+    # -- DAPythonVar non-string / whitespace (lines 399–400) --
+
+    def test_field_var_with_whitespace_error(self):
+        """Error: a field variable name with spaces should be flagged."""
+        invalid = """
+question: Test
+field: some var name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("whitespace" in e.err_str.lower() for e in errs),
+            f"Expected whitespace error for python var, got: {errs}",
+        )
+
+    # -- Nesting depth warning (line ~1580) --
+
+    def test_deeply_nested_show_if_warns(self):
+        """Warning when show if nesting depth exceeds 2."""
+        deep = """
+question: Test
+fields:
+  - A: a
+    datatype: yesnoradio
+  - B: b
+    datatype: yesnoradio
+    show if: a
+  - C: c
+    datatype: yesnoradio
+    show if: b
+  - D: d
+    show if: c
+"""
+        errs = find_errors_from_string(deep, input_file="<string>")
+        self.assertTrue(
+            any(
+                "nested" in e.err_str.lower() and "levels" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected nesting depth warning, got: {errs}",
+        )
+
+    # -- Interview-order unmatched guard reference --
+
+    def test_interview_order_unmatched_guard_warning(self):
+        """Warning when interview-order code references conditional field without guard."""
+        yaml_str = """
+question: Test
+fields:
+  - First: a
+    datatype: yesnoradio
+  - Second: b
+    show if: a
+---
+mandatory: True
+code: |
+  a
+  b
+"""
+        errs = find_errors_from_string(yaml_str, input_file="<string>")
+        self.assertTrue(
+            any("without a matching guard" in e.err_str.lower() for e in errs),
+            f"Expected interview-order guard warning, got: {errs}",
+        )
+
+    # -- Unknown block keys --
+
+    def test_unknown_key_error(self):
+        """Error: keys that shouldn't exist are flagged."""
+        invalid = """
+not_a_real_key: hello
+another_bad_key: world
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("keys that shouldn't exist" in e.err_str.lower() for e in errs),
+            f"Expected unknown key error, got: {errs}",
+        )
+
+    # -- Non-string YAML key --
+
+    def test_non_string_key_error(self):
+        """Error: boolean/numeric keys are flagged as unexpected."""
+        invalid = """
+True: hello
+question: test
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("keys that shouldn't exist" in e.err_str.lower() for e in errs),
+            f"Expected non-string key error, got: {errs}",
+        )
+
+    # -- Enable/Disable if with code (touching lines ~537, ~588–589) --
+
+    def test_js_disable_if_valid(self):
+        """Valid: js disable if with proper val() call."""
+        valid = """
+question: Test
+fields:
+  - Watcher: watches
+    datatype: yesnoradio
+  - Show: show
+    js disable if: |
+      val("watches") === false
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        js_errors = [e for e in errs if "js disable if" in e.err_str.lower()]
+        self.assertEqual(
+            len(js_errors), 0, f"Expected no js disable if errors, got: {js_errors}"
+        )
+
+    def test_js_enable_if_references_unknown_field(self):
+        """Error: js enable if val() references a field not on this screen."""
+        invalid = """
+question: Test
+fields:
+  - Show: show
+    js enable if: |
+      val("nonexistent") === true
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("not defined on this screen" in e.err_str.lower() for e in errs),
+            f"Expected unknown field error, got: {errs}",
+        )
+
+    # -- YAML syntax error (MarkedYAMLError) --
+
+    def test_yaml_syntax_error_in_second_document(self):
+        """A MarkedYAMLError in one document is reported without crashing."""
+        invalid = "---\nquestion: Hello\nfield: x\n---\nbad: [unclosed\n"
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "parsing" in e.err_str.lower() or "flow" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected YAML parse error, got: {errs}",
+        )
+
+    # -- Too many exclusive types --
+
+    def test_too_many_exclusive_types_error(self):
+        """Error when a block has multiple exclusive top-level keys."""
+        invalid = """
+question: Hello
+template: something
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("too many types" in e.err_str.lower() for e in errs),
+            f"Expected too-many-types error, got: {errs}",
+        )
+
+    # -- MakoText CompileException (lines 106–107) --
+
+    def test_mako_compile_error_in_subquestion(self):
+        """A Mako compile error in a subquestion is reported."""
+        invalid = """
+question: Hello
+subquestion: |
+  ${invalid mako
+field: x
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(len(errs) > 0, f"Expected mako error, got: {errs}")
 
 
 class TestJinjaHandling(unittest.TestCase):

@@ -4,7 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from dayamlchecker.code_formatter import _collect_yaml_files, main
+from dayamlchecker._files import _collect_yaml_files
+from dayamlchecker.code_formatter import main
 
 
 def test_formatter_collect_yaml_files_default_ignores_common_directories():
@@ -214,3 +215,76 @@ def test_formatter_jinja_without_header_with_code_block_is_formatted():
         assert bad_file.read_text(encoding="utf-8") == (
             "---\nquestion: Hello {{ user }}\ncode: |\n  x = 1\n"
         )
+
+
+def test_formatter_no_yaml_files_found():
+    """main() returns 1 and prints error when no YAML files are found."""
+    with TemporaryDirectory() as tmp:
+        txt = Path(tmp) / "readme.txt"
+        txt.write_text("not yaml\n", encoding="utf-8")
+        result = _run_formatter(str(txt))
+        assert result.returncode == 1
+        assert "no yaml files found" in result.stderr.lower()
+
+
+def test_formatter_check_mode_does_not_write():
+    """--check reports files that would change but doesn't modify them."""
+    with TemporaryDirectory() as tmp:
+        f = Path(tmp) / "interview.yml"
+        original = "---\ncode: |\n  x=1\n"
+        f.write_text(original, encoding="utf-8")
+
+        result = _run_formatter("--check", str(f))
+
+        assert result.returncode == 1
+        assert "would reformat" in result.stdout.lower()
+        assert f.read_text(encoding="utf-8") == original
+
+
+def test_formatter_check_mode_unchanged_exits_zero():
+    """--check returns 0 when no formatting changes are needed."""
+    with TemporaryDirectory() as tmp:
+        f = Path(tmp) / "interview.yml"
+        f.write_text("---\ncode: |\n  x = 1\n", encoding="utf-8")
+
+        result = _run_formatter("--check", str(f))
+
+        assert result.returncode == 0
+
+
+def test_formatter_no_summary_flag():
+    """--no-summary suppresses the summary line."""
+    with TemporaryDirectory() as tmp:
+        f = Path(tmp) / "interview.yml"
+        f.write_text("---\ncode: |\n  x = 1\n", encoding="utf-8")
+
+        result = _run_formatter("--no-summary", str(f))
+
+        assert result.returncode == 0
+        assert "summary" not in result.stdout.lower()
+
+
+def test_formatter_file_not_found_reports_error():
+    """A non-existent file path is reported as an error in stderr."""
+    with TemporaryDirectory() as tmp:
+        # Do not create the file; pass a path that doesn't exist to the CLI.
+        missing = Path(tmp) / "missing.yml"
+
+        result = _run_formatter(str(missing))
+
+        # The formatter should fail and report the error on stderr.
+        assert result.returncode != 0
+        assert "error" in result.stderr.lower()
+
+
+def test_formatter_summary_shows_error_count():
+    """Summary includes error count when a file causes an exception."""
+    with TemporaryDirectory() as tmp:
+        # Create a binary file with .yml extension that can't be decoded
+        bad = Path(tmp) / "bad.yml"
+        bad.write_bytes(b"\x80\x81\x82\x83")
+
+        result = _run_formatter(str(bad))
+
+        assert result.returncode == 1
+        assert "error" in result.stderr.lower() or "error" in result.stdout.lower()

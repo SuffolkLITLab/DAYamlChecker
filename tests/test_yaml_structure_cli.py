@@ -1,11 +1,13 @@
 import io
 import re
+import runpy
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from dayamlchecker.yaml_structure import _collect_yaml_files, main, process_file
+from dayamlchecker._files import _collect_yaml_files
+from dayamlchecker.yaml_structure import main, process_file
 
 
 def test_collect_yaml_files_recurses_directories_and_dedupes():
@@ -171,3 +173,122 @@ def test_cli_jinja_file_with_bad_key_reports_errors():
             result = process_file(str(jinja_file))
         assert result == "error"
         assert re.search(r"errors \(\d+\).*bad_jinja\.yml", buf.getvalue())
+
+
+def test_cli_process_file_skips_known_da_files():
+    """process_file returns 'skipped' for known DA helper files like docstring.yml."""
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "docstring.yml"
+        skipped.write_text(
+            "this is not valid yaml interview content\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(skipped))
+        assert result == "skipped"
+        assert "skipped" in buf.getvalue()
+
+
+def test_cli_process_file_quiet_skips_no_output():
+    """process_file with quiet=True suppresses output for skipped files."""
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "docstring.yml"
+        skipped.write_text("ignored\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(skipped), quiet=True)
+        assert result == "skipped"
+        assert buf.getvalue() == ""
+
+
+def test_cli_process_file_quiet_ok_no_output():
+    """process_file with quiet=True suppresses output for ok files."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(good), quiet=True)
+        assert result == "ok"
+        assert buf.getvalue() == ""
+
+
+def test_cli_main_no_summary_flag():
+    """--no-summary flag suppresses the summary line."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", "--no-summary", str(good)]):
+                result = main()
+        assert result == 0
+        assert "summary" not in buf.getvalue().lower()
+
+
+def test_cli_main_quiet_flag():
+    """--quiet flag suppresses all non-error output."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", "--quiet", str(good)]):
+                result = main()
+        assert result == 0
+        assert buf.getvalue().strip() == ""
+
+
+def test_cli_main_summary_shows_counts():
+    """Summary line shows counts for ok, errors, skipped."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", str(good)]):
+                main()
+        output = buf.getvalue()
+        assert "Summary:" in output
+        assert "1 ok" in output
+
+
+def test_cli_display_path_used_in_output():
+    """process_file uses display_path when provided."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(good), display_path="custom/path.yml")
+        assert result == "ok"
+        assert "custom/path.yml" in buf.getvalue()
+
+
+def test_main_module_invocation():
+    """__main__.py calls yaml_structure.main() via SystemExit."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        with patch("sys.argv", ["dayamlchecker", str(good)]):
+            try:
+                runpy.run_module("dayamlchecker", run_name="__main__")
+            except SystemExit as exc:
+                assert exc.code == 0
+
+
+def test_main_module_invocation_failure_exit_code_non_zero():
+    """__main__.py propagates non-zero exit codes from yaml_structure.main()."""
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        # Write intentionally invalid YAML to trigger a validation or parse error.
+        bad.write_text(":\n  - invalid", encoding="utf-8")
+        with patch("sys.argv", ["dayamlchecker", str(bad)]):
+            try:
+                runpy.run_module("dayamlchecker", run_name="__main__")
+            except SystemExit as exc:
+                assert exc.code != 0
+            else:
+                assert (
+                    False
+                ), "Expected SystemExit with non-zero exit code for invalid input"

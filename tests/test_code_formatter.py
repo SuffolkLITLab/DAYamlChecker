@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from dayamlchecker._files import _collect_yaml_files
 from dayamlchecker._jinja import (
     _contains_jinja_syntax,
     _has_jinja_header,
@@ -524,12 +525,10 @@ class TestFormatYamlFile(unittest.TestCase):
 
 
 class TestCollectYamlFiles(unittest.TestCase):
-    """Tests for _collect_yaml_files in code_formatter."""
+    """Tests for _collect_yaml_files."""
 
     def test_check_all_flag_disables_ignores(self):
         import tempfile
-
-        from dayamlchecker.code_formatter import _collect_yaml_files
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -547,8 +546,6 @@ class TestCollectYamlFiles(unittest.TestCase):
     def test_venv_dir_is_ignored_by_default(self):
         import tempfile
 
-        from dayamlchecker.code_formatter import _collect_yaml_files
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             venv_dir = root / ".venv"
@@ -565,8 +562,6 @@ class TestCollectYamlFiles(unittest.TestCase):
         import os
         import tempfile
 
-        from dayamlchecker.code_formatter import _collect_yaml_files
-
         with tempfile.NamedTemporaryFile(
             suffix=".yml", delete=False, mode="w", encoding="utf-8"
         ) as f:
@@ -581,8 +576,6 @@ class TestCollectYamlFiles(unittest.TestCase):
     def test_non_yaml_file_not_collected(self):
         import os
         import tempfile
-
-        from dayamlchecker.code_formatter import _collect_yaml_files
 
         with tempfile.NamedTemporaryFile(
             suffix=".txt", delete=False, mode="w", encoding="utf-8"
@@ -636,6 +629,57 @@ class TestFormatYamlStringEdgeCases(unittest.TestCase):
         )
         result, _ = format_yaml_string(yaml_content, config)
         self.assertIsInstance(result, str)
+
+    def test_strip_common_indent_all_empty_lines(self):
+        """_strip_common_indent returns original when all lines are blank."""
+        lines = ["\n", "  \n", "\n"]
+        result, indent = _strip_common_indent(lines)
+        self.assertEqual(indent, 0)
+        self.assertEqual(result, lines)
+
+    def test_code_block_empty_body(self):
+        """A code block header with no body (immediately followed by another key) is unchanged."""
+        yaml_content = "---\ncode: |\nquestion: Hello\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_regex_path_already_formatted(self):
+        """Jinja file with already-formatted code block returns unchanged."""
+        yaml_content = "# use jinja\n---\ncode: |\n  x = 1\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+
+    def test_jinja_regex_path_code_with_jinja_skipped(self):
+        """Jinja file code block that contains Jinja syntax is left alone."""
+        yaml_content = "# use jinja\n---\ncode: |\n  x = {{ value }}\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+        self.assertIn("{{ value }}", result)
+
+    def test_jinja_regex_path_empty_code_block(self):
+        """Jinja file with empty code block body is unchanged."""
+        yaml_content = "# use jinja\n---\ncode: |\nquestion: Hello\n"
+        result, changed = format_yaml_string(yaml_content)
+        self.assertFalse(changed)
+
+    def test_collect_yaml_files_include_default_ignores_none(self):
+        """_collect_yaml_files with include_default_ignores=None defaults to True."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            visible = root / "visible.yml"
+            git_dir = root / ".git"
+            git_dir.mkdir()
+            hidden = git_dir / "hidden.yml"
+            visible.write_text("---\n", encoding="utf-8")
+            hidden.write_text("---\n", encoding="utf-8")
+
+            # include_default_ignores=None should default to ignoring
+            result = _collect_yaml_files([root], include_default_ignores=None)
+            names = [p.name for p in result]
+            self.assertIn("visible.yml", names)
+            self.assertNotIn("hidden.yml", names)
 
 
 if __name__ == "__main__":
