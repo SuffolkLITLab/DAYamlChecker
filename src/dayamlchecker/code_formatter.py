@@ -406,6 +406,9 @@ def _collect_yaml_files(
             dirname.startswith(".git")
             or dirname.startswith(".github")
             or dirname.startswith(".venv")
+            or dirname == "build"
+            or dirname == "dist"
+            or dirname == "node_modules"
             or dirname == "sources"
         )
 

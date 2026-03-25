@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from dayamlchecker.yaml_structure import find_errors_from_string
 
 
@@ -44,6 +46,449 @@ question: |
             ),
             f"Expected duplicate key error, got: {errs}",
         )
+
+    def test_accessibility_mode_disabled_by_default(self):
+        yaml_content = """question: |
+  ![](docassemble.demo:data/static/logo.png)
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+        accessibility_errors = [
+            e for e in errs if "accessibility:" in e.err_str.lower()
+        ]
+        self.assertEqual(
+            len(accessibility_errors),
+            0,
+            f"Did not expect accessibility errors in default mode, got: {accessibility_errors}",
+        )
+
+    def test_accessibility_markdown_image_missing_alt_text(self):
+        yaml_content = """question: |
+  ![](docassemble.demo:data/static/logo.png)
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "accessibility: markdown image" in e.err_str.lower()
+                and "missing alt text" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected markdown alt text accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_file_tag_missing_alt_text(self):
+        yaml_content = """question: |
+  [FILE docassemble.demo:data/static/al_logo.svg, 100vw]
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "accessibility: [file ...] image" in e.err_str.lower()
+                and "missing alt text" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected FILE-tag alt text accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_html_image_missing_alt_text(self):
+        yaml_content = """subquestion: |
+  <img src="/packagestatic/demo/logo.png">
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "accessibility: html image" in e.err_str.lower()
+                and "missing alt text" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected HTML image alt text accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_markdown_heading_level_skip(self):
+        yaml_content = """id: q1
+question: Main
+subquestion: |
+  ## Section
+  #### Too deep
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "accessibility: markdown heading levels skip from h2 to h4"
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected markdown heading-order accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_html_heading_level_skip(self):
+        yaml_content = """id: q1
+question: Main
+subquestion: |
+  <h2>Section</h2>
+  <h4>Too deep</h4>
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "accessibility: html heading levels skip from h2 to h4"
+                in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected HTML heading-order accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_heading_order_valid_not_flagged(self):
+        yaml_content = """id: q1
+question: Main
+subquestion: |
+  ## Section
+  ### Details
+  <h2>HTML section</h2>
+  <h3>HTML details</h3>
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        accessibility_errors = [
+            e for e in errs if "accessibility:" in e.err_str.lower()
+        ]
+        self.assertEqual(
+            len(accessibility_errors),
+            0,
+            f"Did not expect accessibility errors, got: {accessibility_errors}",
+        )
+
+    def test_accessibility_line_numbers_across_multiple_documents(self):
+        yaml_content = """id: intro
+question: Intro
+---
+id: q2
+subquestion: |
+  ## First heading
+  #### Skipped heading
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        heading_error = next(
+            e
+            for e in errs
+            if "accessibility: markdown heading levels skip" in e.err_str.lower()
+        )
+        self.assertEqual(
+            heading_error.line_number,
+            7,
+            f"Expected heading error on line 7, got: {heading_error}",
+        )
+
+    def test_accessibility_mode_ignores_non_docassemble_yaml(self):
+        yaml_content = """prompts:
+  - id: example
+    raw: Hello there
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertEqual(
+            len(errs),
+            0,
+            f"Did not expect structural errors in accessibility-only mode, got: {errs}",
+        )
+
+    def test_accessibility_mode_still_reports_yaml_parse_errors(self):
+        yaml_content = """question: |
+  Bad yaml
+subquestion: |
+  Example
+question
+  missing_colon: true
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any("could not find expected ':'" in e.err_str.lower() for e in errs),
+            f"Expected YAML parse error in accessibility mode, got: {errs}",
+        )
+
+    def test_accessibility_combobox_field_fails(self):
+        yaml_content = """question: |
+  Pick one
+fields:
+  - Option: selected_option
+    datatype: combobox
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "datatype: combobox" in e.err_str.lower()
+                and "accessibility:" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected combobox accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_combobox_screen_fails(self):
+        yaml_content = """question: |
+  Pick one
+combobox: selected_option
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any("screen uses `combobox`" in e.err_str.lower() for e in errs),
+            f"Expected top-level combobox accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_generic_link_text_english_fails(self):
+        yaml_content = """question: |
+  [Click here](https://example.com/forms)
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "link text" in e.err_str.lower()
+                and "too generic" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected generic English link-text accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_generic_link_text_spanish_fails(self):
+        yaml_content = """question: |
+  [Haga clic aquí](https://example.com/formulario)
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "link text" in e.err_str.lower()
+                and "too generic" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected generic Spanish link-text accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_empty_markdown_link_fails(self):
+        yaml_content = """question: |
+  [](https://example.com/blank)
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any("has no accessible text" in e.err_str.lower() for e in errs),
+            f"Expected empty-link accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_descriptive_link_text_allowed(self):
+        yaml_content = """question: |
+  [Download the filing checklist](https://example.com/checklist)
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any(
+                "link text" in e.err_str.lower()
+                or "accessible text" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Did not expect link-text accessibility errors, got: {errs}",
+        )
+
+        def test_accessibility_no_label_allowed_single_field_screen(self):
+          yaml_content = """question: |
+        Enter your email
+      fields:
+        - no label: true
+        field: user_email
+      """
+          errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+          )
+          self.assertFalse(
+            any("no label" in e.err_str.lower() for e in errs),
+            f"Did not expect no-label accessibility errors on single-field screen, got: {errs}",
+          )
+
+        def test_accessibility_no_label_fails_multi_field_screen(self):
+          yaml_content = """question: |
+        Enter information
+      fields:
+        - First name: user_first
+        - no label: true
+        field: user_last
+      """
+          errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+          )
+          self.assertTrue(
+            any(
+              "no label" in e.err_str.lower()
+              and "single-field screens" in e.err_str.lower()
+              for e in errs
+            ),
+            f"Expected multi-field no-label accessibility error, got: {errs}",
+          )
+
+        def test_accessibility_empty_label_fails_multi_field_screen(self):
+          yaml_content = """question: |
+        Enter information
+      fields:
+        - First name: user_first
+        - label: ""
+        field: user_last
+      """
+          errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+          )
+          self.assertTrue(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Expected empty-label accessibility error, got: {errs}",
+          )
+
+        def test_accessibility_tagged_pdf_warning_for_docx_without_setting(self):
+          yaml_content = """attachments:
+        - name: Letter
+        docx template file: letter_template.docx
+      """
+          errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_warn>",
+            lint_mode="accessibility",
+          )
+          self.assertTrue(
+            any(
+              e.err_str.lower().startswith("warning:")
+              and "docx attachment detected" in e.err_str.lower()
+              for e in errs
+            ),
+            f"Expected tagged-pdf warning, got: {errs}",
+          )
+
+        def test_accessibility_tagged_pdf_true_in_features_suppresses_warning(self):
+          yaml_content = """features:
+        tagged pdf: true
+      attachments:
+        - name: Letter
+        docx template file: letter_template.docx
+      """
+          errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+          )
+          self.assertFalse(
+            any("docx attachment detected" in e.err_str.lower() for e in errs),
+            f"Did not expect tagged-pdf warning when features.tagged pdf is true, got: {errs}",
+          )
+
+        def test_accessibility_theme_css_contrast_fails_for_low_values(self):
+          with TemporaryDirectory() as tmp:
+            theme_css = Path(tmp) / "low-contrast.css"
+            theme_css.write_text(
+              """
+      body { color: #777777; background-color: #888888; }
+      .navbar { color: #777777; background-color: #888888; }
+      .dropdown-menu { color: #666666; background-color: #777777; }
+      .btn { color: #666666; background-color: #777777; }
+      """,
+              encoding="utf-8",
+            )
+            yaml_content = f"""features:
+        bootstrap theme: {theme_css}
+      """
+            errs = find_errors_from_string(
+              yaml_content,
+              input_file="<string_invalid>",
+              lint_mode="accessibility",
+            )
+            self.assertTrue(
+              any(
+                "low contrast" in e.err_str.lower()
+                and "bootstrap theme css" in e.err_str.lower()
+                for e in errs
+              ),
+              f"Expected CSS contrast accessibility error, got: {errs}",
+            )
+
+        def test_accessibility_theme_css_contrast_passes_for_good_values(self):
+          with TemporaryDirectory() as tmp:
+            theme_css = Path(tmp) / "good-contrast.css"
+            theme_css.write_text(
+              """
+      body { color: #111111; background-color: #ffffff; }
+      .navbar { color: #ffffff; background-color: #1a1a1a; }
+      .dropdown-menu { color: #1a1a1a; background-color: #ffffff; }
+      .btn { color: #ffffff; background-color: #0d6efd; }
+      """,
+              encoding="utf-8",
+            )
+            yaml_content = f"""features:
+        bootstrap theme: {theme_css}
+      """
+            errs = find_errors_from_string(
+              yaml_content,
+              input_file="<string_valid>",
+              lint_mode="accessibility",
+            )
+            self.assertFalse(
+              any("low contrast" in e.err_str.lower() for e in errs),
+              f"Did not expect CSS contrast accessibility error, got: {errs}",
+            )
 
     # JS Show If tests
     def test_js_show_if_valid(self):
