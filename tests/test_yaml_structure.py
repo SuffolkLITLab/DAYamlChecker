@@ -223,7 +223,7 @@ subquestion: |
             f"Expected heading error on line 7, got: {heading_error}",
         )
 
-    def test_accessibility_mode_ignores_non_docassemble_yaml(self):
+    def test_accessibility_mode_also_runs_structural_checks(self):
         yaml_content = """prompts:
   - id: example
     raw: Hello there
@@ -233,10 +233,13 @@ subquestion: |
             input_file="<string_valid>",
             lint_mode="accessibility",
         )
-        self.assertEqual(
-            len(errs),
+        structural_errors = [
+            e for e in errs if "accessibility:" not in e.err_str.lower()
+        ]
+        self.assertGreater(
+            len(structural_errors),
             0,
-            f"Did not expect structural errors in accessibility-only mode, got: {errs}",
+            f"Expected structural errors for non-Docassemble YAML in accessibility mode, got: {errs}",
         )
 
     def test_accessibility_mode_still_reports_yaml_parse_errors(self):

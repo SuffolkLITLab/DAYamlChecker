@@ -1441,8 +1441,6 @@ def find_errors_from_string(
         if types_of_blocks[key].get("exclusive", True)
     ]
     prior_conditional_fields: list[dict[str, Any]] = []
-    accessibility_only = lint_mode == ACCESSIBILITY_LINT_MODE
-
     line_number = 1
     for source_code in document_match.split(full_content):
         lines_in_code = sum(l == "\n" for l in source_code)
@@ -1475,7 +1473,7 @@ def find_errors_from_string(
             line_number += lines_in_code
             continue
 
-        if accessibility_only:
+        if lint_mode == ACCESSIBILITY_LINT_MODE:
             accessibility_findings = find_accessibility_findings(
                 doc=doc,
                 source_code=source_code,
@@ -1490,8 +1488,6 @@ def find_errors_from_string(
                         file_name=input_file,
                     )
                 )
-            line_number += lines_in_code
-            continue
 
         any_types = [block for block in types_of_blocks.keys() if block in doc]
         if len(any_types) == 0:
@@ -1694,17 +1690,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
-        "--wcag",
-        action="store_true",
-        default=True,
-        help="Run WCAG-style accessibility lint checks (default: enabled).",
-    )
-    parser.add_argument(
         "--no-wcag",
         dest="wcag",
         action="store_false",
         help="Disable WCAG-style accessibility lint checks.",
     )
+    parser.set_defaults(wcag=True)
     parser.add_argument(
         "--url-check",
         action=argparse.BooleanOptionalAction,
