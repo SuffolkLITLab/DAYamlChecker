@@ -155,6 +155,7 @@ _WHITELIST_URL_PREFIXES: frozenset[str] = frozenset(
     }
 )
 
+
 def _iter_package_dirs(
     root: pathlib.Path, package_dirs: Iterable[pathlib.Path] | None = None
 ) -> Iterable[pathlib.Path]:
