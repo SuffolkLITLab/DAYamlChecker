@@ -1575,9 +1575,7 @@ def find_errors_from_string(
     return all_errors
 
 
-def find_errors(
-    input_file: str, lint_mode: str = DEFAULT_LINT_MODE
-) -> list[YAMLError]:
+def find_errors(input_file: str, lint_mode: str = DEFAULT_LINT_MODE) -> list[YAMLError]:
     """Return list of YAMLError found in the given input_file
 
     If the file has Docassemble's optional Jinja2 preprocessor directive at the top,

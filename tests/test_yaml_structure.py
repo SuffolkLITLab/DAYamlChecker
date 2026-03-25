@@ -286,8 +286,7 @@ combobox: selected_option
         )
         self.assertTrue(
             any(
-                "link text" in e.err_str.lower()
-                and "too generic" in e.err_str.lower()
+                "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected generic English link-text accessibility error, got: {errs}",
@@ -304,8 +303,7 @@ combobox: selected_option
         )
         self.assertTrue(
             any(
-                "link text" in e.err_str.lower()
-                and "too generic" in e.err_str.lower()
+                "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected generic Spanish link-text accessibility error, got: {errs}",
@@ -343,151 +341,147 @@ combobox: selected_option
             f"Did not expect link-text accessibility errors, got: {errs}",
         )
 
-        def test_accessibility_no_label_allowed_single_field_screen(self):
-          yaml_content = """question: |
-        Enter your email
-      fields:
-        - no label: true
-        field: user_email
-      """
-          errs = find_errors_from_string(
+    def test_accessibility_no_label_allowed_single_field_screen(self):
+        yaml_content = """question: |
+  Enter your email
+fields:
+  - no label: true
+    field: user_email
+"""
+        errs = find_errors_from_string(
             yaml_content,
             input_file="<string_valid>",
             lint_mode="accessibility",
-          )
-          self.assertFalse(
+        )
+        self.assertFalse(
             any("no label" in e.err_str.lower() for e in errs),
             f"Did not expect no-label accessibility errors on single-field screen, got: {errs}",
-          )
+        )
 
-        def test_accessibility_no_label_fails_multi_field_screen(self):
-          yaml_content = """question: |
-        Enter information
-      fields:
-        - First name: user_first
-        - no label: true
-        field: user_last
-      """
-          errs = find_errors_from_string(
+    def test_accessibility_no_label_fails_multi_field_screen(self):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - First name: user_first
+  - no label: true
+    field: user_last
+"""
+        errs = find_errors_from_string(
             yaml_content,
             input_file="<string_invalid>",
             lint_mode="accessibility",
-          )
-          self.assertTrue(
+        )
+        self.assertTrue(
             any(
-              "no label" in e.err_str.lower()
-              and "single-field screens" in e.err_str.lower()
-              for e in errs
+                "no label" in e.err_str.lower()
+                and "single-field screens" in e.err_str.lower()
+                for e in errs
             ),
             f"Expected multi-field no-label accessibility error, got: {errs}",
-          )
+        )
 
-        def test_accessibility_empty_label_fails_multi_field_screen(self):
-          yaml_content = """question: |
-        Enter information
-      fields:
-        - First name: user_first
-        - label: ""
-        field: user_last
-      """
-          errs = find_errors_from_string(
+    def test_accessibility_empty_label_fails_multi_field_screen(self):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - First name: user_first
+  - label: ""
+    field: user_last
+"""
+        errs = find_errors_from_string(
             yaml_content,
             input_file="<string_invalid>",
             lint_mode="accessibility",
-          )
-          self.assertTrue(
+        )
+        self.assertTrue(
             any("single-field screens" in e.err_str.lower() for e in errs),
             f"Expected empty-label accessibility error, got: {errs}",
-          )
+        )
 
-        def test_accessibility_tagged_pdf_warning_for_docx_without_setting(self):
-          yaml_content = """attachments:
-        - name: Letter
-        docx template file: letter_template.docx
-      """
-          errs = find_errors_from_string(
+    def test_accessibility_tagged_pdf_warning_for_docx_without_setting(self):
+        yaml_content = """attachments:
+  - name: Letter
+    docx template file: letter_template.docx
+"""
+        errs = find_errors_from_string(
             yaml_content,
             input_file="<string_warn>",
             lint_mode="accessibility",
-          )
-          self.assertTrue(
+        )
+        self.assertTrue(
             any(
-              e.err_str.lower().startswith("warning:")
-              and "docx attachment detected" in e.err_str.lower()
-              for e in errs
+                e.err_str.lower().startswith("warning:")
+                and "docx attachment detected" in e.err_str.lower()
+                for e in errs
             ),
             f"Expected tagged-pdf warning, got: {errs}",
-          )
+        )
 
-        def test_accessibility_tagged_pdf_true_in_features_suppresses_warning(self):
-          yaml_content = """features:
-        tagged pdf: true
-      attachments:
-        - name: Letter
-        docx template file: letter_template.docx
-      """
-          errs = find_errors_from_string(
+    def test_accessibility_tagged_pdf_true_in_features_suppresses_warning(self):
+        yaml_content = """features:
+  tagged pdf: true
+attachments:
+  - name: Letter
+    docx template file: letter_template.docx
+"""
+        errs = find_errors_from_string(
             yaml_content,
             input_file="<string_valid>",
             lint_mode="accessibility",
-          )
-          self.assertFalse(
+        )
+        self.assertFalse(
             any("docx attachment detected" in e.err_str.lower() for e in errs),
             f"Did not expect tagged-pdf warning when features.tagged pdf is true, got: {errs}",
-          )
+        )
 
-        def test_accessibility_theme_css_contrast_fails_for_low_values(self):
-          with TemporaryDirectory() as tmp:
+    def test_accessibility_theme_css_contrast_fails_for_low_values(self):
+        with TemporaryDirectory() as tmp:
             theme_css = Path(tmp) / "low-contrast.css"
             theme_css.write_text(
-              """
-      body { color: #777777; background-color: #888888; }
-      .navbar { color: #777777; background-color: #888888; }
-      .dropdown-menu { color: #666666; background-color: #777777; }
-      .btn { color: #666666; background-color: #777777; }
-      """,
-              encoding="utf-8",
+                "body { color: #777777; background-color: #888888; }\n"
+                ".navbar { color: #777777; background-color: #888888; }\n"
+                ".dropdown-menu { color: #666666; background-color: #777777; }\n"
+                ".btn { color: #666666; background-color: #777777; }\n",
+                encoding="utf-8",
             )
             yaml_content = f"""features:
-        bootstrap theme: {theme_css}
-      """
+  bootstrap theme: {theme_css}
+"""
             errs = find_errors_from_string(
-              yaml_content,
-              input_file="<string_invalid>",
-              lint_mode="accessibility",
+                yaml_content,
+                input_file="<string_invalid>",
+                lint_mode="accessibility",
             )
             self.assertTrue(
-              any(
-                "low contrast" in e.err_str.lower()
-                and "bootstrap theme css" in e.err_str.lower()
-                for e in errs
-              ),
-              f"Expected CSS contrast accessibility error, got: {errs}",
+                any(
+                    "low contrast" in e.err_str.lower()
+                    and "bootstrap theme css" in e.err_str.lower()
+                    for e in errs
+                ),
+                f"Expected CSS contrast accessibility error, got: {errs}",
             )
 
-        def test_accessibility_theme_css_contrast_passes_for_good_values(self):
-          with TemporaryDirectory() as tmp:
+    def test_accessibility_theme_css_contrast_passes_for_good_values(self):
+        with TemporaryDirectory() as tmp:
             theme_css = Path(tmp) / "good-contrast.css"
             theme_css.write_text(
-              """
-      body { color: #111111; background-color: #ffffff; }
-      .navbar { color: #ffffff; background-color: #1a1a1a; }
-      .dropdown-menu { color: #1a1a1a; background-color: #ffffff; }
-      .btn { color: #ffffff; background-color: #0d6efd; }
-      """,
-              encoding="utf-8",
+                "body { color: #111111; background-color: #ffffff; }\n"
+                ".navbar { color: #ffffff; background-color: #1a1a1a; }\n"
+                ".dropdown-menu { color: #1a1a1a; background-color: #ffffff; }\n"
+                ".btn { color: #ffffff; background-color: #0d6efd; }\n",
+                encoding="utf-8",
             )
             yaml_content = f"""features:
-        bootstrap theme: {theme_css}
-      """
+  bootstrap theme: {theme_css}
+"""
             errs = find_errors_from_string(
-              yaml_content,
-              input_file="<string_valid>",
-              lint_mode="accessibility",
+                yaml_content,
+                input_file="<string_valid>",
+                lint_mode="accessibility",
             )
             self.assertFalse(
-              any("low contrast" in e.err_str.lower() for e in errs),
-              f"Did not expect CSS contrast accessibility error, got: {errs}",
+                any("low contrast" in e.err_str.lower() for e in errs),
+                f"Did not expect CSS contrast accessibility error, got: {errs}",
             )
 
     # JS Show If tests

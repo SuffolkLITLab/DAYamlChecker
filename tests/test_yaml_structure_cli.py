@@ -97,7 +97,7 @@ def test_collect_yaml_files_can_disable_default_ignores():
         )
 
 
-def test_main_accessibility_lint_mode_reports_failures():
+def test_main_wcag_reports_failures():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "accessibility.yml"
