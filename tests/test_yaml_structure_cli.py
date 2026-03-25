@@ -146,7 +146,7 @@ def test_main_wcag_reports_failures():
         assert "accessibility: markdown image" in output
 
 
-def test_main_wcag_warning_only_does_not_fail():
+def test_main_wcag_info_only_does_not_fail():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "tagged-pdf-warning.yml"
@@ -163,7 +163,36 @@ def test_main_wcag_warning_only_does_not_fail():
 
         output = stdout.getvalue().lower()
         assert exit_code == 0
-        assert "warning: accessibility: docx attachment detected" in output
+        assert "info: accessibility: docx attachment detected" in output
+
+
+def test_main_warning_still_fails_outside_info_only_mode():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "warning.yml"
+        interview.write_text(
+            "question: |\n"
+            "  Dynamic fields\n"
+            "fields:\n"
+            "  - code: |\n"
+            "      [\n"
+            '        {"field": "other_parties[0].vacated", "label": "P1", "datatype": "yesno"}\n'
+            "      ]\n"
+            "  - label: Vacated date\n"
+            "    field: vacated_date\n"
+            "    datatype: date\n"
+            "    js show if: |\n"
+            '      val("other_parties[0].vacated")\n',
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["--no-wcag", str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "warning:" in output
 
 
 def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):

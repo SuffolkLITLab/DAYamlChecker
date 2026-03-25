@@ -1615,6 +1615,15 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
+def _message_level(err_str: str) -> str:
+    lowered = err_str.lower()
+    if lowered.startswith("info:"):
+        return "info"
+    if lowered.startswith("warning:"):
+        return "warning"
+    return "error"
+
+
 def process_file(input_file, lint_mode: str = DEFAULT_LINT_MODE) -> int:
     """
     Returns:
@@ -1638,20 +1647,32 @@ def process_file(input_file, lint_mode: str = DEFAULT_LINT_MODE) -> int:
     if len(all_errors) == 0:
         print(".", end="")
         return 0
-    blocking_errors = [
-        err for err in all_errors if not err.err_str.lower().startswith("warning:")
-    ]
-    warning_count = len(all_errors) - len(blocking_errors)
+    error_count = 0
+    warning_count = 0
+    info_count = 0
+    for err in all_errors:
+        level = _message_level(err.err_str)
+        if level == "info":
+            info_count += 1
+        elif level == "warning":
+            warning_count += 1
+        else:
+            error_count += 1
+    blocking_count = error_count + warning_count
     print()
-    if warning_count > 0:
+    if info_count > 0:
         print(
-            f"Found {len(all_errors)} issues ({len(blocking_errors)} errors, {warning_count} warnings):"
+            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):"
+        )
+    elif warning_count > 0:
+        print(
+            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings):"
         )
     else:
         print(f"Found {len(all_errors)} errors:")
     for err in all_errors:
         print(f"{err}")
-    return len(blocking_errors)
+    return blocking_count
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -1669,7 +1690,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help=(
             "Do not ignore default directories during recursive search "
-            "(.git*, .github*, sources)"
+            "(.git*, .github*, build, dist, node_modules, sources)"
         ),
     )
     parser.add_argument(

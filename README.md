@@ -36,7 +36,7 @@ Current accessibility checks focus on objective failures only:
 - `no label` and empty/missing labels on multi-field screens (allowed on single-field screens)
 - Low contrast in custom Bootstrap theme CSS loaded by `features: bootstrap theme`; inspects actual CSS values for body text, navbar, dropdown menu, and buttons (minimum ratio 4.5:1)
 
-Accessibility warnings are also emitted for likely PDF accessibility issues:
+Accessibility informational notes are also emitted for likely PDF accessibility issues:
 
 - DOCX attachments missing `tagged pdf: True` (set this in `features` or on the attachment)
 

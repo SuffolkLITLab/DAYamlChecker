@@ -23,6 +23,7 @@ FIELD_NON_LABEL_KEYS = {
     "js enable if",
     "js disable if",
     "required",
+    "no label",
     "field",
     "__line__",
 }
@@ -66,7 +67,7 @@ _HTML_HEADING_RE = re.compile(
 _MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[(.*?)\]\((.*?)\)")
 _HTML_LINK_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.IGNORECASE | re.DOTALL)
 _CSS_RULE_RE = re.compile(r"(?s)([^{}]+)\{([^{}]+)\}")
-_HEX_COLOR_RE = re.compile(r"^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$", re.IGNORECASE)
+_HEX_COLOR_RE = re.compile(r"^#([0-9a-f]{3}|[0-9a-f]{6})$", re.IGNORECASE)
 _RGB_COLOR_RE = re.compile(r"rgba?\(([^\)]+)\)", re.IGNORECASE)
 _VAR_COLOR_RE = re.compile(
     r"var\((--[a-zA-Z0-9\-_]+)(?:\s*,\s*([^\)]+))?\)", re.IGNORECASE
@@ -242,7 +243,7 @@ def _check_tagged_pdf_for_docx(
             AccessibilityFinding(
                 rule_id="tagged-pdf-not-enabled",
                 message=(
-                    "Warning: Accessibility: DOCX attachment detected without `tagged pdf: True`; "
+                    "Info: Accessibility: DOCX attachment detected without `tagged pdf: True`; "
                     "set it on `features` or the attachment to improve generated PDF accessibility"
                 ),
                 line_number=line_number,
@@ -353,10 +354,11 @@ def _check_missing_alt_text(
             )
         )
 
-    for file_target, width_value, alt_text in _FILE_TAG_RE.findall(section.value):
-        if str(alt_text).strip():
+    for file_tag_match in _FILE_TAG_RE.finditer(section.value):
+        file_target, width_value, alt_text = file_tag_match.groups()
+        if alt_text and alt_text.strip():
             continue
-        snippet = f"[FILE {file_target}, {width_value}]"
+        snippet = file_tag_match.group(0)
         findings.append(
             AccessibilityFinding(
                 rule_id="image-missing-alt-text",

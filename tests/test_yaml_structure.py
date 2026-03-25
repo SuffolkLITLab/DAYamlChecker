@@ -97,6 +97,24 @@ question: |
             f"Expected FILE-tag alt text accessibility error, got: {errs}",
         )
 
+    def test_accessibility_file_tag_missing_alt_text_without_width(self):
+        yaml_content = """question: |
+  [FILE docassemble.demo:data/static/al_logo.svg]
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                "[file docassemble.demo:data/static/al_logo.svg]" in e.err_str.lower()
+                and ", ]" not in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected FILE-tag snippet without dangling comma, got: {errs}",
+        )
+
     def test_accessibility_html_image_missing_alt_text(self):
         yaml_content = """subquestion: |
   <img src="/packagestatic/demo/logo.png">
@@ -398,7 +416,25 @@ fields:
             f"Expected empty-label accessibility error, got: {errs}",
         )
 
-    def test_accessibility_tagged_pdf_warning_for_docx_without_setting(self):
+    def test_accessibility_no_label_false_does_not_count_as_label(self):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - First name: user_first
+  - no label: false
+    field: user_last
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Expected missing-label accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
     docx template file: letter_template.docx
@@ -410,14 +446,14 @@ fields:
         )
         self.assertTrue(
             any(
-                e.err_str.lower().startswith("warning:")
+                e.err_str.lower().startswith("info:")
                 and "docx attachment detected" in e.err_str.lower()
                 for e in errs
             ),
-            f"Expected tagged-pdf warning, got: {errs}",
+            f"Expected tagged-pdf info note, got: {errs}",
         )
 
-    def test_accessibility_tagged_pdf_true_in_features_suppresses_warning(self):
+    def test_accessibility_tagged_pdf_true_in_features_suppresses_info(self):
         yaml_content = """features:
   tagged pdf: true
 attachments:
@@ -431,7 +467,7 @@ attachments:
         )
         self.assertFalse(
             any("docx attachment detected" in e.err_str.lower() for e in errs),
-            f"Did not expect tagged-pdf warning when features.tagged pdf is true, got: {errs}",
+            f"Did not expect tagged-pdf info note when features.tagged pdf is true, got: {errs}",
         )
 
     def test_accessibility_theme_css_contrast_fails_for_low_values(self):
