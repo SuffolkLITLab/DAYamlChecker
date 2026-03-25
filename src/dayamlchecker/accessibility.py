@@ -72,6 +72,27 @@ _RGB_COLOR_RE = re.compile(r"rgba?\(([^\)]+)\)", re.IGNORECASE)
 _VAR_COLOR_RE = re.compile(
     r"var\((--[a-zA-Z0-9\-_]+)(?:\s*,\s*([^\)]+))?\)", re.IGNORECASE
 )
+# WCAG sources for the contrast algorithm and constants:
+# - Understanding SC 1.4.3: Contrast (Minimum)
+#   https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
+# - Relative luminance definition on the same page:
+#   L = 0.2126*R + 0.7152*G + 0.0722*B, where each sRGB channel is linearized as:
+#     if channel <= 0.04045: channel / 12.92
+#     else: ((channel + 0.055) / 1.055) ** 2.4
+# - Contrast ratio definition on the same page:
+#   (L1 + 0.05) / (L2 + 0.05)
+# The W3C page also notes that this threshold used to be 0.03928 before May 2021
+# and was updated to 0.04045 with no practical effect for typical 8-bit colors.
+WCAG_MIN_CONTRAST_RATIO = 4.5
+_WCAG_SRGB_LINEAR_THRESHOLD = 0.04045
+_WCAG_SRGB_DIVISOR = 12.92
+_WCAG_SRGB_OFFSET = 0.055
+_WCAG_SRGB_SCALE = 1.055
+_WCAG_SRGB_EXPONENT = 2.4
+_WCAG_LUMINANCE_RED_WEIGHT = 0.2126
+_WCAG_LUMINANCE_GREEN_WEIGHT = 0.7152
+_WCAG_LUMINANCE_BLUE_WEIGHT = 0.0722
+_WCAG_CONTRAST_OFFSET = 0.05
 _COMPONENT_SELECTORS = {
     "body text": ["body"],
     "navbar": [".navbar", ".nav-link", ".navbar-brand"],
@@ -288,14 +309,14 @@ def _check_theme_css_contrast(
             continue
         fg, bg = pair
         ratio = _contrast_ratio(fg, bg)
-        if ratio >= 4.5:
+        if ratio >= WCAG_MIN_CONTRAST_RATIO:
             continue
         findings.append(
             AccessibilityFinding(
                 rule_id="theme-contrast-too-low",
                 message=(
                     "Accessibility: bootstrap theme CSS has low contrast for "
-                    f"{component} (ratio {ratio:.2f}:1, expected at least 4.5:1)"
+                    f"{component} (ratio {ratio:.2f}:1, expected at least {WCAG_MIN_CONTRAST_RATIO:.1f}:1)"
                 ),
                 line_number=line_number,
             )
@@ -769,23 +790,34 @@ def _parse_rgb_channel(raw: str) -> float:
 
 
 def _relative_luminance(rgb: tuple[float, float, float]) -> float:
+    # WCAG does not use a simple average of R/G/B. It first converts each
+    # gamma-encoded sRGB channel into linear light, then combines the linear
+    # channels with perceptual weights that reflect how much each channel
+    # contributes to perceived brightness.
     def _channel(c: float) -> float:
-        if c <= 0.03928:
-            return c / 12.92
-        return ((c + 0.055) / 1.055) ** 2.4
+        if c <= _WCAG_SRGB_LINEAR_THRESHOLD:
+            return c / _WCAG_SRGB_DIVISOR
+        return ((c + _WCAG_SRGB_OFFSET) / _WCAG_SRGB_SCALE) ** _WCAG_SRGB_EXPONENT
 
     r, g, b = rgb
-    return 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
+    return (
+        _WCAG_LUMINANCE_RED_WEIGHT * _channel(r)
+        + _WCAG_LUMINANCE_GREEN_WEIGHT * _channel(g)
+        + _WCAG_LUMINANCE_BLUE_WEIGHT * _channel(b)
+    )
 
 
 def _contrast_ratio(
     fg: tuple[float, float, float], bg: tuple[float, float, float]
 ) -> float:
+    # WCAG contrast is a ratio between the lighter and darker relative
+    # luminance values. A result of 1.0 means no contrast; larger values mean
+    # stronger separation. For normal text, WCAG AA requires at least 4.5:1.
     l1 = _relative_luminance(fg)
     l2 = _relative_luminance(bg)
     lighter = max(l1, l2)
     darker = min(l1, l2)
-    return (lighter + 0.05) / (darker + 0.05)
+    return (lighter + _WCAG_CONTRAST_OFFSET) / (darker + _WCAG_CONTRAST_OFFSET)
 
 
 def _normalize_human_text(value: str) -> str:
