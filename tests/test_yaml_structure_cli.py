@@ -97,6 +97,25 @@ def test_collect_yaml_files_can_disable_default_ignores():
         )
 
 
+def test_main_default_wcag_reports_failures():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "accessibility.yml"
+        interview.write_text(
+            "question: |\n  ![](docassemble.demo:data/static/logo.png)\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "found 1 errors" in output
+        assert "accessibility: markdown image" in output
+
+
 def test_main_wcag_reports_failures():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)

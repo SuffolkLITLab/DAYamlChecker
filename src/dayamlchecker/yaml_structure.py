@@ -1668,7 +1668,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--wcag",
         action="store_true",
-        help="Run WCAG-style accessibility lint checks.",
+        default=True,
+        help="Run WCAG-style accessibility lint checks (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-wcag",
+        dest="wcag",
+        action="store_false",
+        help="Disable WCAG-style accessibility lint checks.",
     )
     args = parser.parse_args(argv)
 
