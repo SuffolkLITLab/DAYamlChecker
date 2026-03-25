@@ -705,14 +705,14 @@ def _resolve_css_color(
     if hex_match:
         code = hex_match.group(1)
         if len(code) == 3:
-            r = int(code[0] * 2, 16)
-            g = int(code[1] * 2, 16)
-            b = int(code[2] * 2, 16)
+            r = int(code[0] * 2, 16) / 255.0
+            g = int(code[1] * 2, 16) / 255.0
+            b = int(code[2] * 2, 16) / 255.0
         else:
-            r = int(code[0:2], 16)
-            g = int(code[2:4], 16)
-            b = int(code[4:6], 16)
-        return (r / 255.0, g / 255.0, b / 255.0)
+            r = int(code[0:2], 16) / 255.0
+            g = int(code[2:4], 16) / 255.0
+            b = int(code[4:6], 16) / 255.0
+        return (r, g, b)
 
     rgb_match = _RGB_COLOR_RE.search(token)
     if rgb_match:
