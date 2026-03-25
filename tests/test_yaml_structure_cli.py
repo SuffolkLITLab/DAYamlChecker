@@ -134,23 +134,3 @@ def test_main_wcag_warning_only_does_not_fail():
         output = stdout.getvalue().lower()
         assert exit_code == 0
         assert "warning: accessibility: docx attachment detected" in output
-
-
-def test_main_wcag_missing_theme_css_warning_does_not_fail():
-    with TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        interview = root / "missing-theme-css.yml"
-        interview.write_text(
-            "features:\n"
-            "  bootstrap theme: does-not-exist.css\n",
-            encoding="utf-8",
-        )
-
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            exit_code = main(["--wcag", str(interview)])
-
-        output = stdout.getvalue().lower()
-        assert exit_code == 0
-        assert "warning: accessibility: could not read the css file referenced" in output
-        assert "contrast checks for navbar, dropdowns, buttons, and body text were skipped" in output

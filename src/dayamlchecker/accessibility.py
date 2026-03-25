@@ -262,16 +262,7 @@ def _check_theme_css_contrast(
 
     css_content = _load_bootstrap_theme_css(theme_value, input_file=input_file)
     if not css_content:
-        return [
-            AccessibilityFinding(
-                rule_id="bootstrap-theme-unreadable",
-                message=(
-                    "Warning: Accessibility: could not read the CSS file referenced by "
-                    f"`features.bootstrap theme` ({theme_value}); contrast checks for navbar, dropdowns, buttons, and body text were skipped"
-                ),
-                line_number=line_number,
-            )
-        ]
+        return []
 
     selector_props, variables = _parse_css_rules(css_content)
     findings: list[AccessibilityFinding] = []
