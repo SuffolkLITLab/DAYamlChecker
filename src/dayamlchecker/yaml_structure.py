@@ -1637,8 +1637,8 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Check URLs in the selected question/YAML files and related "
-            "document/template files (default: on)"
+            "Check URLs in the selected question files and related "
+            "template files (default: on)"
         ),
     )
     parser.add_argument(
@@ -1646,7 +1646,7 @@ def main() -> int:
         type=Path,
         default=None,
         help=(
-            "Repository root for related document/template URL scanning "
+            "Repository root for related template URL scanning "
             "(default: inferred from the YAML paths)"
         ),
     )
@@ -1662,21 +1662,37 @@ def main() -> int:
         help="Comma/newline-separated absolute URLs to ignore during URL checking",
     )
     parser.add_argument(
-        "--url-check-skip-documents",
+        "--url-check-skip-templates",
+        dest="url_check_skip_documents",
         action="store_true",
         help="Skip checking URLs in related data/templates files",
     )
     parser.add_argument(
+        "--url-check-skip-documents",
+        dest="url_check_skip_documents",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--question-url-severity",
         "--yaml-url-severity",
+        dest="yaml_url_severity",
         choices=("error", "warning", "ignore"),
         default="error",
-        help="How to report broken or malformed URLs in question/YAML files (default: error)",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--template-url-severity",
+        dest="document_url_severity",
+        choices=("error", "warning", "ignore"),
+        default="warning",
+        help="How to report broken or malformed URLs in template files (default: warning)",
     )
     parser.add_argument(
         "--document-url-severity",
+        dest="document_url_severity",
         choices=("error", "warning", "ignore"),
-        default="warning",
-        help="How to report broken or malformed URLs in document/template files (default: warning)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--unreachable-url-severity",

@@ -95,7 +95,7 @@ def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
                     URLIssue(
                         severity="warning",
                         category="broken",
-                        source_kind="document",
+                        source_kind="template",
                         url="https://example.invalid/document",
                         sources=("docassemble/Demo/data/templates/notice.docx",),
                         status_code=404,
@@ -123,7 +123,7 @@ def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
 
         out = capsys.readouterr().out
         assert "URL checker warnings:" in out
-        assert "question/YAML files" not in out
+        assert "question files" not in out
 
 
 def test_main_can_disable_url_checker(monkeypatch):
@@ -182,7 +182,7 @@ def test_main_fails_on_url_checker_errors(monkeypatch, capsys):
         assert yaml_structure.main() == 1
         out = capsys.readouterr().out
         assert "URL checker errors:" in out
-        assert "question/YAML files" in out
+        assert "question files" in out
 
 
 def test_main_passes_custom_url_checker_flags(monkeypatch):
@@ -209,10 +209,8 @@ def test_main_passes_custom_url_checker_flags(monkeypatch):
                 "3",
                 "--url-check-ignore-urls",
                 "https://ignore.example/path",
-                "--url-check-skip-documents",
-                "--yaml-url-severity",
-                "warning",
-                "--document-url-severity",
+                "--url-check-skip-templates",
+                "--template-url-severity",
                 "ignore",
                 "--unreachable-url-severity",
                 "error",
@@ -225,6 +223,6 @@ def test_main_passes_custom_url_checker_flags(monkeypatch):
         assert captured["timeout"] == 3
         assert captured["check_documents"] is False
         assert captured["ignore_urls"] == {"https://ignore.example/path"}
-        assert captured["yaml_severity"] == "warning"
+        assert captured["yaml_severity"] == "error"
         assert captured["document_severity"] == "ignore"
         assert captured["unreachable_severity"] == "error"

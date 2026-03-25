@@ -16,14 +16,18 @@ from urllib.parse import urlparse
 
 import requests
 from docx2python import docx2python
-from linkify_it import LinkifyIt
+from linkify_it import LinkifyIt  # type: ignore[attr-defined,import-untyped]
 from pypdf import PdfReader
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 IssueSeverity = Literal["error", "warning", "ignore"]
 ReportSeverity = Literal["error", "warning"]
-SourceKind = Literal["yaml", "document"]
+SourceKind = Literal["yaml", "template"]
+# Issue categories:
+# - broken: the URL responded with a known dead-page status (404/410)
+# - concatenated: the extracted token appears to contain multiple URLs jammed together
+# - unreachable: the checker could not connect at all (timeout, DNS, TLS, etc.)
 IssueCategory = Literal["broken", "concatenated", "unreachable"]
 
 
@@ -91,16 +95,25 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--question-url-severity",
         "--yaml-url-severity",
+        dest="yaml_url_severity",
         choices=("error", "warning", "ignore"),
         default="error",
-        help="How to report broken or malformed URLs in question/YAML files (default: error)",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--template-url-severity",
+        dest="document_url_severity",
+        choices=("error", "warning", "ignore"),
+        default="warning",
+        help="How to report broken or malformed URLs in template files (default: warning)",
     )
     parser.add_argument(
         "--document-url-severity",
+        dest="document_url_severity",
         choices=("error", "warning", "ignore"),
-        default="warning",
-        help="How to report broken or malformed URLs in document/template files (default: warning)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--unreachable-url-severity",
@@ -141,11 +154,6 @@ _WHITELIST_URL_PREFIXES: frozenset[str] = frozenset(
         "https://generativelanguage.googleapis.com/v1beta/openai/",
     }
 )
-
-_EXAMPLE_DOMAINS: frozenset[str] = frozenset(
-    {"example.com", "example.net", "example.org"}
-)
-
 
 def _iter_package_dirs(
     root: pathlib.Path, package_dirs: Iterable[pathlib.Path] | None = None
@@ -268,9 +276,12 @@ def is_absolute_http_url(url: str) -> bool:
 
 def is_reserved_example_domain(url: str) -> bool:
     """Check if URL is in a reserved example domain (RFC 2606)."""
+    example_domains: frozenset[str] = frozenset(
+        {"example.com", "example.net", "example.org"}
+    )
     hostname = (urlparse(url).hostname or "").lower()
-    return hostname in _EXAMPLE_DOMAINS or any(
-        hostname.endswith(f".{domain}") for domain in _EXAMPLE_DOMAINS
+    return hostname in example_domains or any(
+        hostname.endswith(f".{domain}") for domain in example_domains
     )
 
 
@@ -579,7 +590,7 @@ def run_url_check(
         _append_issue(
             issues,
             category="concatenated",
-            source_kind="document",
+            source_kind="template",
             url=bad_url,
             sources=sources,
             yaml_severity=yaml_severity,
@@ -611,7 +622,7 @@ def run_url_check(
             _append_issue(
                 issues,
                 category="broken",
-                source_kind="document",
+                source_kind="template",
                 url=url,
                 sources=collected.document_urls[url],
                 status_code=status_code,
@@ -636,7 +647,7 @@ def run_url_check(
             _append_issue(
                 issues,
                 category="unreachable",
-                source_kind="document",
+                source_kind="template",
                 url=url,
                 sources=collected.document_urls[url],
                 yaml_severity=yaml_severity,
@@ -646,7 +657,7 @@ def run_url_check(
 
     severity_order = {"error": 0, "warning": 1}
     category_order = {"concatenated": 0, "broken": 1, "unreachable": 2}
-    source_order = {"yaml": 0, "document": 1}
+    source_order = {"yaml": 0, "template": 1}
     ordered_issues = tuple(
         sorted(
             issues,
@@ -678,13 +689,15 @@ def print_url_check_report(result: URLCheckResult) -> None:
         return
 
     source_labels = {
-        "yaml": "question/YAML files",
-        "document": "document/template files",
+        "yaml": "question files",
+        "template": "template files",
     }
     title_labels = {
-        "concatenated": "Found concatenated URLs in {source}:",
+        "concatenated": (
+            "Found malformed URL text that appears to contain another URL in {source}:"
+        ),
         "broken": "Found URLs returning HTTP 404/410 in {source}:",
-        "unreachable": "Could not reach URLs in {source}:",
+        "unreachable": "Could not reach URLs in {source} to verify them:",
     }
 
     for severity in ("error", "warning"):
@@ -693,7 +706,7 @@ def print_url_check_report(result: URLCheckResult) -> None:
             continue
         print(f"URL checker {severity}s:")
         for category in ("concatenated", "broken", "unreachable"):
-            for source_kind in ("yaml", "document"):
+            for source_kind in ("yaml", "template"):
                 bucket = [
                     issue
                     for issue in matches

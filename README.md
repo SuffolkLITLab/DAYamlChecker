@@ -9,7 +9,7 @@ pip install .
 python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path "*/.venv/*" -not -path "*/build/*"` # i.e. a space separated list of files
 ```
 
-The main `dayamlchecker` CLI now also runs the URL checker by default. Broken URLs in question/YAML files fail the command; broken URLs in related `data/templates` documents are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-documents`, `--yaml-url-severity`, `--document-url-severity`, and `--unreachable-url-severity`.
+The main `dayamlchecker` CLI now also runs the URL checker by default. Broken URLs in question files fail the command; broken URLs in related `data/templates` files are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-templates`, `--template-url-severity`, and `--unreachable-url-severity`.
 
 ## MCP / LLM integration
 
