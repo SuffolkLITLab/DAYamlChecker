@@ -11,13 +11,7 @@ python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path 
 
 ## WCAG checks
 
-The checker includes WCAG-style checks for clear static accessibility failures in interview source. These checks run by default; use `--no-wcag` to disable them.
-
-```bash
-python3 -m dayamlchecker --wcag path/to/interview.yml
-```
-
-This is equivalent to `wcag=true` in the frontend. Use `--no-wcag` for `wcag=false`.
+The checker includes WCAG-style checks for clear static accessibility failures in interview source. These checks run by default; use `--no-wcag` to disable them. This is equivalent to `wcag=true` in the `accessibility.py` module. Use `--no-wcag` for `wcag=false`.
 
 ## URL checks
 
