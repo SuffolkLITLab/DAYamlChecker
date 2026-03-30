@@ -1,10 +1,12 @@
+import io
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import dayamlchecker.yaml_structure as yaml_structure
 from dayamlchecker.check_questions_urls import URLCheckResult, URLIssue
-from dayamlchecker.yaml_structure import _collect_yaml_files
+from dayamlchecker.yaml_structure import _collect_yaml_files, main
 
 
 def _write_valid_question(path: Path) -> None:
@@ -40,15 +42,24 @@ def test_collect_yaml_files_default_ignores_common_directories():
         visible = root / "visible.yml"
         git_file = root / ".git" / "hidden.yml"
         github_file = root / ".github-actions" / "ci.yml"
+        build_file = root / "build" / "generated.yml"
+        dist_file = root / "dist" / "generated.yml"
+        node_modules_file = root / "node_modules" / "package.yml"
         sources_file = root / "sources" / "skip.yml"
 
         git_file.parent.mkdir(parents=True)
         github_file.parent.mkdir(parents=True)
+        build_file.parent.mkdir(parents=True)
+        dist_file.parent.mkdir(parents=True)
+        node_modules_file.parent.mkdir(parents=True)
         sources_file.parent.mkdir(parents=True)
 
         visible.write_text("question: visible\n", encoding="utf-8")
         git_file.write_text("question: git\n", encoding="utf-8")
         github_file.write_text("question: github\n", encoding="utf-8")
+        build_file.write_text("question: build\n", encoding="utf-8")
+        dist_file.write_text("question: dist\n", encoding="utf-8")
+        node_modules_file.write_text("question: node_modules\n", encoding="utf-8")
         sources_file.write_text("question: sources\n", encoding="utf-8")
 
         collected = _collect_yaml_files([root])
@@ -62,20 +73,150 @@ def test_collect_yaml_files_can_disable_default_ignores():
         visible = root / "visible.yml"
         git_file = root / ".git" / "hidden.yml"
         github_file = root / ".github-actions" / "ci.yml"
+        build_file = root / "build" / "generated.yml"
+        dist_file = root / "dist" / "generated.yml"
+        node_modules_file = root / "node_modules" / "package.yml"
         sources_file = root / "sources" / "skip.yml"
 
         git_file.parent.mkdir(parents=True)
         github_file.parent.mkdir(parents=True)
+        build_file.parent.mkdir(parents=True)
+        dist_file.parent.mkdir(parents=True)
+        node_modules_file.parent.mkdir(parents=True)
         sources_file.parent.mkdir(parents=True)
 
         visible.write_text("question: visible\n", encoding="utf-8")
         git_file.write_text("question: git\n", encoding="utf-8")
         github_file.write_text("question: github\n", encoding="utf-8")
+        build_file.write_text("question: build\n", encoding="utf-8")
+        dist_file.write_text("question: dist\n", encoding="utf-8")
+        node_modules_file.write_text("question: node_modules\n", encoding="utf-8")
         sources_file.write_text("question: sources\n", encoding="utf-8")
 
         collected = _collect_yaml_files([root], include_default_ignores=False)
 
-        assert collected == sorted([visible, git_file, github_file, sources_file])
+        assert collected == sorted(
+            [
+                visible,
+                git_file,
+                github_file,
+                build_file,
+                dist_file,
+                node_modules_file,
+                sources_file,
+            ]
+        )
+
+
+def test_main_default_wcag_reports_failures():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "accessibility.yml"
+        interview.write_text(
+            "question: |\n  ![](docassemble.demo:data/static/logo.png)\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "found 1 errors" in output
+        assert "accessibility: markdown image" in output
+
+
+def test_main_wcag_info_only_does_not_fail():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "tagged-pdf-warning.yml"
+        interview.write_text(
+            "attachments:\n"
+            "  - name: My attachment\n"
+            "    docx template file: demo_template.docx\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 0
+        assert "info: accessibility: docx attachment detected" in output
+
+
+def test_main_warning_still_fails_outside_info_only_mode():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "warning.yml"
+        interview.write_text(
+            "question: |\n"
+            "  Dynamic fields\n"
+            "fields:\n"
+            "  - code: |\n"
+            "      [\n"
+            '        {"field": "other_parties[0].vacated", "label": "P1", "datatype": "yesno"}\n'
+            "      ]\n"
+            "  - label: Vacated date\n"
+            "    field: vacated_date\n"
+            "    datatype: date\n"
+            "    js show if: |\n"
+            '      val("other_parties[0].vacated")\n',
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["--no-wcag", str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "warning:" in output
+
+
+def test_main_combobox_widget_check_disabled_by_default():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "combobox.yml"
+        interview.write_text(
+            "question: |\n  Pick one\ncombobox: selected_option\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["--no-url-check", str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 0
+        assert "combobox" not in output
+
+
+def test_main_can_enable_combobox_widget_check():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "combobox.yml"
+        interview.write_text(
+            "question: |\n  Pick one\ncombobox: selected_option\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                [
+                    "--no-url-check",
+                    "--accessibility-error-on-widget",
+                    "combobox",
+                    str(interview),
+                ]
+            )
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "screen uses `combobox`" in output
 
 
 def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
@@ -122,7 +263,7 @@ def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
         assert captured["unreachable_severity"] == "warning"
 
         out = capsys.readouterr().out
-        assert "URL checker warnings:" in out
+        assert "url checker warnings:" in out.lower()
         assert "question files" not in out
 
 
@@ -181,7 +322,7 @@ def test_main_fails_on_url_checker_errors(monkeypatch, capsys):
 
         assert yaml_structure.main() == 1
         out = capsys.readouterr().out
-        assert "URL checker errors:" in out
+        assert "url checker errors:" in out.lower()
         assert "question files" in out
 
 

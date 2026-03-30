@@ -1,11 +1,16 @@
 # Each doc, apply this to each block
 import ast
 import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import sys
 
 from typing import Any, Optional
+from dayamlchecker.accessibility import (
+    AccessibilityLintOptions,
+    find_accessibility_findings,
+)
 import yaml
 from yaml.loader import SafeLoader
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
@@ -35,6 +40,19 @@ from dayamlchecker.check_questions_urls import (
 
 
 __all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
+
+DEFAULT_LINT_MODE = "default"
+ACCESSIBILITY_LINT_MODE = "accessibility"
+
+@dataclass(frozen=True)
+class RuntimeOptions:
+    accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
+
+    def accessibility_options(self) -> AccessibilityLintOptions:
+        return AccessibilityLintOptions(
+            error_on_widgets=self.accessibility_error_on_widgets
+        )
+
 
 # Global identifiers for _extract_conditional_fields_from_doc below. Should cover all show/hide style modifiers
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
@@ -1415,7 +1433,10 @@ class SafeLineLoader(SafeLoader):
 
 
 def find_errors_from_string(
-    full_content: str, input_file: Optional[str] = None
+    full_content: str,
+    input_file: Optional[str] = None,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
     """Return list of YAMLError found in the given full_content string
 
@@ -1425,6 +1446,7 @@ def find_errors_from_string(
         list[YAMLError]: List of YAMLError instances found in the content.
     """
     all_errors = []
+    runtime_options = runtime_options or RuntimeOptions()
 
     if not input_file:
         input_file = "<string input>"
@@ -1435,7 +1457,6 @@ def find_errors_from_string(
         if types_of_blocks[key].get("exclusive", True)
     ]
     prior_conditional_fields: list[dict[str, Any]] = []
-
     line_number = 1
     for source_code in document_match.split(full_content):
         lines_in_code = sum(l == "\n" for l in source_code)
@@ -1464,6 +1485,27 @@ def find_errors_from_string(
             # Just YAML comments, that's fine
             line_number += lines_in_code
             continue
+        if not isinstance(doc, dict):
+            line_number += lines_in_code
+            continue
+
+        if lint_mode == ACCESSIBILITY_LINT_MODE:
+            accessibility_findings = find_accessibility_findings(
+                doc=doc,
+                source_code=source_code,
+                document_start_line=line_number,
+                input_file=input_file,
+                options=runtime_options.accessibility_options(),
+            )
+            for finding in accessibility_findings:
+                all_errors.append(
+                    YAMLError(
+                        err_str=finding.message,
+                        line_number=finding.line_number,
+                        file_name=input_file,
+                    )
+                )
+
         any_types = [block for block in types_of_blocks.keys() if block in doc]
         if len(any_types) == 0:
             all_errors.append(
@@ -1553,7 +1595,11 @@ def find_errors_from_string(
     return all_errors
 
 
-def find_errors(input_file: str) -> list[YAMLError]:
+def find_errors(
+    input_file: str,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> list[YAMLError]:
     """Return list of YAMLError found in the given input_file
 
     If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
@@ -1573,7 +1619,12 @@ def find_errors(input_file: str) -> list[YAMLError]:
         print(f"Ah Jinja! ignoring {input_file}")
         return []
 
-    return find_errors_from_string(full_content, input_file=input_file)
+    return find_errors_from_string(
+        full_content,
+        input_file=input_file,
+        lint_mode=lint_mode,
+        runtime_options=runtime_options,
+    )
 
 
 def _collect_yaml_files(
@@ -1584,7 +1635,20 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
-def process_file(input_file) -> int:
+def _message_level(err_str: str) -> str:
+    lowered = err_str.lower()
+    if lowered.startswith("info:"):
+        return "info"
+    if lowered.startswith("warning:"):
+        return "warning"
+    return "error"
+
+
+def process_file(
+    input_file,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> int:
     """
     Returns:
         int: the number of errors found in the input_file
@@ -1602,19 +1666,42 @@ def process_file(input_file) -> int:
             print(f"ignoring {dumb_da_file}")
             return 0
 
-    all_errors = find_errors(input_file)
+    all_errors = find_errors(
+        input_file, lint_mode=lint_mode, runtime_options=runtime_options
+    )
 
     if len(all_errors) == 0:
         print(".", end="")
         return 0
+    error_count = 0
+    warning_count = 0
+    info_count = 0
+    for err in all_errors:
+        level = _message_level(err.err_str)
+        if level == "info":
+            info_count += 1
+        elif level == "warning":
+            warning_count += 1
+        else:
+            error_count += 1
+    blocking_count = error_count + warning_count
     print()
-    print(f"Found {len(all_errors)} errors:")
+    if info_count > 0:
+        print(
+            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):"
+        )
+    elif warning_count > 0:
+        print(
+            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings):"
+        )
+    else:
+        print(f"Found {len(all_errors)} errors:")
     for err in all_errors:
         print(f"{err}")
-    return len(all_errors)
+    return blocking_count
 
 
-def main() -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
     )
@@ -1629,7 +1716,25 @@ def main() -> int:
         action="store_true",
         help=(
             "Do not ignore default directories during recursive search "
-            "(.git*, .github*, sources)"
+            "(.git*, .github*, build, dist, node_modules, sources)"
+        ),
+    )
+    parser.add_argument(
+        "--no-wcag",
+        dest="wcag",
+        action="store_false",
+        help="Disable WCAG-style accessibility lint checks.",
+    )
+    parser.set_defaults(wcag=True)
+    parser.add_argument(
+        "--accessibility-error-on-widget",
+        dest="accessibility_error_on_widgets",
+        action="append",
+        default=[],
+        metavar="WIDGET",
+        help=(
+            "Treat a specific accessibility-sensitive widget as an error. "
+            "Repeat to enable multiple widgets. Default: none"
         ),
     )
     parser.add_argument(
@@ -1700,7 +1805,16 @@ def main() -> int:
         default="warning",
         help="How to report URLs that could not be reached at all (default: warning)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    lint_mode = ACCESSIBILITY_LINT_MODE if args.wcag else DEFAULT_LINT_MODE
+    runtime_options = RuntimeOptions(
+        accessibility_error_on_widgets=frozenset(
+            widget.strip().lower()
+            for widget in args.accessibility_error_on_widgets
+            if widget.strip()
+        )
+    )
 
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
@@ -1711,7 +1825,11 @@ def main() -> int:
 
     failed = False
     for input_file in yaml_files:
-        error_count = process_file(str(input_file))
+        error_count = process_file(
+            str(input_file),
+            lint_mode=lint_mode,
+            runtime_options=runtime_options,
+        )
         if error_count > 0:
             failed = True
 
