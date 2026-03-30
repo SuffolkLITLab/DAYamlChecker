@@ -176,6 +176,49 @@ def test_main_warning_still_fails_outside_info_only_mode():
         assert "warning:" in output
 
 
+def test_main_combobox_widget_check_disabled_by_default():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "combobox.yml"
+        interview.write_text(
+            "question: |\n  Pick one\ncombobox: selected_option\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["--no-url-check", str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 0
+        assert "combobox" not in output
+
+
+def test_main_can_enable_combobox_widget_check():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "combobox.yml"
+        interview.write_text(
+            "question: |\n  Pick one\ncombobox: selected_option\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                [
+                    "--no-url-check",
+                    "--accessibility-error-on-widget",
+                    "combobox",
+                    str(interview),
+                ]
+            )
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "screen uses `combobox`" in output
+
+
 def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)

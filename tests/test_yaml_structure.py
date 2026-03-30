@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from dayamlchecker.yaml_structure import find_errors_from_string
+from dayamlchecker.yaml_structure import RuntimeOptions, find_errors_from_string
 
 
 class TestYAMLStructure(unittest.TestCase):
@@ -260,7 +260,24 @@ question
             f"Expected YAML parse error in accessibility mode, got: {errs}",
         )
 
-    def test_accessibility_combobox_field_fails(self):
+    def test_accessibility_combobox_field_disabled_by_default(self):
+        yaml_content = """question: |
+  Pick one
+fields:
+  - Option: selected_option
+    datatype: combobox
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any("datatype: combobox" in e.err_str.lower() for e in errs),
+            f"Did not expect combobox accessibility error by default, got: {errs}",
+        )
+
+    def test_accessibility_combobox_field_fails_when_enabled(self):
         yaml_content = """question: |
   Pick one
 fields:
@@ -271,6 +288,9 @@ fields:
             yaml_content,
             input_file="<string_invalid>",
             lint_mode="accessibility",
+            runtime_options=RuntimeOptions(
+                accessibility_error_on_widgets=frozenset({"combobox"})
+            ),
         )
         self.assertTrue(
             any(
@@ -281,7 +301,22 @@ fields:
             f"Expected combobox accessibility error, got: {errs}",
         )
 
-    def test_accessibility_combobox_screen_fails(self):
+    def test_accessibility_combobox_screen_disabled_by_default(self):
+        yaml_content = """question: |
+  Pick one
+combobox: selected_option
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any("screen uses `combobox`" in e.err_str.lower() for e in errs),
+            f"Did not expect top-level combobox accessibility error by default, got: {errs}",
+        )
+
+    def test_accessibility_combobox_screen_fails_when_enabled(self):
         yaml_content = """question: |
   Pick one
 combobox: selected_option
@@ -290,6 +325,9 @@ combobox: selected_option
             yaml_content,
             input_file="<string_invalid>",
             lint_mode="accessibility",
+            runtime_options=RuntimeOptions(
+                accessibility_error_on_widgets=frozenset({"combobox"})
+            ),
         )
         self.assertTrue(
             any("screen uses `combobox`" in e.err_str.lower() for e in errs),

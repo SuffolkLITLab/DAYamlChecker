@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Optional
@@ -101,16 +101,28 @@ _COMPONENT_SELECTORS = {
 }
 
 
+@dataclass(frozen=True)
+class AccessibilityLintOptions:
+    error_on_widgets: frozenset[str] = field(default_factory=frozenset)
+
+    def errors_on_widget(self, widget_name: str) -> bool:
+        return widget_name.strip().lower() in self.error_on_widgets
+
+
 def find_accessibility_findings(
     *,
     doc: dict[str, Any],
     source_code: str,
     document_start_line: int,
     input_file: Optional[str] = None,
+    options: Optional[AccessibilityLintOptions] = None,
 ) -> list[AccessibilityFinding]:
+    options = options or AccessibilityLintOptions()
     findings: list[AccessibilityFinding] = []
     findings.extend(_check_multifield_no_label_usage(doc, document_start_line))
-    findings.extend(_check_combobox_usage(doc, source_code, document_start_line))
+    findings.extend(
+        _check_combobox_usage(doc, source_code, document_start_line, options=options)
+    )
     findings.extend(_check_tagged_pdf_for_docx(doc, source_code, document_start_line))
     findings.extend(
         _check_theme_css_contrast(
@@ -148,8 +160,15 @@ def find_accessibility_findings(
 
 
 def _check_combobox_usage(
-    doc: dict[str, Any], source_code: str, document_start_line: int
+    doc: dict[str, Any],
+    source_code: str,
+    document_start_line: int,
+    *,
+    options: AccessibilityLintOptions,
 ) -> list[AccessibilityFinding]:
+    if not options.errors_on_widget("combobox"):
+        return []
+
     findings: list[AccessibilityFinding] = []
     top_level_combobox = doc.get("combobox")
     if top_level_combobox is not None:

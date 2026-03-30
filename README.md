@@ -16,7 +16,10 @@ The checker includes WCAG-style checks for clear static accessibility failures i
 ```bash
 python3 -m dayamlchecker path/to/interview.yml          # WCAG checks on (default)
 python3 -m dayamlchecker --no-wcag path/to/interview.yml  # WCAG checks off
+python3 -m dayamlchecker --accessibility-error-on-widget combobox path/to/interview.yml  # opt into combobox failures
 ```
+
+Some accessibility checks are behind runtime options while the rules are still being evaluated. Right now `combobox` failures are default-off and can be enabled with `--accessibility-error-on-widget combobox`.
 
 ## URL checks
 
@@ -31,9 +34,12 @@ Current accessibility checks focus on objective failures only:
 - Skipped HTML heading levels such as `<h2>` to `<h4>`
 - Empty link text
 - Non-descriptive link text such as `click here`, `here`, `read more`, and Spanish equivalents like `haga clic aquí`
-- `combobox` usage, including `datatype: combobox`
 - `no label` and empty/missing labels on multi-field screens (allowed on single-field screens)
 - Low contrast in custom Bootstrap theme CSS loaded by `features: bootstrap theme`; inspects actual CSS values for body text, navbar, dropdown menu, and buttons (minimum ratio 4.5:1)
+
+Optional runtime-gated accessibility checks:
+
+- `combobox` usage, including `datatype: combobox` when `--accessibility-error-on-widget combobox` is enabled
 
 Accessibility informational notes are also emitted for likely PDF accessibility issues:
 
