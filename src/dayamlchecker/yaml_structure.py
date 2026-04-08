@@ -1508,7 +1508,13 @@ def find_errors_from_string(
                 )
 
         any_types = [block for block in types_of_blocks.keys() if block in doc]
-        if len(any_types) == 0:
+non_meta_keys = {
+    key for key in doc.keys() if isinstance(key, str) and key != "__line__"
+}
+any_types = [block for block in types_of_blocks.keys() if block in non_meta_keys]
+if len(non_meta_keys) == 1 and 'comment' in non_meta_keys:
+    pass # allow attribute comment blocks
+elif len(any_types) == 0:
             all_errors.append(
                 YAMLError(
                     err_str=f"No possible types found: {doc}",
