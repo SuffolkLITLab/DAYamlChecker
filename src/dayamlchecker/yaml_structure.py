@@ -1060,6 +1060,15 @@ all_dict_keys = (
     "sort reverse",
 )
 
+_CANONICAL_DOCASSEMBLE_KEYS = {key.lower(): key for key in all_dict_keys}
+
+
+def _canonical_docassemble_key(key: str) -> Optional[str]:
+    """Return the canonical docassemble key when the only problem is casing."""
+    if key in _CANONICAL_DOCASSEMBLE_KEYS:
+        return None
+    return _CANONICAL_DOCASSEMBLE_KEYS.get(key.lower())
+
 
 class YAMLError:
     def __init__(
@@ -1507,15 +1516,43 @@ def find_errors_from_string(
                     )
                 )
 
+        miscapitalized_keys: dict[str, str] = {}
+        miscapitalized_block_keys: dict[str, str] = {}
+        for attr in doc.keys():
+            if attr == "__line__" or not isinstance(attr, str):
+                continue
+            canonical_key = _canonical_docassemble_key(attr)
+            if canonical_key is None:
+                continue
+            miscapitalized_keys[attr] = canonical_key
+            if canonical_key in types_of_blocks:
+                miscapitalized_block_keys[attr] = canonical_key
+
         any_types = [block for block in types_of_blocks.keys() if block in doc]
         if len(any_types) == 0:
-            all_errors.append(
-                YAMLError(
-                    err_str=f"No possible types found: {doc}",
-                    line_number=line_number,
-                    file_name=input_file,
+            if len(miscapitalized_block_keys) > 0:
+                for invalid_key, canonical_key in miscapitalized_block_keys.items():
+                    all_errors.append(
+                        YAMLError(
+                            err_str=(
+                                f"`{invalid_key}` isn't a valid docassemble key "
+                                f"(did you mean `{canonical_key}`?)"
+                            ),
+                            line_number=line_number,
+                            file_name=input_file,
+                        )
+                    )
+            else:
+                all_errors.append(
+                    YAMLError(
+                        err_str=(
+                            "Couldn't identify a block type: no valid combination "
+                            "of keys found (check spelling and capitalization)"
+                        ),
+                        line_number=line_number,
+                        file_name=input_file,
+                    )
                 )
-            )
         posb_types = [block for block in exclusive_keys if block in doc]
         if len(posb_types) > 1:
             if len(posb_types) == 2 and posb_types[1] in (
@@ -1537,6 +1574,17 @@ def find_errors_from_string(
             if not isinstance(attr, str):
                 # Non-string keys (e.g., bools) are not expected in DA interview files
                 weird_keys.append(str(attr))
+            elif attr in miscapitalized_keys and attr not in miscapitalized_block_keys:
+                all_errors.append(
+                    YAMLError(
+                        err_str=(
+                            f"`{attr}` isn't a valid docassemble key "
+                            f"(did you mean `{miscapitalized_keys[attr]}`?)"
+                        ),
+                        line_number=line_number,
+                        file_name=input_file,
+                    )
+                )
             elif attr.lower() not in all_dict_keys:
                 weird_keys.append(attr)
         if len(weird_keys) > 0:

@@ -27,6 +27,56 @@ template: |
             f"Expected exclusivity error, got: {errs}",
         )
 
+    def test_unknown_block_type_error_is_clearer(self):
+        invalid = """
+foo: bar
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "Couldn't identify a block type: no valid combination of keys found"
+                in e.err_str
+                for e in errs
+            ),
+            f"Expected clearer unknown block type error, got: {errs}",
+        )
+
+    def test_miscalpitalized_block_key_suggests_canonical_key(self):
+        invalid = """
+Question: |
+  What is your name?
+field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                e.err_str
+                == "`Question` isn't a valid docassemble key (did you mean `question`?)"
+                for e in errs
+            ),
+            f"Expected casing suggestion for block key, got: {errs}",
+        )
+        self.assertFalse(
+            any("Couldn't identify a block type" in e.err_str for e in errs),
+            f"Did not expect generic block type error when a casing suggestion exists, got: {errs}",
+        )
+
+    def test_miscalpitalized_non_block_key_suggests_canonical_key(self):
+        invalid = """
+question: |
+  What is your name?
+Field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                e.err_str
+                == "`Field` isn't a valid docassemble key (did you mean `field`?)"
+                for e in errs
+            ),
+            f"Expected casing suggestion for non-block key, got: {errs}",
+        )
+
     def test_duplicate_key_error(self):
         duplicate = """
 question: |
