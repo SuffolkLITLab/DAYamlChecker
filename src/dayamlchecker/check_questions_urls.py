@@ -465,11 +465,22 @@ def _yaml_block_scalar_mode(line: str) -> str | None:
     return "raw"
 
 
+def _is_unescaped_double_quote(line: str, index: int) -> bool:
+    backslash_count = 0
+    scan_index = index - 1
+    while scan_index >= 0 and line[scan_index] == "\\":
+        backslash_count += 1
+        scan_index -= 1
+    return backslash_count % 2 == 0
+
+
 def _strip_yaml_comments(text: str) -> str:
     block_scalar_indent: int | None = None
     block_scalar_mode: str | None = None
     block_scalar_lines: list[str] = []
     stripped_lines: list[str] = []
+    in_single = False
+    in_double = False
 
     def flush_block_scalar() -> None:
         nonlocal block_scalar_indent, block_scalar_mode, block_scalar_lines
@@ -495,18 +506,27 @@ def _strip_yaml_comments(text: str) -> str:
                 block_scalar_lines.append(line)
                 continue
 
-        in_single = False
-        in_double = False
         result: list[str] = []
-        for index, char in enumerate(line):
-            prev_char = line[index - 1] if index > 0 else ""
+        index = 0
+        while index < len(line):
+            char = line[index]
             if char == "'" and not in_double:
+                if in_single and index + 1 < len(line) and line[index + 1] == "'":
+                    result.append("''")
+                    index += 2
+                    continue
                 in_single = not in_single
                 result.append(char)
+                index += 1
                 continue
-            if char == '"' and not in_single and prev_char != "\\":
+            if (
+                char == '"'
+                and not in_single
+                and _is_unescaped_double_quote(line, index)
+            ):
                 in_double = not in_double
                 result.append(char)
+                index += 1
                 continue
             if (
                 char == "#"
@@ -516,6 +536,7 @@ def _strip_yaml_comments(text: str) -> str:
             ):
                 break
             result.append(char)
+            index += 1
         stripped_line = "".join(result)
         stripped_lines.append(stripped_line)
         block_scalar_mode = _yaml_block_scalar_mode(stripped_line)

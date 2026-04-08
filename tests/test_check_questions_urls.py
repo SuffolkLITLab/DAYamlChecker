@@ -55,6 +55,56 @@ def test_extract_urls_skips_yaml_comment_urls(tmp_path: Path) -> None:
     assert concatenated == []
 
 
+def test_extract_urls_keeps_urls_in_multiline_double_quoted_yaml_scalar(
+    tmp_path: Path,
+) -> None:
+    file_path = tmp_path / "example.yml"
+    file_path.write_text(
+        "\n".join(
+            [
+                'note: "first line',
+                "  https://live.example/double-quoted",
+                '  # still content"',
+                "field: value # https://commented.example/trailing",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    urls, concatenated = extract_urls_from_file(
+        file_path, LinkifyIt(options={"fuzzy_link": False})
+    )
+
+    assert urls == ["https://live.example/double-quoted"]
+    assert concatenated == []
+
+
+def test_extract_urls_keeps_urls_in_multiline_single_quoted_yaml_scalar(
+    tmp_path: Path,
+) -> None:
+    file_path = tmp_path / "example.yml"
+    file_path.write_text(
+        "\n".join(
+            [
+                "note: 'first line",
+                "  https://live.example/single-quoted",
+                "  it''s still content # not a comment'",
+                "field: value # https://commented.example/trailing",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    urls, concatenated = extract_urls_from_file(
+        file_path, LinkifyIt(options={"fuzzy_link": False})
+    )
+
+    assert urls == ["https://live.example/single-quoted"]
+    assert concatenated == []
+
+
 def test_extract_urls_keeps_markdown_heading_urls_in_yaml_block_scalar(
     tmp_path: Path,
 ) -> None:
