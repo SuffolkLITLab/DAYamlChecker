@@ -3,7 +3,11 @@ from pathlib import Path
 from linkify_it import LinkifyIt
 
 import dayamlchecker.check_questions_urls as check_questions_urls
-from dayamlchecker.check_questions_urls import check_urls, extract_text_from_pdf, extract_urls_from_file
+from dayamlchecker.check_questions_urls import (
+    check_urls,
+    extract_text_from_pdf,
+    extract_urls_from_file,
+)
 
 
 def test_extract_urls_skips_python_comment_urls(tmp_path: Path) -> None:

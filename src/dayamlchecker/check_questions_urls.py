@@ -447,9 +447,7 @@ def _strip_python_comments_from_indented_block(lines: list[str]) -> str:
         return "".join(lines)
 
     min_indent = min(len(line) - len(line.lstrip(" ")) for line in nonempty_lines)
-    dedented = "".join(
-        line[min_indent:] if line.strip() else line for line in lines
-    )
+    dedented = "".join(line[min_indent:] if line.strip() else line for line in lines)
     stripped = _strip_python_comments(dedented)
     return "".join(
         (" " * min_indent + line if line.strip() else line)
@@ -476,7 +474,9 @@ def _strip_yaml_comments(text: str) -> str:
     def flush_block_scalar() -> None:
         nonlocal block_scalar_indent, block_scalar_mode, block_scalar_lines
         if block_scalar_mode == "python":
-            stripped_lines.append(_strip_python_comments_from_indented_block(block_scalar_lines))
+            stripped_lines.append(
+                _strip_python_comments_from_indented_block(block_scalar_lines)
+            )
         else:
             stripped_lines.extend(block_scalar_lines)
         block_scalar_indent = None
@@ -627,8 +627,10 @@ def collect_urls(
     document_concatenated: dict[str, set[str]] = {}
     document_repairs: dict[str, set[str]] = {}
     if check_documents:
-        document_urls, document_concatenated, document_repairs = collect_urls_from_files(
-            iter_document_files(root, package_dirs=package_dirs), root
+        document_urls, document_concatenated, document_repairs = (
+            collect_urls_from_files(
+                iter_document_files(root, package_dirs=package_dirs), root
+            )
         )
 
     return URLSourceCollection(
@@ -652,7 +654,9 @@ def _check_single_url(
     report_unreachable: bool = True,
 ) -> tuple[int | None, bool]:
     try:
-        with session.get(url, allow_redirects=True, timeout=timeout, stream=True) as response:
+        with session.get(
+            url, allow_redirects=True, timeout=timeout, stream=True
+        ) as response:
             return response.status_code, False
     except requests.RequestException as exc:
         if report_unreachable:
