@@ -9,4 +9,42 @@ pip install .
 python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path "*/.venv/*" -not -path "*/build/*"` # i.e. a space separated list of files
 ```
 
-The main `dayamlchecker` CLI now also runs the URL checker by default. Broken URLs in question files fail the command; broken URLs in related `data/templates` files are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-templates`, `--template-url-severity`, and `--unreachable-url-severity`.
+## WCAG checks
+
+The checker includes WCAG-style checks for clear static accessibility failures in interview source. These checks run by default; use `--no-wcag` to disable them.
+
+```bash
+python3 -m dayamlchecker path/to/interview.yml          # WCAG checks on (default)
+python3 -m dayamlchecker --no-wcag path/to/interview.yml  # WCAG checks off
+python3 -m dayamlchecker --accessibility-error-on-widget combobox path/to/interview.yml  # opt into combobox failures
+```
+
+Some accessibility checks are behind runtime options while the rules are still being evaluated. Right now `combobox` failures are default-off and can be enabled with `--accessibility-error-on-widget combobox`.
+
+## URL checks
+
+The main `dayamlchecker` CLI also runs the URL checker by default. Broken URLs in question files fail the command; broken URLs in related `data/templates` files are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-templates`, `--template-url-severity`, and `--unreachable-url-severity`.
+
+Current accessibility checks focus on objective failures only:
+
+- Missing alt text in markdown images
+- Missing alt text in Docassemble `[FILE ...]` image tags
+- Missing alt text in HTML `<img>` tags
+- Skipped markdown heading levels such as `##` to `####`
+- Skipped HTML heading levels such as `<h2>` to `<h4>`
+- Empty link text
+- Non-descriptive link text such as `click here`, `here`, `read more`, and Spanish equivalents like `haga clic aquí`
+- `no label` and empty/missing labels on multi-field screens (allowed on single-field screens)
+- Low contrast in custom Bootstrap theme CSS loaded by `features: bootstrap theme`; inspects actual CSS values for body text, navbar, dropdown menu, and buttons (minimum ratio 4.5:1)
+
+Optional runtime-gated accessibility checks:
+
+- `combobox` usage, including `datatype: combobox` when `--accessibility-error-on-widget combobox` is enabled
+
+Accessibility informational notes are also emitted for likely PDF accessibility issues:
+
+- DOCX attachments missing `tagged pdf: True` (set this in `features` or on the attachment)
+
+WCAG checks still report YAML parse errors, so CI/CD can surface broken YAML and accessibility failures in one run.
+
+This mode is source-based static analysis. It does not audit rendered pages for runtime behavior or JavaScript-created accessibility issues.

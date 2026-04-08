@@ -161,3 +161,6 @@ cython_debug/
 
 # uv
 uv.lock
+
+# local tooling artifact
+.codex
