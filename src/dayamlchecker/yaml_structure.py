@@ -44,6 +44,7 @@ __all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
 DEFAULT_LINT_MODE = "default"
 ACCESSIBILITY_LINT_MODE = "accessibility"
 
+
 @dataclass(frozen=True)
 class RuntimeOptions:
     accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
