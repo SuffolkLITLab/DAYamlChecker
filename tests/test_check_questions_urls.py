@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import cast
 
-from linkify_it import LinkifyIt
+from linkify_it import LinkifyIt  # type: ignore[attr-defined,import-untyped]
+from requests import Session
 
 import dayamlchecker.check_questions_urls as check_questions_urls
 from dayamlchecker.check_questions_urls import (
@@ -268,7 +270,7 @@ def test_check_urls_tries_pdf_repair_candidates_after_dead_link() -> None:
 
     session = FakeSession()
     broken, unreachable = check_urls(
-        session,
+        cast(Session, session),
         ["https://www.courts.michigan.gov/49752a/siteassets/forms/scao-"],
         timeout=10,
         repair_candidates={
