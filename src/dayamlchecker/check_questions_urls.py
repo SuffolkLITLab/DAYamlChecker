@@ -8,9 +8,11 @@ import os
 import pathlib
 import re
 import sys
+import tokenize
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from io import StringIO
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -153,6 +155,11 @@ _WHITELIST_URL_PREFIXES: frozenset[str] = frozenset(
         "https://api.openai.com/v1/",
         "https://generativelanguage.googleapis.com/v1beta/openai/",
     }
+)
+
+_YAML_PYTHON_BLOCK_KEYS: frozenset[str] = frozenset({"code"})
+_YAML_BLOCK_SCALAR_RE = re.compile(
+    r"^\s*(?:-\s*)?(?P<key>[^#:\n][^:\n]*):\s*[>|][^\n]*$"
 )
 
 
@@ -385,6 +392,113 @@ def parse_ignore_urls(raw: str) -> set[str]:
     return ignored_urls
 
 
+def _strip_python_comments(text: str) -> str:
+    output: list[tokenize.TokenInfo] = []
+    try:
+        for token in tokenize.generate_tokens(StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                continue
+            output.append(token)
+    except tokenize.TokenError:
+        # Fall back to the original text when tokenization fails on incomplete code.
+        return text
+    return tokenize.untokenize(output)
+
+
+def _strip_python_comments_from_indented_block(lines: list[str]) -> str:
+    nonempty_lines = [line for line in lines if line.strip()]
+    if not nonempty_lines:
+        return "".join(lines)
+
+    min_indent = min(len(line) - len(line.lstrip(" ")) for line in nonempty_lines)
+    dedented = "".join(
+        line[min_indent:] if line.strip() else line for line in lines
+    )
+    stripped = _strip_python_comments(dedented)
+    return "".join(
+        (" " * min_indent + line if line.strip() else line)
+        for line in stripped.splitlines(keepends=True)
+    )
+
+
+def _yaml_block_scalar_mode(line: str) -> str | None:
+    match = _YAML_BLOCK_SCALAR_RE.match(line.rstrip())
+    if match is None:
+        return None
+    key = match.group("key").strip().lower()
+    if key in _YAML_PYTHON_BLOCK_KEYS:
+        return "python"
+    return "raw"
+
+
+def _strip_yaml_comments(text: str) -> str:
+    block_scalar_indent: int | None = None
+    block_scalar_mode: str | None = None
+    block_scalar_lines: list[str] = []
+    stripped_lines: list[str] = []
+
+    def flush_block_scalar() -> None:
+        nonlocal block_scalar_indent, block_scalar_mode, block_scalar_lines
+        if block_scalar_mode == "python":
+            stripped_lines.append(_strip_python_comments_from_indented_block(block_scalar_lines))
+        else:
+            stripped_lines.extend(block_scalar_lines)
+        block_scalar_indent = None
+        block_scalar_mode = None
+        block_scalar_lines = []
+
+    for line in text.splitlines(keepends=True):
+        line_without_newline = line.rstrip("\r\n")
+        indentation = len(line_without_newline) - len(line_without_newline.lstrip(" "))
+        stripped_content = line_without_newline.strip()
+
+        if block_scalar_indent is not None:
+            if stripped_content and indentation <= block_scalar_indent:
+                flush_block_scalar()
+            else:
+                block_scalar_lines.append(line)
+                continue
+
+        in_single = False
+        in_double = False
+        result: list[str] = []
+        for index, char in enumerate(line):
+            prev_char = line[index - 1] if index > 0 else ""
+            if char == "'" and not in_double:
+                in_single = not in_single
+                result.append(char)
+                continue
+            if char == '"' and not in_single and prev_char != "\\":
+                in_double = not in_double
+                result.append(char)
+                continue
+            if (
+                char == "#"
+                and not in_single
+                and not in_double
+                and (index == 0 or line[index - 1].isspace())
+            ):
+                break
+            result.append(char)
+        stripped_line = "".join(result)
+        stripped_lines.append(stripped_line)
+        block_scalar_mode = _yaml_block_scalar_mode(stripped_line)
+        if block_scalar_mode is not None:
+            block_scalar_indent = indentation
+    if block_scalar_indent is not None:
+        flush_block_scalar()
+    return "".join(stripped_lines)
+
+
+def _prepare_text_for_url_extraction(file_path: pathlib.Path, text: str) -> str:
+    suffix = file_path.suffix.lower()
+    if suffix == ".py":
+        return _strip_python_comments(text)
+    if suffix in {".yml", ".yaml"}:
+        return _strip_yaml_comments(text)
+    return text
+
+
 def extract_urls_from_file(
     file_path: pathlib.Path, linkify: LinkifyIt
 ) -> tuple[list[str], list[str]]:
@@ -404,6 +518,8 @@ def extract_urls_from_file(
 
     if not text:
         return [], []
+
+    text = _prepare_text_for_url_extraction(file_path, text)
 
     matches = linkify.match(text) or []
     found_urls: list[str] = []
