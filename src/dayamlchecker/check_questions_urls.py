@@ -62,6 +62,8 @@ class URLSourceCollection:
     document_urls: dict[str, set[str]]
     yaml_concatenated: dict[str, set[str]]
     document_concatenated: dict[str, set[str]]
+    yaml_repairs: dict[str, set[str]]
+    document_repairs: dict[str, set[str]]
 
     @property
     def unique_url_count(self) -> int:
@@ -161,6 +163,8 @@ _YAML_PYTHON_BLOCK_KEYS: frozenset[str] = frozenset({"code"})
 _YAML_BLOCK_SCALAR_RE = re.compile(
     r"^\s*(?:-\s*)?(?P<key>[^#:\n][^:\n]*):\s*[>|][^\n]*$"
 )
+_URL_CONTINUATION_CHARS: frozenset[str] = frozenset("-_/=&%?#")
+_URL_LEADING_TOKEN_RE = re.compile(r"^([A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+)")
 
 
 def _iter_package_dirs(
@@ -405,6 +409,38 @@ def _strip_python_comments(text: str) -> str:
     return tokenize.untokenize(output)
 
 
+def _extract_wrapped_pdf_url_repairs(text: str) -> dict[str, set[str]]:
+    lines = text.splitlines(keepends=True)
+    if len(lines) < 2:
+        return {}
+
+    repairs: dict[str, set[str]] = defaultdict(set)
+    previous = lines[0]
+    for line in lines[1:]:
+        stripped_previous = previous.rstrip("\r\n")
+        trailing_match = re.search(r"(https?://\S+)$", stripped_previous)
+        leading_match = _URL_LEADING_TOKEN_RE.match(line.lstrip())
+        if (
+            trailing_match is not None
+            and leading_match is not None
+            and trailing_match.group(1)[-1] in _URL_CONTINUATION_CHARS
+        ):
+            original_url, is_concatenated = parse_url_token(trailing_match.group(1))
+            repaired_url, repaired_is_concatenated = parse_url_token(
+                trailing_match.group(1) + leading_match.group(1)
+            )
+            if (
+                original_url
+                and repaired_url
+                and not is_concatenated
+                and not repaired_is_concatenated
+                and repaired_url != original_url
+            ):
+                repairs[original_url].add(repaired_url)
+        previous = line
+    return repairs
+
+
 def _strip_python_comments_from_indented_block(lines: list[str]) -> str:
     nonempty_lines = [line for line in lines if line.strip()]
     if not nonempty_lines:
@@ -502,10 +538,19 @@ def _prepare_text_for_url_extraction(file_path: pathlib.Path, text: str) -> str:
 def extract_urls_from_file(
     file_path: pathlib.Path, linkify: LinkifyIt
 ) -> tuple[list[str], list[str]]:
+    urls, concatenated_urls, _ = _extract_urls_from_file_detailed(file_path, linkify)
+    return urls, concatenated_urls
+
+
+def _extract_urls_from_file_detailed(
+    file_path: pathlib.Path, linkify: LinkifyIt
+) -> tuple[list[str], list[str], dict[str, set[str]]]:
     # Extract text based on file type
     suffix = file_path.suffix.lower()
+    repair_candidates: dict[str, set[str]] = {}
     if suffix == ".pdf":
         text = extract_text_from_pdf(file_path)
+        repair_candidates = _extract_wrapped_pdf_url_repairs(text)
     elif suffix == ".docx":
         text = extract_text_from_docx(file_path)
     else:
@@ -514,10 +559,10 @@ def extract_urls_from_file(
             text = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             # Skip non-text files in questions directories.
-            return [], []
+            return [], [], {}
 
     if not text:
-        return [], []
+        return [], [], {}
 
     text = _prepare_text_for_url_extraction(file_path, text)
 
@@ -534,7 +579,7 @@ def extract_urls_from_file(
         if is_reserved_example_domain(url):
             continue
         found_urls.append(url)
-    return found_urls, concatenated_urls
+    return found_urls, concatenated_urls, repair_candidates
 
 
 def _display_path(file_path: pathlib.Path, root: pathlib.Path) -> str:
@@ -546,18 +591,23 @@ def _display_path(file_path: pathlib.Path, root: pathlib.Path) -> str:
 
 def collect_urls_from_files(
     file_paths: Iterable[pathlib.Path], root: pathlib.Path
-) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, set[str]]]:
     linkify = LinkifyIt(options={"fuzzy_link": False})
     url_sources: dict[str, set[str]] = defaultdict(set)
     concatenated_sources: dict[str, set[str]] = defaultdict(set)
+    repair_candidates: dict[str, set[str]] = defaultdict(set)
     for file_path in file_paths:
         rel_path = _display_path(file_path, root)
-        urls, concatenated_urls = extract_urls_from_file(file_path, linkify)
+        urls, concatenated_urls, file_repairs = _extract_urls_from_file_detailed(
+            file_path, linkify
+        )
         for url in urls:
             url_sources[url].add(rel_path)
         for bad_url in concatenated_urls:
             concatenated_sources[bad_url].add(rel_path)
-    return url_sources, concatenated_sources
+        for url, candidates in file_repairs.items():
+            repair_candidates[url].update(candidates)
+    return url_sources, concatenated_sources, repair_candidates
 
 
 def collect_urls(
@@ -569,12 +619,15 @@ def collect_urls(
     if question_files is None:
         question_files = iter_question_files(root, package_dirs=package_dirs)
 
-    yaml_urls, yaml_concatenated = collect_urls_from_files(question_files, root)
+    yaml_urls, yaml_concatenated, yaml_repairs = collect_urls_from_files(
+        question_files, root
+    )
 
     document_urls: dict[str, set[str]] = {}
     document_concatenated: dict[str, set[str]] = {}
+    document_repairs: dict[str, set[str]] = {}
     if check_documents:
-        document_urls, document_concatenated = collect_urls_from_files(
+        document_urls, document_concatenated, document_repairs = collect_urls_from_files(
             iter_document_files(root, package_dirs=package_dirs), root
         )
 
@@ -583,14 +636,35 @@ def collect_urls(
         document_urls=document_urls,
         yaml_concatenated=yaml_concatenated,
         document_concatenated=document_concatenated,
+        yaml_repairs=yaml_repairs,
+        document_repairs=document_repairs,
     )
 
 
 _DEAD_STATUS_CODES: frozenset[int] = frozenset({404, 410})
 
 
+def _check_single_url(
+    session: requests.Session,
+    url: str,
+    timeout: int,
+    *,
+    report_unreachable: bool = True,
+) -> tuple[int | None, bool]:
+    try:
+        with session.get(url, allow_redirects=True, timeout=timeout, stream=True) as response:
+            return response.status_code, False
+    except requests.RequestException as exc:
+        if report_unreachable:
+            print(f"Warning: could not check {url}: {exc}", file=sys.stderr)
+        return None, True
+
+
 def check_urls(
-    session: requests.Session, urls: Iterable[str], timeout: int
+    session: requests.Session,
+    urls: Iterable[str],
+    timeout: int,
+    repair_candidates: dict[str, set[str]] | None = None,
 ) -> tuple[list[tuple[str, int]], list[str]]:
     """Return (broken, unreachable) for the given *urls*.
 
@@ -604,17 +678,29 @@ def check_urls(
         if is_whitelisted_url(url):
             continue
 
-        try:
-            # stream=True avoids downloading large response bodies; the
-            # context manager ensures the connection is released promptly.
-            with session.get(
-                url, allow_redirects=True, timeout=timeout, stream=True
-            ) as response:
-                if response.status_code in _DEAD_STATUS_CODES:
-                    broken.append((url, response.status_code))
-        except requests.RequestException as exc:
-            print(f"Warning: could not check {url}: {exc}", file=sys.stderr)
+        status_code, was_unreachable = _check_single_url(session, url, timeout)
+        if was_unreachable:
             unreachable.append(url)
+            continue
+        if status_code not in _DEAD_STATUS_CODES:
+            continue
+
+        repaired = False
+        for candidate in sorted((repair_candidates or {}).get(url, ())):
+            if is_whitelisted_url(candidate):
+                repaired = True
+                break
+            candidate_status, candidate_unreachable = _check_single_url(
+                session,
+                candidate,
+                timeout,
+                report_unreachable=False,
+            )
+            if not candidate_unreachable and candidate_status not in _DEAD_STATUS_CODES:
+                repaired = True
+                break
+        if not repaired:
+            broken.append((url, status_code))
     return broken, unreachable
 
 
@@ -720,7 +806,16 @@ def run_url_check(
     unreachable: list[str] = []
     if urls_to_check:
         session = build_session()
-        broken, unreachable = check_urls(session, urls_to_check, timeout)
+        broken, unreachable = check_urls(
+            session,
+            urls_to_check,
+            timeout,
+            repair_candidates={
+                url: set(collected.yaml_repairs.get(url, set()))
+                | set(collected.document_repairs.get(url, set()))
+                for url in urls_to_check
+            },
+        )
 
     for url, status_code in broken:
         if url in collected.yaml_urls:

@@ -2,7 +2,8 @@ from pathlib import Path
 
 from linkify_it import LinkifyIt
 
-from dayamlchecker.check_questions_urls import extract_urls_from_file
+import dayamlchecker.check_questions_urls as check_questions_urls
+from dayamlchecker.check_questions_urls import check_urls, extract_text_from_pdf, extract_urls_from_file
 
 
 def test_extract_urls_skips_python_comment_urls(tmp_path: Path) -> None:
@@ -143,3 +144,89 @@ def test_extract_urls_skips_python_comment_urls_in_code_block_scalar(
 
     assert urls == ["https://live.example/value"]
     assert concatenated == []
+
+
+def test_extract_text_from_pdf_keeps_wrapped_urls_in_raw_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    file_path = tmp_path / "example.pdf"
+    file_path.write_bytes(b"%PDF-1.4\n")
+
+    class FakePage:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def extract_text(self) -> str:
+            return self.text
+
+    class FakeReader:
+        def __init__(self, _: Path) -> None:
+            self.pages = [
+                FakePage(
+                    "Visit https://www.courts.michigan.gov/49752a/siteassets/forms/scao-\n"
+                    "approved/dhs1201d.pdf for the full form."
+                )
+            ]
+
+    monkeypatch.setattr(check_questions_urls, "PdfReader", FakeReader)
+
+    assert extract_text_from_pdf(file_path) == (
+        "Visit https://www.courts.michigan.gov/49752a/siteassets/forms/scao-\n"
+        "approved/dhs1201d.pdf for the full form."
+    )
+
+
+def test_extract_wrapped_pdf_url_repairs_finds_joined_candidate() -> None:
+    repairs = check_questions_urls._extract_wrapped_pdf_url_repairs(
+        "Visit https://www.courts.michigan.gov/49752a/siteassets/forms/scao-\n"
+        "approved/dhs1201d.pdf for the full form."
+    )
+
+    assert repairs == {
+        "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-": {
+            "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-approved/dhs1201d.pdf"
+        }
+    }
+
+
+def test_check_urls_tries_pdf_repair_candidates_after_dead_link() -> None:
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get(self, url: str, **kwargs) -> FakeResponse:
+            self.calls.append(url)
+            if url.endswith("scao-"):
+                return FakeResponse(404)
+            if url.endswith("dhs1201d.pdf"):
+                return FakeResponse(200)
+            raise AssertionError(url)
+
+    session = FakeSession()
+    broken, unreachable = check_urls(
+        session,
+        ["https://www.courts.michigan.gov/49752a/siteassets/forms/scao-"],
+        timeout=10,
+        repair_candidates={
+            "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-": {
+                "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-approved/dhs1201d.pdf"
+            }
+        },
+    )
+
+    assert broken == []
+    assert unreachable == []
+    assert session.calls == [
+        "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-",
+        "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-approved/dhs1201d.pdf",
+    ]
