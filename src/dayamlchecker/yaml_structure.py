@@ -1530,6 +1530,20 @@ def find_errors_from_string(
                         file_name=input_file,
                     )
                 )
+
+        non_meta_keys = {
+            key for key in doc.keys() if isinstance(key, str) and key != "__line__"
+        }
+        if non_meta_keys == {"comment", "id"}:
+            all_errors.append(
+                YAMLError(
+                    err_str=(
+                        "Comment-only block cannot also define id; docassemble errors on blocks that only contain comment and id"
+                    ),
+                    line_number=line_number,
+                    file_name=input_file,
+                )
+            )
         weird_keys = []
         for attr in doc.keys():
             if attr == "__line__":

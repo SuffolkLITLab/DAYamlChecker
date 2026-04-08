@@ -242,6 +242,29 @@ subquestion: |
             f"Expected structural errors for non-Docassemble YAML in accessibility mode, got: {errs}",
         )
 
+    def test_comment_only_block_valid(self):
+        yaml_content = """comment: |
+  Notes for maintainers only
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+        self.assertEqual(
+            len(errs), 0, f"Expected no errors for comment-only block, got: {errs}"
+        )
+
+    def test_comment_and_id_only_block_invalid(self):
+        yaml_content = """id: comment_block
+comment: |
+  Notes for maintainers only
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "comment-only block cannot also define id" in e.err_str.lower()
+                for e in errs
+            ),
+            f"Expected comment+id validation error, got: {errs}",
+        )
+
     def test_accessibility_mode_still_reports_yaml_parse_errors(self):
         yaml_content = """question: |
   Bad yaml
