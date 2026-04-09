@@ -41,40 +41,34 @@ foo: bar
             f"Expected clearer unknown block type error, got: {errs}",
         )
 
-    def test_miscalpitalized_block_key_suggests_canonical_key(self):
+    def test_mixed_case_question_keys_are_accepted(self):
         invalid = """
 Question: |
-  What is your name?
-field: user_name
-"""
-        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
-        self.assertTrue(
-            any(
-                e.err_str
-                == "`Question` isn't a valid docassemble key (did you mean `question`?)"
-                for e in errs
-            ),
-            f"Expected casing suggestion for block key, got: {errs}",
-        )
-        self.assertFalse(
-            any("Couldn't identify a block type" in e.err_str for e in errs),
-            f"Did not expect generic block type error when a casing suggestion exists, got: {errs}",
-        )
-
-    def test_miscalpitalized_non_block_key_suggests_canonical_key(self):
-        invalid = """
-question: |
   What is your name?
 Field: user_name
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertEqual(len(errs), 0, f"Expected no errors, got: {errs}")
+
+    def test_mixed_case_field_modifier_is_not_accepted(self):
+        invalid = """
+question: |
+  What is your favorite fruit?
+fields:
+  - label: Fruit
+    field: favorite_fruit
+  - label: Why
+    Show If: favorite_fruit
+    field: fruit_reason
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(
             any(
-                e.err_str
-                == "`Field` isn't a valid docassemble key (did you mean `field`?)"
+                'Invalid field key "Show If"' in e.err_str
+                and 'use "show if"' in e.err_str
                 for e in errs
             ),
-            f"Expected casing suggestion for non-block key, got: {errs}",
+            f"Expected mixed-case modifier key to be rejected, got: {errs}",
         )
 
     def test_duplicate_key_error(self):
