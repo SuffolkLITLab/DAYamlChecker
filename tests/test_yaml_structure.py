@@ -27,6 +27,50 @@ template: |
             f"Expected exclusivity error, got: {errs}",
         )
 
+    def test_unknown_block_type_error_is_clearer(self):
+        invalid = """
+foo: bar
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                "Couldn't identify a block type: no valid combination of keys found"
+                in e.err_str
+                for e in errs
+            ),
+            f"Expected clearer unknown block type error, got: {errs}",
+        )
+
+    def test_mixed_case_question_keys_are_accepted(self):
+        invalid = """
+Question: |
+  What is your name?
+Field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertEqual(len(errs), 0, f"Expected no errors, got: {errs}")
+
+    def test_mixed_case_field_modifier_is_not_accepted(self):
+        invalid = """
+question: |
+  What is your favorite fruit?
+fields:
+  - label: Fruit
+    field: favorite_fruit
+  - label: Why
+    Show If: favorite_fruit
+    field: fruit_reason
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(
+                'Invalid field key "Show If"' in e.err_str
+                and 'use "show if"' in e.err_str
+                for e in errs
+            ),
+            f"Expected mixed-case modifier key to be rejected, got: {errs}",
+        )
+
     def test_duplicate_key_error(self):
         duplicate = """
 question: |
@@ -258,7 +302,11 @@ comment: |
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any("no possible types found" in e.err_str.lower() for e in errs),
+            any(
+                "couldn't identify a block type: no valid combination of keys found"
+                in e.err_str.lower()
+                for e in errs
+            ),
             f"Expected comment+id no-type validation error, got: {errs}",
         )
 
@@ -269,7 +317,11 @@ ga id: comment_block
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any("no possible types found" in e.err_str.lower() for e in errs),
+            any(
+                "couldn't identify a block type: no valid combination of keys found"
+                in e.err_str.lower()
+                for e in errs
+            ),
             f"Expected comment+ga id no-type validation error, got: {errs}",
         )
 
@@ -280,7 +332,11 @@ mandatory: True
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any("no possible types found" in e.err_str.lower() for e in errs),
+            any(
+                "couldn't identify a block type: no valid combination of keys found"
+                in e.err_str.lower()
+                for e in errs
+            ),
             f"Expected comment+mandatory no-type validation error, got: {errs}",
         )
 

@@ -606,6 +606,20 @@ class DAFields:
             if not isinstance(field_item, dict):
                 continue
 
+            for field_key in field_item:
+                if (
+                    isinstance(field_key, str)
+                    and field_key != "__line__"
+                    and field_key not in self.modifier_keys
+                    and field_key.lower() in self.modifier_keys
+                ):
+                    self.errors.append(
+                        (
+                            f'Invalid field key "{field_key}". docassemble field modifier keys are case-sensitive; use "{field_key.lower()}"',
+                            self._line_for(field_item),
+                        )
+                    )
+
             for js_key in self.js_modifier_keys:
                 if js_key in field_item:
                     validator = JSShowIf(
@@ -1061,6 +1075,23 @@ all_dict_keys = (
 )
 
 
+def _lowercase_key_map(mapping: dict[Any, Any]) -> dict[str, str]:
+    return {
+        key.lower(): key
+        for key in mapping.keys()
+        if isinstance(key, str) and key != "__line__"
+    }
+
+
+def _get_case_insensitive(
+    mapping: dict[Any, Any], key: str, default: Any = None
+) -> Any:
+    original_key = _lowercase_key_map(mapping).get(key.lower())
+    if original_key is None:
+        return default
+    return mapping.get(original_key, default)
+
+
 class YAMLError:
     def __init__(
         self,
@@ -1095,15 +1126,15 @@ def _contains_interview_order_marker(value: Any) -> bool:
 
 
 def _is_interview_order_style_block(doc: dict[str, Any]) -> bool:
-    mandatory = doc.get("mandatory")
+    mandatory = _get_case_insensitive(doc, "mandatory")
     mandatory_true = mandatory is True or (
         isinstance(mandatory, str) and mandatory.strip().lower() == "true"
     )
     if mandatory_true:
         return True
-    if _contains_interview_order_marker(doc.get("id")):
+    if _contains_interview_order_marker(_get_case_insensitive(doc, "id")):
         return True
-    if _contains_interview_order_marker(doc.get("comment")):
+    if _contains_interview_order_marker(_get_case_insensitive(doc, "comment")):
         return True
     return False
 
@@ -1226,7 +1257,7 @@ def _guard_candidates_for_modifier(modifier_key: str, modifier_value: Any) -> li
 def _extract_conditional_fields_from_doc(
     doc: dict[str, Any], line_number: int
 ) -> list[dict[str, Any]]:
-    fields = doc.get("fields")
+    fields = _get_case_insensitive(doc, "fields")
     if not isinstance(fields, list):
         return []
 
@@ -1335,7 +1366,7 @@ def _has_matching_guard(active_guards: list[str], expected_guards: list[str]) ->
 def _find_unmatched_interview_order_references(
     doc: dict[str, Any], conditional_fields: list[dict[str, Any]]
 ) -> list[tuple[str, int]]:
-    code = doc.get("code")
+    code = _get_case_insensitive(doc, "code")
     if not isinstance(code, str):
         return []
     if not _is_interview_order_style_block(doc):
@@ -1356,7 +1387,7 @@ def _find_unmatched_interview_order_references(
 
 
 def _max_screen_visibility_nesting_depth(doc: dict[str, Any]) -> int:
-    fields = doc.get("fields")
+    fields = _get_case_insensitive(doc, "fields")
     if not isinstance(fields, list):
         return 0
 
@@ -1507,10 +1538,13 @@ def find_errors_from_string(
                     )
                 )
 
-        non_meta_keys = {
-            key for key in doc.keys() if isinstance(key, str) and key != "__line__"
+        doc_keys_lower = _lowercase_key_map(doc)
+        non_meta_keys_lower = {
+            key.lower()
+            for key in doc.keys()
+            if isinstance(key, str) and key != "__line__"
         }
-        if non_meta_keys == {"comment"}:
+        if non_meta_keys_lower == {"comment"}:
             # docassemble ignores comment-only blocks, but once another attribute
             # is present the block still needs a real question/directive type.
             pass
@@ -1518,17 +1552,20 @@ def find_errors_from_string(
             any_types = [
                 block
                 for block in types_of_blocks.keys()
-                if block in non_meta_keys and block != "comment"
+                if block in doc_keys_lower and block != "comment"
             ]
             if len(any_types) == 0:
                 all_errors.append(
                     YAMLError(
-                        err_str=f"No possible types found: {doc}",
+                        err_str=(
+                            "Couldn't identify a block type: no valid combination of keys found "
+                            "(looking for keys like question, include, metadata, code, objects, etc. See https://docassemble.org/docs.html)"
+                        ),
                         line_number=line_number,
                         file_name=input_file,
                     )
                 )
-        posb_types = [block for block in exclusive_keys if block in doc]
+        posb_types = [block for block in exclusive_keys if block in doc_keys_lower]
         if len(posb_types) > 1:
             if len(posb_types) == 2 and posb_types[1] in (
                 types_of_blocks[posb_types[0]].get("partners") or []
@@ -1562,8 +1599,11 @@ def find_errors_from_string(
                 )
             )
         for key in doc.keys():
-            if key in big_dict and "type" in big_dict[key]:
-                test = big_dict[key]["type"](doc[key])
+            if not isinstance(key, str):
+                continue
+            lower_key = key.lower()
+            if lower_key in big_dict and "type" in big_dict[lower_key]:
+                test = big_dict[lower_key]["type"](doc[key])
                 for err in test.errors:
                     all_errors.append(
                         YAMLError(
