@@ -258,11 +258,30 @@ comment: |
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any(
-                "comment-only block cannot also define id" in e.err_str.lower()
-                for e in errs
-            ),
-            f"Expected comment+id validation error, got: {errs}",
+            any("no possible types found" in e.err_str.lower() for e in errs),
+            f"Expected comment+id no-type validation error, got: {errs}",
+        )
+
+    def test_comment_and_non_type_attribute_block_invalid(self):
+        yaml_content = """comment: |
+  Notes for maintainers only
+ga id: comment_block
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertTrue(
+            any("no possible types found" in e.err_str.lower() for e in errs),
+            f"Expected comment+ga id no-type validation error, got: {errs}",
+        )
+
+    def test_comment_and_modifier_without_type_block_invalid(self):
+        yaml_content = """comment: |
+  Notes for maintainers only
+mandatory: True
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertTrue(
+            any("no possible types found" in e.err_str.lower() for e in errs),
+            f"Expected comment+mandatory no-type validation error, got: {errs}",
         )
 
     def test_accessibility_mode_still_reports_yaml_parse_errors(self):

@@ -1507,21 +1507,27 @@ def find_errors_from_string(
                     )
                 )
 
-        any_types = [block for block in types_of_blocks.keys() if block in doc]
-non_meta_keys = {
-    key for key in doc.keys() if isinstance(key, str) and key != "__line__"
-}
-any_types = [block for block in types_of_blocks.keys() if block in non_meta_keys]
-if len(non_meta_keys) == 1 and 'comment' in non_meta_keys:
-    pass # allow attribute comment blocks
-elif len(any_types) == 0:
-            all_errors.append(
-                YAMLError(
-                    err_str=f"No possible types found: {doc}",
-                    line_number=line_number,
-                    file_name=input_file,
+        non_meta_keys = {
+            key for key in doc.keys() if isinstance(key, str) and key != "__line__"
+        }
+        if non_meta_keys == {"comment"}:
+            # docassemble ignores comment-only blocks, but once another attribute
+            # is present the block still needs a real question/directive type.
+            pass
+        else:
+            any_types = [
+                block
+                for block in types_of_blocks.keys()
+                if block in non_meta_keys and block != "comment"
+            ]
+            if len(any_types) == 0:
+                all_errors.append(
+                    YAMLError(
+                        err_str=f"No possible types found: {doc}",
+                        line_number=line_number,
+                        file_name=input_file,
+                    )
                 )
-            )
         posb_types = [block for block in exclusive_keys if block in doc]
         if len(posb_types) > 1:
             if len(posb_types) == 2 and posb_types[1] in (
@@ -1537,19 +1543,6 @@ elif len(any_types) == 0:
                     )
                 )
 
-        non_meta_keys = {
-            key for key in doc.keys() if isinstance(key, str) and key != "__line__"
-        }
-        if non_meta_keys == {"comment", "id"}:
-            all_errors.append(
-                YAMLError(
-                    err_str=(
-                        "Comment-only block cannot also define id; docassemble errors on blocks that only contain comment and id"
-                    ),
-                    line_number=line_number,
-                    file_name=input_file,
-                )
-            )
         weird_keys = []
         for attr in doc.keys():
             if attr == "__line__":
