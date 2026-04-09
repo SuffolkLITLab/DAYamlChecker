@@ -11,14 +11,15 @@ from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
 )
-import yaml
-from yaml.loader import SafeLoader
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
 from mako.exceptions import (  # type: ignore[import-untyped]
     SyntaxException,
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.error import MarkedYAMLError
 from dayamlchecker.check_questions_urls import (
     infer_package_dirs,
     infer_root as infer_url_check_root,
@@ -1113,6 +1114,24 @@ class YAMLError:
         return f"At {self.file_name}:{self.line_number}: {self.err_str}"
 
 
+def _make_yaml_parser() -> YAML:
+    yaml = YAML()
+    yaml.allow_duplicate_keys = False
+    return yaml
+
+
+def _with_line_metadata(value: Any) -> Any:
+    if isinstance(value, CommentedMap):
+        converted: dict[Any, Any] = {
+            key: _with_line_metadata(item) for key, item in value.items()
+        }
+        converted["__line__"] = value.lc.line + 1
+        return converted
+    if isinstance(value, CommentedSeq):
+        return [_with_line_metadata(item) for item in value]
+    return value
+
+
 def _normalize_expr(expr: str) -> str:
     normalized = re.sub(r"\s+", "", expr or "")
     return normalized.replace('"', "'")
@@ -1435,35 +1454,6 @@ def _max_screen_visibility_nesting_depth(doc: dict[str, Any]) -> int:
     return max((depth(var) for var in adjacency.keys()), default=0)
 
 
-class SafeLineLoader(SafeLoader):
-    """https://stackoverflow.com/questions/13319067/parsing-yaml-return-with-line-number"""
-
-    def construct_mapping(self, node, deep=False):
-        # Detect duplicate keys in the mapping node and raise a helpful
-        # MarkedYAMLError with the problem and line information. PyYAML
-        # otherwise allows duplicate keys and silently takes the last
-        # occurrence, which is not ideal for our linter.
-        seen_keys = set()
-        for key_node, _ in node.value:
-            # Only check scalar keys
-            if hasattr(key_node, "value"):
-                key = key_node.value
-                if key in seen_keys:
-                    # Raise YAML marked error so find_errors_from_string will
-                    # capture this as a parsing error tied to a specific line.
-                    raise yaml.error.MarkedYAMLError(
-                        context=f"while constructing a mapping",
-                        context_mark=node.start_mark,
-                        problem=f"found duplicate key {key!r}",
-                        problem_mark=key_node.start_mark,
-                    )
-                seen_keys.add(key)
-
-        mapping = super(SafeLineLoader, self).construct_mapping(node, deep=deep)
-        mapping["__line__"] = node.start_mark.line + 1
-        return mapping
-
-
 def find_errors_from_string(
     full_content: str,
     input_file: Optional[str] = None,
@@ -1488,6 +1478,7 @@ def find_errors_from_string(
         for key in types_of_blocks.keys()
         if types_of_blocks[key].get("exclusive", True)
     ]
+    yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
     line_number = 1
     for source_code in document_match.split(full_content):
@@ -1495,9 +1486,9 @@ def find_errors_from_string(
         source_code = remove_trailing_dots.sub("", source_code)
         source_code = fix_tabs.sub("  ", source_code)
         try:
-            doc = yaml.load(source_code, SafeLineLoader)
+            doc = _with_line_metadata(yaml_parser.load(source_code))
         except Exception as errMess:
-            if isinstance(errMess, yaml.error.MarkedYAMLError):
+            if isinstance(errMess, MarkedYAMLError):
                 if errMess.context_mark is not None:
                     errMess.context_mark.line += line_number - 1
                 if errMess.problem_mark is not None:
