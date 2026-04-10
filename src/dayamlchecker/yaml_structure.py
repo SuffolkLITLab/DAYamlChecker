@@ -448,6 +448,8 @@ class DAFields:
         "__line__",
     }
 
+    mako_keys = {"default", "hint", "label", "note"}
+
     js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
     py_modifier_keys = ("show if", "hide if", "enable if", "disable if")
 
@@ -607,18 +609,26 @@ class DAFields:
                 continue
 
             for field_key in field_item:
-                if (
-                    isinstance(field_key, str)
-                    and field_key != "__line__"
-                    and field_key not in self.modifier_keys
-                    and field_key.lower() in self.modifier_keys
-                ):
-                    self.errors.append(
-                        (
-                            f'Invalid field key "{field_key}". docassemble field modifier keys are case-sensitive; use "{field_key.lower()}"',
-                            self._line_for(field_item),
+                if isinstance(field_key, str) and field_key != "__line__":
+                    if (
+                        field_key not in self.modifier_keys
+                        and field_key.lower() in self.modifier_keys
+                    ):
+                        self.errors.append(
+                            (
+                                f'Invalid field key "{field_key}". docassemble field modifier keys are case-sensitive; use "{field_key.lower()}"',
+                                self._line_for(field_item),
+                            )
                         )
-                    )
+                    if field_key in self.mako_keys:
+                        the_mako = MakoText(str(field_item[field_key]))
+                        for err in the_mako.errors:
+                            self.errors.append(
+                                (
+                                    f"{field_key} value has {err[0]}",
+                                    self._line_for(field_item, err[1]),
+                                )
+                            )
 
             for js_key in self.js_modifier_keys:
                 if js_key in field_item:
