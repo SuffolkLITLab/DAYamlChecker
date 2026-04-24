@@ -1469,6 +1469,30 @@ continue button field: interrogatory_questions
             f"Expected no fields-shape errors, got: {field_errors}",
         )
 
+    def test_fields_mako_templates_valid(self):
+        """Error: fields with mako in them are checked."""
+        valid = """
+question: |
+  Interrogatories
+fields:
+  - "Ints fields": ints_fields
+    default: |
+      ${ 1 + 3
+         + 5}
+continue button field: interrogatory_questions
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        field_errors = [
+            e
+            for e in errs
+            if "default value has (indentationerror)" in e.err_str.lower()
+        ]
+        self.assertEqual(
+            len(field_errors),
+            1,
+            f"Expected one mako field errors, got: {field_errors}",
+        )
+
     def test_interview_order_reference_without_matching_guard_errors(self):
         """Error when interview-order style code references a conditionally shown field without guard"""
         invalid = """
