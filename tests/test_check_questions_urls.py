@@ -1,5 +1,6 @@
 import runpy
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -343,6 +344,40 @@ def test_check_urls_tries_pdf_repair_candidates_after_dead_link() -> None:
         "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-",
         "https://www.courts.michigan.gov/49752a/siteassets/forms/scao-approved/dhs1201d.pdf",
     ]
+
+
+def test_check_urls_runs_primary_requests_concurrently() -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.barrier = threading.Barrier(2, timeout=1)
+            self.lock = threading.Lock()
+            self.calls: list[str] = []
+
+        def get(self, url: str, **kwargs) -> FakeResponse:
+            with self.lock:
+                self.calls.append(url)
+            self.barrier.wait()
+            return FakeResponse()
+
+    session = FakeSession()
+    broken, unreachable = check_urls(
+        cast(Session, session),
+        ["https://b.test", "https://a.test"],
+        timeout=10,
+    )
+
+    assert broken == []
+    assert unreachable == []
+    assert set(session.calls) == {"https://a.test", "https://b.test"}
 
 
 def test_url_result_helpers_report_warnings_and_unique_urls() -> None:
