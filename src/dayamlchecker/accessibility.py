@@ -220,6 +220,9 @@ def _check_multifield_no_label_usage(
 
     findings: list[AccessibilityFinding] = []
     for field in fields:
+        if _is_code_only_field(field):
+            continue
+
         field_line = (
             document_start_line + field.get("__line__", doc.get("__line__", 1)) - 1
         )
@@ -590,6 +593,11 @@ def _iter_fields(doc: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(fields, list):
         return []
     return [field for field in fields if isinstance(field, dict)]
+
+
+def _is_code_only_field(field: dict[str, Any]) -> bool:
+    keys = {str(key).strip() for key in field if key != "__line__"}
+    return keys == {"code"}
 
 
 def _extract_field_variable(field: dict[str, Any]) -> str:

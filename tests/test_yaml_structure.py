@@ -585,6 +585,45 @@ fields:
             f"Expected multi-field no-label accessibility error, got: {errs}",
         )
 
+    def test_accessibility_code_only_field_allowed_multi_field_screen(self):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - code: |
+      dynamic_fields
+  - First name: user_first
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Did not expect code-only field accessibility error, got: {errs}",
+        )
+
+    def test_accessibility_field_with_code_and_no_label_still_fails_multi_field_screen(
+        self,
+    ):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - First name: user_first
+  - code: |
+      dynamic_fields
+    datatype: checkboxes
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Expected non-code-only missing-label accessibility error, got: {errs}",
+        )
+
     def test_accessibility_empty_label_fails_multi_field_screen(self):
         yaml_content = """question: |
   Enter information
