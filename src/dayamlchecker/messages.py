@@ -54,6 +54,16 @@ class MessageCode(StrEnum):
     INTERVIEW_ORDER_UNMATCHED_GUARD = "W603"
     NESTED_VISIBILITY_LOGIC = "W604"
 
+    ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE = "W501"
+    ACCESSIBILITY_NO_LABEL_MULTI_FIELD = "W502"
+    ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED = "W503"
+    ACCESSIBILITY_THEME_CONTRAST_TOO_LOW = "W504"
+    ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT = "W505"
+    ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP = "W506"
+    ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP = "W507"
+    ACCESSIBILITY_EMPTY_LINK_TEXT = "W508"
+    ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT = "W509"
+
     VALIDATION_CODE_MISSING_VALIDATION_ERROR = "C101"
 
 
@@ -237,6 +247,51 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         code=MessageCode.NESTED_VISIBILITY_LOGIC,
         summary="Visibility logic is nested too deeply",
         template="Warning: show if/hide if visibility logic is nested {depth} levels on this screen (more than 2)",
+    ),
+    MessageCode.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
+        summary="Combobox widget is not accessible",
+        template="Accessibility: combobox widgets are not allowed for accessibility reasons",
+    ),
+    MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD,
+        summary="Field label missing on multi-field screen",
+        template="Accessibility: no label or empty/missing field label is only allowed on single-field screens",
+    ),
+    MessageCode.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED,
+        summary="DOCX attachment may need tagged PDF enabled",
+        template="Accessibility: DOCX attachment detected without tagged pdf enabled",
+    ),
+    MessageCode.ACCESSIBILITY_THEME_CONTRAST_TOO_LOW: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_THEME_CONTRAST_TOO_LOW,
+        summary="Bootstrap theme CSS has low contrast",
+        template="Accessibility: bootstrap theme CSS has low contrast",
+    ),
+    MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
+        summary="Image is missing alt text",
+        template="Accessibility: image is missing alt text",
+    ),
+    MessageCode.ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP,
+        summary="Markdown heading levels skip",
+        template="Accessibility: markdown heading levels skip",
+    ),
+    MessageCode.ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP,
+        summary="HTML heading levels skip",
+        template="Accessibility: HTML heading levels skip",
+    ),
+    MessageCode.ACCESSIBILITY_EMPTY_LINK_TEXT: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_EMPTY_LINK_TEXT,
+        summary="Link has no accessible text",
+        template="Accessibility: link has no accessible text",
+    ),
+    MessageCode.ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT: MessageDefinition(
+        code=MessageCode.ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT,
+        summary="Link text is too generic",
+        template="Accessibility: link text is too generic",
     ),
     MessageCode.VALIDATION_CODE_MISSING_VALIDATION_ERROR: MessageDefinition(
         code=MessageCode.VALIDATION_CODE_MISSING_VALIDATION_ERROR,

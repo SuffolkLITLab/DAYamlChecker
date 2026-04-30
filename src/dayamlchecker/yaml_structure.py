@@ -1846,6 +1846,8 @@ def find_errors_from_string(
                         err_str=finding.message,
                         line_number=finding.line_number,
                         file_name=input_file,
+                        experimental=is_experimental_code(finding.code),
+                        code=finding.code,
                     )
                 )
 
@@ -2206,15 +2208,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
 
-    base_dirs = [p.resolve() if p.is_dir() else p.resolve().parent for p in args.files]
+    cwd = Path.cwd().resolve()
 
     def _display(file_path: Path) -> Path:
         resolved = file_path.resolve()
-        for base in base_dirs:
-            try:
-                return resolved.relative_to(base)
-            except ValueError:
-                continue
+        try:
+            return resolved.relative_to(cwd)
+        except ValueError:
+            pass
         return resolved
 
     yaml_files = _collect_yaml_files(

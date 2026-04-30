@@ -39,6 +39,11 @@ ALL_ERROR_CODE_FIXTURES = (
     LARGE_INVALID_JINJA_SYNTAX_FIXTURE,
     LARGE_INVALID_JINJA_TEMPLATE_FIXTURE,
 )
+ACCESSIBILITY_MESSAGE_CODES = {
+    code
+    for code in MESSAGE_DEFINITIONS
+    if getattr(code, "value", str(code)).startswith("W5")
+}
 
 
 def test_message_severity_handles_none_convention_and_unknown_codes():
@@ -51,6 +56,18 @@ def test_yaml_error_severity_uses_warning_prefix_without_code():
     err = YAMLError(err_str="Warning: heads up", line_number=1, file_name="test.yml")
 
     assert err.severity == "warning"
+
+
+def test_yaml_error_severity_uses_info_prefix_without_code():
+    err = YAMLError(err_str="Info: note", line_number=1, file_name="test.yml")
+
+    assert err.severity == "convention"
+
+
+def test_yaml_error_severity_defaults_to_error_without_code_or_prefix():
+    err = YAMLError(err_str="bad key", line_number=1, file_name="test.yml")
+
+    assert err.severity == "error"
 
 
 def test_lc_key_line_uses_key_specific_metadata_when_available():
@@ -191,6 +208,14 @@ question: |
                 for e in errs
             ),
             f"Expected markdown alt text accessibility error, got: {errs}",
+        )
+        self.assertTrue(
+            any(
+                e.code == MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT
+                and e.severity == "warning"
+                for e in errs
+            ),
+            f"Expected coded accessibility warning, got: {errs}",
         )
 
     def test_accessibility_file_tag_missing_alt_text(self):
@@ -621,6 +646,36 @@ fields:
             ),
             f"Expected multi-field no-label accessibility error, got: {errs}",
         )
+        self.assertTrue(
+            any(
+                e.code == MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD
+                and e.severity == "warning"
+                for e in errs
+            ),
+            f"Expected coded no-label accessibility warning, got: {errs}",
+        )
+
+    def test_accessibility_no_label_uses_field_variable_in_message(self):
+        yaml_content = """question: |
+  Enter information
+fields:
+  - First name: user_first
+  - no label: court_county
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+
+        self.assertTrue(
+            any(
+                e.code == MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD
+                and "court_county" in e.err_str
+                for e in errs
+            ),
+            f"Expected no-label accessibility warning to name field variable, got: {errs}",
+        )
 
     def test_accessibility_code_only_field_allowed_multi_field_screen(self):
         yaml_content = """question: |
@@ -697,7 +752,7 @@ fields:
             f"Expected missing-label accessibility error, got: {errs}",
         )
 
-    def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
+    def test_accessibility_tagged_pdf_warning_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
     docx template file: letter_template.docx
@@ -709,11 +764,12 @@ fields:
         )
         self.assertTrue(
             any(
-                e.err_str.lower().startswith("info:")
+                e.code == MessageCode.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED
+                and e.severity == "warning"
                 and "docx attachment detected" in e.err_str.lower()
                 for e in errs
             ),
-            f"Expected tagged-pdf info note, got: {errs}",
+            f"Expected tagged-pdf accessibility warning, got: {errs}",
         )
 
     def test_accessibility_tagged_pdf_true_in_features_suppresses_info(self):
@@ -2592,10 +2648,14 @@ class TestFindErrors(unittest.TestCase):
 
         errs = find_errors(str(LARGE_INVALID_INTERVIEW_FIXTURE))
         codes = {err.code for err in errs}
-        expected_codes = set(MESSAGE_DEFINITIONS) - {
-            MessageCode.JINJA2_SYNTAX_ERROR,
-            MessageCode.JINJA2_TEMPLATE_ERROR,
-        }
+        expected_codes = (
+            set(MESSAGE_DEFINITIONS)
+            - {
+                MessageCode.JINJA2_SYNTAX_ERROR,
+                MessageCode.JINJA2_TEMPLATE_ERROR,
+            }
+            - ACCESSIBILITY_MESSAGE_CODES
+        )
 
         self.assertEqual(
             codes,
@@ -2612,7 +2672,7 @@ class TestFindErrors(unittest.TestCase):
 
         self.assertEqual(
             covered_codes,
-            set(MESSAGE_DEFINITIONS),
+            set(MESSAGE_DEFINITIONS) - ACCESSIBILITY_MESSAGE_CODES,
             f"Expected fixtures to cover {sorted(MESSAGE_DEFINITIONS)}, got {sorted(covered_codes)}",
         )
 

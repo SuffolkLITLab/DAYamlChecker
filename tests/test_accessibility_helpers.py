@@ -11,6 +11,7 @@ def test_find_accessibility_findings_deduplicates_identical_results(
 ) -> None:
     finding = accessibility.AccessibilityFinding(
         rule_id="duplicate-rule",
+        code="W799",
         message="Accessibility: duplicate",
         line_number=3,
     )
@@ -109,6 +110,12 @@ def test_line_field_truthy_and_attachment_helpers() -> None:
         accessibility._extract_field_variable({"Age": 42, "Name": "user_name"})
         == "user_name"
     )
+    assert (
+        accessibility._extract_field_variable({"no label": "court_county"})
+        == "court_county"
+    )
+    assert accessibility._extract_field_variable({"no label": True}) == ""
+    assert accessibility._extract_field_variable({"no label": "true"}) == ""
     assert accessibility._extract_field_label({"label": "Explicit"}) == "Explicit"
     assert accessibility._is_truthy(1)
     assert not accessibility._is_truthy(0)

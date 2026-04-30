@@ -554,16 +554,14 @@ Examples:
         convert_indent_4_to_2=not args.no_indent_conversion,
     )
 
-    # Precompute resolved base dirs for relative path display
-    base_dirs = [p.resolve() if p.is_dir() else p.resolve().parent for p in args.files]
+    cwd = Path.cwd().resolve()
 
     def _display(file_path: Path) -> Path:
         resolved = file_path.resolve()
-        for base in base_dirs:
-            try:
-                return resolved.relative_to(base)
-            except ValueError:
-                continue
+        try:
+            return resolved.relative_to(cwd)
+        except ValueError:
+            pass
         return resolved
 
     def _emit_error(message: str) -> None:

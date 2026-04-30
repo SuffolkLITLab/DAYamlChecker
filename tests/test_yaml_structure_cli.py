@@ -406,6 +406,26 @@ def test_cli_display_falls_back_to_absolute_path_when_not_under_base():
         assert str(outside.resolve()) in buf.getvalue()
 
 
+def test_cli_display_prefers_path_relative_to_cwd(monkeypatch):
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        scan_dir = root / "docassemble"
+        interview = scan_dir / "WorkflowDocs" / "data" / "questions" / "test.yml"
+        _write_valid_question(interview)
+        buf = io.StringIO()
+
+        previous_cwd = Path.cwd()
+        monkeypatch.chdir(root)
+        try:
+            with redirect_stdout(buf):
+                result = main(["--no-url-check", str(scan_dir)])
+        finally:
+            monkeypatch.chdir(previous_cwd)
+
+        assert result == 0
+        assert "ok: docassemble/WorkflowDocs/data/questions/test.yml" in buf.getvalue()
+
+
 def test_cli_display_path_used_in_output():
     """process_file uses display_path when provided."""
     with TemporaryDirectory() as tmp:
@@ -467,7 +487,7 @@ def test_package_main_aliases_yaml_structure_main():
     assert package_main is main
 
 
-def test_main_default_wcag_reports_failures():
+def test_main_default_wcag_reports_warnings_without_failing():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "accessibility.yml"
@@ -481,12 +501,13 @@ def test_main_default_wcag_reports_failures():
             exit_code = main([str(interview)])
 
         output = stdout.getvalue().lower()
-        assert exit_code == 1
-        assert "errors (1)" in output
+        assert exit_code == 0
+        assert "warnings (1)" in output
+        assert "[w505]" in output
         assert "accessibility: markdown image" in output
 
 
-def test_main_wcag_info_only_does_not_fail():
+def test_main_wcag_warning_only_does_not_fail():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "tagged-pdf-warning.yml"
@@ -503,7 +524,9 @@ def test_main_wcag_info_only_does_not_fail():
 
         output = stdout.getvalue().lower()
         assert exit_code == 0
-        assert "info: accessibility: docx attachment detected" in output
+        assert "warnings (1)" in output
+        assert "[w503]" in output
+        assert "accessibility: docx attachment detected" in output
 
 
 def test_main_warning_only_does_not_fail():
@@ -553,7 +576,7 @@ def test_main_combobox_widget_check_disabled_by_default():
         assert "screen uses `combobox`" not in output
 
 
-def test_main_can_enable_combobox_widget_check():
+def test_main_can_enable_combobox_widget_warning():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "combobox.yml"
@@ -574,7 +597,9 @@ def test_main_can_enable_combobox_widget_check():
             )
 
         output = stdout.getvalue().lower()
-        assert exit_code == 1
+        assert exit_code == 0
+        assert "warnings (1)" in output
+        assert "[w501]" in output
         assert "screen uses `combobox`" in output
 
 

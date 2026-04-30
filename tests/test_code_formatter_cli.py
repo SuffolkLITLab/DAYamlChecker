@@ -289,6 +289,28 @@ def test_formatter_display_uses_absolute_path_for_file_outside_bases():
         assert str(outside.resolve()) in result.stdout
 
 
+def test_formatter_display_prefers_path_relative_to_cwd(monkeypatch):
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        scan_dir = root / "docassemble"
+        interview = scan_dir / "WorkflowDocs" / "data" / "questions" / "test.yml"
+        interview.parent.mkdir(parents=True, exist_ok=True)
+        interview.write_text("---\ncode: |\n  x = 1\n", encoding="utf-8")
+
+        previous_cwd = Path.cwd()
+        monkeypatch.chdir(root)
+        try:
+            result = _run_formatter(str(scan_dir))
+        finally:
+            monkeypatch.chdir(previous_cwd)
+
+        assert result.returncode == 0
+        assert (
+            "unchanged: docassemble/WorkflowDocs/data/questions/test.yml"
+            in result.stdout
+        )
+
+
 def test_formatter_check_mode_does_not_write():
     """--check reports files that would change but doesn't modify them."""
     with TemporaryDirectory() as tmp:
