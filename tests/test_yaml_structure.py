@@ -14,6 +14,8 @@ from dayamlchecker.messages import (
 )
 from dayamlchecker.yaml_structure import (
     RuntimeOptions,
+    YAMLError,
+    _lc_key_line,
     _message_severity,
     _variable_candidates,
     find_errors_from_string,
@@ -43,6 +45,26 @@ def test_message_severity_handles_none_convention_and_unknown_codes():
     assert _message_severity(None) == "error"
     assert _message_severity("C101") == "convention"
     assert _message_severity("Z999") == "error"
+
+
+def test_yaml_error_severity_uses_warning_prefix_without_code():
+    err = YAMLError(err_str="Warning: heads up", line_number=1, file_name="test.yml")
+
+    assert err.severity == "warning"
+
+
+def test_lc_key_line_uses_key_specific_metadata_when_available():
+    class Location:
+        line = 2
+
+        def key(self, key):
+            assert key == "question"
+            return (6, 0)
+
+    class Node:
+        lc = Location()
+
+    assert _lc_key_line(Node(), "question") == 7
 
 
 class TestYAMLStructure(unittest.TestCase):
@@ -405,6 +427,21 @@ question
             any("could not find expected ':'" in e.err_str.lower() for e in errs),
             f"Expected YAML parse error in accessibility mode, got: {errs}",
         )
+
+    def test_accessibility_mode_ignores_non_mapping_yaml_documents(self):
+        yaml_content = """---
+- item one
+- item two
+---
+question: |
+  Valid mapping
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertEqual(errs, [])
 
     def test_accessibility_combobox_field_disabled_by_default(self):
         yaml_content = """question: |
