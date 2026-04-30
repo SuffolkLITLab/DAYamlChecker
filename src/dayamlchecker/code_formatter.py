@@ -414,7 +414,8 @@ def format_yaml_string(
         Tuple of (formatted YAML string, whether any changes were made)
 
     Raises:
-        Exception: If YAML parsing fails (Jinja files are returned unchanged before parsing)
+        Exception: If YAML parsing fails. Files with the ``# use jinja`` header
+            are handled through a separate text-based formatter path.
     """
     if config is None:
         config = FormatterConfig()
