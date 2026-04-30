@@ -1976,7 +1976,7 @@ def find_errors(
     Returns:
         list[YAMLError]: List of YAMLError instances found in the file.
     """
-    with open(input_file, "r") as f:
+    with open(input_file, "r", encoding="utf-8") as f:
         full_content = f.read()
 
     return find_errors_from_string(
@@ -2026,7 +2026,7 @@ def process_file(
                 print(f"skipped: {display_path or input_file}")
             return "skipped"
 
-    with open(input_file, "r") as f:
+    with open(input_file, "r", encoding="utf-8") as f:
         full_content = f.read()
 
     is_jinja = _has_jinja_header(full_content)
