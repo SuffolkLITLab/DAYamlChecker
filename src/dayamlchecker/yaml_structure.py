@@ -1,25 +1,32 @@
 # Each doc, apply this to each block
-import ast
 import argparse
+import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import sys
+from typing import Any, Literal, Optional
 
-from typing import Any, Optional
+import esprima  # type: ignore[import-untyped]
+from mako.exceptions import (  # type: ignore[import-untyped]
+    CompileException,
+    SyntaxException,
+)
+from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.constructor import DuplicateKeyError
+from ruamel.yaml.error import MarkedYAMLError
+
+from dayamlchecker._files import _collect_yaml_files
+from dayamlchecker._jinja import (
+    _has_jinja_header,
+    preprocess_jinja,
+)
 from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
 )
-from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
-from mako.exceptions import (  # type: ignore[import-untyped]
-    SyntaxException,
-    CompileException,
-)
-import esprima  # type: ignore[import-untyped]
-from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap, CommentedSeq
-from ruamel.yaml.error import MarkedYAMLError
 from dayamlchecker.check_questions_urls import (
     infer_package_dirs,
     infer_root as infer_url_check_root,
@@ -27,6 +34,11 @@ from dayamlchecker.check_questions_urls import (
     print_url_check_report,
     run_url_check,
 )
+from dayamlchecker.messages import MessageCode, format_message, is_experimental_code
+
+_RuamelYAML = YAML
+_RuamelDuplicateKeyError = DuplicateKeyError
+_RuamelMarkedYAMLError = MarkedYAMLError
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -36,11 +48,12 @@ from dayamlchecker.check_questions_urls import (
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# * if "# use jinja" at top, process whole file with Jinja:
-#   https://docassemble.org/docs/interviews.html#jinja2
 
 
-__all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
+__all__ = [
+    "find_errors_from_string",
+    "find_errors",
+]
 
 DEFAULT_LINT_MODE = "default"
 ACCESSIBILITY_LINT_MODE = "accessibility"
@@ -78,6 +91,98 @@ _CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
+# ValidatorError is a 3-tuple of (error_message, line_number, message_code)
+# where message_code is from MessageCode constants.
+ValidatorError = tuple[str, int, str]
+
+
+def _message_severity(code: str | None) -> Literal["error", "warning", "convention"]:
+    if code is None:
+        return "error"
+    if code.startswith("E"):
+        return "error"
+    if code.startswith("W"):
+        return "warning"
+    if code.startswith("C"):
+        return "convention"
+    return "error"
+
+
+def _normalize_validator_error(err: object) -> ValidatorError:
+    if not isinstance(err, tuple):
+        raise TypeError(
+            "Validator errors must be tuples of "
+            "(message: str, line_number: int, code: str); "
+            f"got {type(err).__name__}: {err!r}"
+        )
+    if len(err) != 3:
+        raise ValueError(
+            "Validator errors must be 3-tuples of "
+            "(message: str, line_number: int, code: str); "
+            f"got length {len(err)}: {err!r}"
+        )
+
+    err_msg, err_line, err_code = err
+    if not isinstance(err_msg, str):
+        raise TypeError(
+            "Validator error message must be a string; "
+            f"got {type(err_msg).__name__}: {err!r}"
+        )
+    if not isinstance(err_line, int):
+        raise TypeError(
+            "Validator error line number must be an int; "
+            f"got {type(err_line).__name__}: {err!r}"
+        )
+    if not isinstance(err_code, str):
+        raise TypeError(
+            "Validator error code must be a string; "
+            f"got {type(err_code).__name__}: {err!r}"
+        )
+
+    return (err_msg, err_line, err_code)
+
+
+def _validator_error(code: str, line_number: int = 1, **kwargs: Any) -> ValidatorError:
+    return (format_message(code, **kwargs), line_number, code)
+
+
+def _yaml_error(
+    *,
+    code: str,
+    line_number: int,
+    file_name: str,
+    err_str: str | None = None,
+    **kwargs: Any,
+) -> "YAMLError":
+    return YAMLError(
+        err_str=err_str if err_str is not None else format_message(code, **kwargs),
+        line_number=line_number,
+        file_name=file_name,
+        experimental=is_experimental_code(code),
+        code=code,
+    )
+
+
+def _variable_candidates(var_expr: str) -> set[str]:
+    expr = var_expr.strip()
+    candidates = {expr}
+    if "." in expr:
+        parts = expr.split(".")
+        for i in range(len(parts), 0, -1):
+            candidates.add(".".join(parts[:i]))
+    expanded = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        expanded.add(candidate)
+        # Accept both full indexed paths and their base paths, e.g.:
+        # children[i].parents["Other"] -> children[i].parents
+        while candidate.endswith("]") and "[" in candidate:  # pragma: no branch
+            candidate = candidate[: candidate.rfind("[")].strip()
+            if candidate:  # pragma: no branch
+                expanded.add(candidate)
+    return expanded
 
 
 class YAMLStr:
@@ -86,7 +191,7 @@ class YAMLStr:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"{x} isn't a string", 1)]
+            self.errors = [_validator_error(MessageCode.YAML_STRING_TYPE, value=x)]
 
 
 class MakoText:
@@ -99,9 +204,21 @@ class MakoText:
                 x, strict_undefined=True, input_encoding="utf-8"
             )
         except SyntaxException as ex:
-            self.errors = [(ex, ex.lineno)]
+            self.errors = [
+                _validator_error(
+                    MessageCode.MAKO_SYNTAX_ERROR,
+                    ex.lineno,
+                    error=str(ex),
+                )
+            ]
         except CompileException as ex:
-            self.errors = [(ex, ex.lineno)]
+            self.errors = [
+                _validator_error(
+                    MessageCode.MAKO_COMPILE_ERROR,
+                    ex.lineno,
+                    error=str(ex),
+                )
+            ]
 
 
 class MakoMarkdownText(MakoText):
@@ -123,7 +240,10 @@ class PythonText:
         self.errors = []
         if not isinstance(x, str):
             self.errors = [
-                (f"code block must be a YAML string, is {type(x).__name__}", 1)
+                _validator_error(
+                    MessageCode.PYTHON_CODE_TYPE,
+                    value_type=type(x).__name__,
+                )
             ]
             return
         try:
@@ -132,7 +252,69 @@ class PythonText:
             # ex.lineno gives line number within the code block
             lineno = ex.lineno or 1
             msg = ex.msg or str(ex)
-            self.errors = [(f"Python syntax error: {msg}", lineno)]
+            self.errors = [
+                _validator_error(MessageCode.PYTHON_SYNTAX_ERROR, lineno, message=msg)
+            ]
+
+
+class AcceptFieldValue:
+    """Validates the ``accept`` modifier on a Docassemble file-upload field.
+
+    DA evaluates ``accept`` as a Python expression at runtime, so the YAML
+    value must be a Python string literal.  This means the MIME type string
+    needs an extra layer of quoting:
+
+    * ``accept: "'application/pdf,image/jpeg'"``  (YAML double-quotes wrapping
+      a Python single-quoted string)
+    * ``accept: |`` followed by ``"application/pdf,image/jpeg"`` on the next
+      line (block scalar whose content is a double-quoted Python string)
+
+    A common mistake is writing the MIME string bare, e.g.
+    ``accept: application/pdf`` — YAML delivers ``application/pdf`` to DA,
+    which parses as Python division (``application / pdf``) and raises a
+    ``NameError`` at runtime.
+    """
+
+    _HINT = (
+        "accept must be a Python string literal. "
+        "Wrap the MIME types in quotes so DA can eval them: "
+        "accept: \"'application/pdf,image/jpeg,image/png,image/tiff'\""
+    )
+
+    def __init__(self, x):
+        self.errors = []
+        if not isinstance(x, str):
+            self.errors = [
+                _validator_error(
+                    MessageCode.PYTHON_CODE_TYPE,
+                    value_type=type(x).__name__,
+                )
+            ]
+            return
+        try:
+            tree = ast.parse(x.strip(), mode="eval")
+        except SyntaxError as ex:
+            lineno = ex.lineno or 1
+            msg = ex.msg or str(ex)
+            self.errors = [
+                (
+                    f"{self._HINT}. Parser message: {msg}",
+                    lineno,
+                    MessageCode.PYTHON_SYNTAX_ERROR,
+                )
+            ]
+            return
+        if not (
+            isinstance(tree.body, ast.Constant) and isinstance(tree.body.value, str)
+        ):
+            self.errors = [
+                (
+                    f"{self._HINT}. "
+                    f"Got a {type(tree.body).__name__} expression instead of a string literal.",
+                    1,
+                    MessageCode.PYTHON_SYNTAX_ERROR,
+                )
+            ]
 
 
 class ValidationCode(PythonText):
@@ -191,10 +373,7 @@ class ValidationCode(PythonText):
             # Otherwise, emit a warning suggesting use of validation_error().
             # Use line number 1 because we don't have a more specific mapping here
             self.errors.append(
-                (
-                    "validation code does not call validation_error(); consider calling validation_error(...) to provide user-facing error messages",
-                    1,
-                )
+                _validator_error(MessageCode.VALIDATION_CODE_MISSING_VALIDATION_ERROR)
             )
 
 
@@ -221,12 +400,23 @@ class JSShowIf:
     3) That val() calls use quoted string literals for variable names
     """
 
-    def __init__(self, x, modifier_key="js show if", screen_variables=None):
+    def __init__(
+        self,
+        x,
+        modifier_key="js show if",
+        screen_variables=None,
+        has_dynamic_fields: bool = False,
+    ):
         self.errors = []
         self.screen_variables = screen_variables or set()
+        self._has_dynamic_fields = has_dynamic_fields
         if not isinstance(x, str):
             self.errors = [
-                (f"{modifier_key} must be a string, is {type(x).__name__}", 1)
+                _validator_error(
+                    MessageCode.JS_MODIFIER_TYPE,
+                    modifier_key=modifier_key,
+                    value_type=type(x).__name__,
+                )
             ]
             return
 
@@ -239,9 +429,11 @@ class JSShowIf:
             parsed = esprima.parseScript(js_to_check, tolerant=False, loc=True).toDict()
         except esprima.Error as ex:
             self.errors.append(
-                (
-                    f"Invalid JavaScript syntax in {modifier_key}: {ex}",
+                _validator_error(
+                    MessageCode.JS_INVALID_SYNTAX,
                     getattr(ex, "lineNumber", 1) or 1,
+                    modifier_key=modifier_key,
+                    error=str(ex),
                 )
             )
             return
@@ -260,14 +452,14 @@ class JSShowIf:
                     ):
                         val_calls.append(node)
                 stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
-            elif isinstance(node, list):
+            elif isinstance(node, list):  # pragma: no branch
                 stack.extend(node)
 
         if not val_calls:
             self.errors.append(
-                (
-                    f"{modifier_key} must contain at least one val() call to reference an on-screen field",
-                    1,
+                _validator_error(
+                    MessageCode.JS_MISSING_VAL_CALL,
+                    modifier_key=modifier_key,
                 )
             )
 
@@ -284,10 +476,18 @@ class JSShowIf:
                 if self.screen_variables and not self._references_screen_variable(
                     var_name
                 ):
+                    caveat = (
+                        " (unable to fully validate screen variables because this screen uses fields: code)"
+                        if self._has_dynamic_fields
+                        else ""
+                    )
                     self.errors.append(
-                        (
-                            f'{modifier_key} references val("{var_name}"), but "{var_name}" is not defined on this screen',
+                        _validator_error(
+                            MessageCode.JS_UNKNOWN_SCREEN_FIELD,
                             (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
+                            modifier_key=modifier_key,
+                            var_name=var_name,
+                            caveat=caveat,
                         )
                     )
                 continue
@@ -300,40 +500,20 @@ class JSShowIf:
                     or first_arg.get("type", "<unknown>")
                 )
             self.errors.append(
-                (
-                    f'val() argument must be a quoted string literal, not "{bad_arg}". Use val("...") or val(\'...\') instead',
+                _validator_error(
+                    MessageCode.JS_VAL_ARG_NOT_QUOTED,
                     (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
+                    bad_arg=bad_arg,
                 )
             )
 
     def _references_screen_variable(self, var_expr):
         if not isinstance(var_expr, str):
             return False
-        for candidate in self._variable_candidates(var_expr):
+        for candidate in _variable_candidates(var_expr):
             if candidate in self.screen_variables:
                 return True
         return False
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 class ShowIf:
@@ -349,21 +529,20 @@ class ShowIf:
         if isinstance(x, str):
             # Shorthand form: show if: variable_name
             # This is only valid if variable_name refers to a yes/no field on the same screen
-            if ":" not in x and " " not in x:  # Simple variable name
+            if ":" not in x and " " not in x:  # pragma: no branch
                 # We can't validate this here without screen context
                 # This will be validated at a higher level with fields context
                 pass
-            elif x.startswith("variable:") or x.startswith("code:"):
+            elif x.startswith("variable:") or x.startswith(
+                "code:"
+            ):  # pragma: no branch
                 # Malformed - these should be YAML dict format
                 self.errors.append(
-                    (
-                        f'show if value "{x}" appears to be malformed. Use YAML dict syntax: show if: {{ variable: var_name, is: value }} or show if: {{ code: ... }}',
-                        1,
-                    )
+                    _validator_error(MessageCode.SHOW_IF_MALFORMED, value=x)
                 )
-        elif isinstance(x, dict):
+        elif isinstance(x, dict):  # pragma: no branch
             # YAML dict form
-            if "variable" in x:
+            if "variable" in x:  # pragma: no branch
                 # First method: show if: { variable: field_name, is: value }
                 # Can only reference fields on the same screen - we'll validate in context
                 pass
@@ -372,12 +551,7 @@ class ShowIf:
                 # Validate Python syntax for the provided code block
                 code_block = x.get("code")
                 if not isinstance(code_block, str):
-                    self.errors.append(
-                        (
-                            f"show if: code must be a YAML string",
-                            1,
-                        )
-                    )
+                    self.errors.append(_validator_error(MessageCode.SHOW_IF_CODE_TYPE))
                 else:
                     try:
                         ast.parse(code_block)
@@ -385,15 +559,14 @@ class ShowIf:
                         lineno = ex.lineno or 1
                         msg = ex.msg or str(ex)
                         self.errors.append(
-                            (
-                                f"show if: code has Python syntax error: {msg}",
+                            _validator_error(
+                                MessageCode.SHOW_IF_CODE_SYNTAX,
                                 lineno,
+                                message=msg,
                             )
                         )
             else:
-                self.errors.append(
-                    (f'show if dict must have either "variable" key or "code" key', 1)
-                )
+                self.errors.append(_validator_error(MessageCode.SHOW_IF_DICT_KEYS))
 
 
 class DAPythonVar:
@@ -402,9 +575,9 @@ class DAPythonVar:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [(f"The python var needs to be a YAML string, is {x}", 1)]
+            self.errors = [_validator_error(MessageCode.PYTHON_VAR_TYPE, value=x)]
         elif " " in x and not space_in_str.search(x):
-            self.errors = [(f"The python var cannot have whitespace (is {x})", 1)]
+            self.errors = [_validator_error(MessageCode.PYTHON_VAR_WHITESPACE, value=x)]
 
 
 class DAType:
@@ -420,7 +593,7 @@ class ObjectsAttrType:
         # The full typing desc of the var: TODO: how to use this?
         self.errors = []
         if not (isinstance(x, list) or isinstance(x, dict)):
-            self.errors = [f"Objects block needs to be a list or a dict, is {x}"]
+            self.errors = [_validator_error(MessageCode.OBJECTS_BLOCK_TYPE, value=x)]
         # for entry in x:
         #   ...
         # if not isinstance(x, Union[list[dict[DAPythonVar, DAType]], dict[DAPythonVar, DAType]]):
@@ -446,7 +619,6 @@ class DAFields:
         "disable if",
         "js enable if",
         "js disable if",
-        "__line__",
     }
 
     mako_keys = {"default", "hint", "label", "note"}
@@ -454,37 +626,67 @@ class DAFields:
     js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
     py_modifier_keys = ("show if", "hide if", "enable if", "disable if")
 
+    # Keys that are valid at the field-item level (i.e. inside a single field dict).
+    # When `fields` is written as a bare dict (single-field shorthand rather than a
+    # list), at least one of these keys must be present for it to look like a valid
+    # field descriptor rather than a malformed code-reference dict.
+    _field_item_keys = modifier_keys | {
+        "field",
+        "input type",
+        "note",
+        "html",
+        "raw html",
+        "address autocomplete",
+        "object",
+        "object multiselect",
+        "object radio",
+        "uncheck others",
+        "shuffle",
+        "required",
+        "read only",
+        "min",
+        "max",
+        "accept",
+    }
+
     def __init__(self, x):
         self.errors = []
         self.has_dynamic_fields_code = False
         if isinstance(x, dict):
-            if "code" not in x:
-                self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
+            if "code" in x:
+                # Code-reference form: fields: {code: some_python_list_var}
+                if not isinstance(x.get("code"), str):
+                    self.errors = [
+                        _validator_error(
+                            MessageCode.FIELDS_CODE_TYPE,
+                            value_type=type(x.get("code")).__name__,
+                        )
+                    ]
                 return
-            if not isinstance(x.get("code"), str):
-                self.errors = [
-                    (
-                        f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
-                        1,
-                    )
-                ]
+            # Single-field shorthand: fields is a bare dict describing one field.
+            # Docassemble allows omitting the surrounding list when there is exactly
+            # one field.  Accept it silently if it has at least one recognised key;
+            # otherwise flag it so genuinely broken dicts are still caught.
+            if x.keys() & self._field_item_keys:
+                return
+            self.errors = [_validator_error(MessageCode.FIELDS_DICT_KEYS, value=x)]
             return
         if not isinstance(x, list):
-            self.errors = [(f"fields should be a list or dict, is {x}", 1)]
+            self.errors = [_validator_error(MessageCode.FIELDS_TYPE, value=x)]
             return
         self._validate_field_modifiers(x)
 
     def _line_for(self, field_item, code_line=1):
-        field_line = 1
-        if isinstance(field_item, dict):
-            field_line = field_item.get("__line__", 1)
-        return field_line + max(code_line - 1, 0)
+        return _lc_line(field_item) + max(code_line - 1, 0)
+
+    def _key_line_for(self, field_item, key, code_line=1):
+        return _lc_key_line(field_item, key) + max(code_line - 1, 0)
 
     def _extract_field_name(self, field_item):
         if not isinstance(field_item, dict):
             return None
         for key, value in field_item.items():
-            if key in self.modifier_keys:
+            if key in self.modifier_keys:  # pragma: no branch
                 continue
             if isinstance(value, str):
                 return value
@@ -494,9 +696,9 @@ class DAFields:
         self, modifier_key, modifier_value, field_item, screen_variables
     ):
         def references_screen_variable(var_expr):
-            if not isinstance(var_expr, str):
+            if not isinstance(var_expr, str):  # pragma: no cover
                 return False
-            candidates = self._variable_candidates(var_expr)
+            candidates = _variable_candidates(var_expr)
             if any(candidate in screen_variables for candidate in candidates):
                 return True
             # In generic-object screens, x.<attr> often aliases another object path
@@ -520,26 +722,33 @@ class DAFields:
                 ref_var = modifier_value.get("variable")
                 if not isinstance(ref_var, str):
                     self.errors.append(
-                        (
-                            f"{modifier_key}: variable must be a string, got {type(ref_var).__name__}",
+                        _validator_error(
+                            MessageCode.FIELD_MODIFIER_VARIABLE_TYPE,
                             self._line_for(field_item),
+                            modifier_key=modifier_key,
+                            value_type=type(ref_var).__name__,
                         )
                     )
                 elif not references_screen_variable(ref_var):
                     self.errors.append(
-                        (
-                            f"{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                        _validator_error(
+                            MessageCode.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT,
                             self._line_for(field_item),
+                            modifier_key=modifier_key,
+                            ref_var=ref_var,
                         )
                     )
             elif "code" in modifier_value:
                 code_text = modifier_value.get("code")
                 validator = PythonText(code_text)
                 for err in validator.errors:
+                    err_msg, err_line, _err_code = _normalize_validator_error(err)
                     self.errors.append(
-                        (
-                            f"{modifier_key}: code has {err[0].lower()}",
-                            self._line_for(field_item, err[1]),
+                        _validator_error(
+                            MessageCode.FIELD_MODIFIER_CODE_ERROR,
+                            self._line_for(field_item, err_line),
+                            modifier_key=modifier_key,
+                            error=err_msg.lower(),
                         )
                     )
                 if (
@@ -553,24 +762,31 @@ class DAFields:
                     if same_screen_refs:
                         refs = ", ".join(sorted(same_screen_refs))
                         self.errors.append(
-                            (
-                                f"{modifier_key}: code references variable(s) defined on this screen ({refs}). Use {modifier_key}: <var> or {modifier_key}: {{ variable: <var>, is: ... }} instead",
+                            _validator_error(
+                                MessageCode.FIELD_MODIFIER_SAME_SCREEN_CODE,
                                 self._line_for(field_item),
+                                modifier_key=modifier_key,
+                                references=refs,
                             )
                         )
             else:
                 self.errors.append(
-                    (
-                        f'{modifier_key} dict must have either "variable" or "code"',
+                    _validator_error(
+                        MessageCode.FIELD_MODIFIER_DICT_KEYS,
                         self._line_for(field_item),
+                        modifier_key=modifier_key,
                     )
                 )
-        elif isinstance(modifier_value, str) and ":" not in modifier_value:
+        elif (
+            isinstance(modifier_value, str) and ":" not in modifier_value
+        ):  # pragma: no branch
             if not references_screen_variable(modifier_value):
                 self.errors.append(
-                    (
-                        f"{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                    _validator_error(
+                        MessageCode.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING,
                         self._line_for(field_item),
+                        modifier_key=modifier_key,
+                        modifier_value=modifier_value,
                     )
                 )
 
@@ -592,11 +808,12 @@ class DAFields:
         return matches
 
     def _validate_field_modifiers(self, fields_list):
-        self.has_dynamic_fields_code = any(  # looking for any example in the field list. Note that there can be `code` and traditional non-code mixed in the same field list
+        self.has_dynamic_fields_code = any(  # pragma: no branch
+            # looking for any example in the field list. Note that there can be `code` and traditional non-code mixed in the same field list
             isinstance(field_item, dict)
             and "code" in field_item
             and len(set(field_item.keys()) - {"code", "__line__"})
-            == 0  # "code" is the only key other than __line__, so this is a dynamic fields block
+            == 0  # "code" is the only key, so this is a dynamic fields block
             for field_item in fields_list
         )
         screen_variables = set()
@@ -609,6 +826,18 @@ class DAFields:
             if not isinstance(field_item, dict):
                 continue
 
+            if "accept" in field_item:
+                validator = AcceptFieldValue(field_item["accept"])
+                for err in validator.errors:
+                    err_msg, err_line, err_code = _normalize_validator_error(err)
+                    self.errors.append(
+                        (
+                            err_msg,
+                            self._key_line_for(field_item, "accept", err_line),
+                            err_code,
+                        )
+                    )
+
             for field_key in field_item:
                 if isinstance(field_key, str) and field_key != "__line__":
                     if (
@@ -619,15 +848,20 @@ class DAFields:
                             (
                                 f'Invalid field key "{field_key}". docassemble field modifier keys are case-sensitive; use "{field_key.lower()}"',
                                 self._line_for(field_item),
+                                MessageCode.FIELD_MODIFIER_DICT_KEYS,
                             )
                         )
                     if field_key in self.mako_keys:
                         the_mako = MakoText(str(field_item[field_key]))
                         for err in the_mako.errors:
+                            err_msg, err_line, err_code = _normalize_validator_error(
+                                err
+                            )
                             self.errors.append(
                                 (
-                                    f"{field_key} value has {err[0]}",
-                                    self._line_for(field_item, err[1]),
+                                    f"{field_key} value has {err_msg}",
+                                    self._line_for(field_item, err_line),
+                                    err_code,
                                 )
                             )
 
@@ -637,20 +871,12 @@ class DAFields:
                         field_item[js_key],
                         modifier_key=js_key,
                         screen_variables=screen_variables,
+                        has_dynamic_fields=self.has_dynamic_fields_code,
                     )
                     for err in validator.errors:
-                        err_msg = err[0]
-                        if (
-                            self.has_dynamic_fields_code
-                            and "not defined on this screen" in err_msg.lower()
-                        ):
-                            err_msg = (
-                                "Warning: "
-                                + err_msg
-                                + " (unable to fully validate screen variables because this screen uses fields: code)"
-                            )
+                        err_msg, err_line, err_code = _normalize_validator_error(err)
                         self.errors.append(
-                            (err_msg, self._line_for(field_item, err[1]))
+                            (err_msg, self._line_for(field_item, err_line), err_code)
                         )
 
             for py_key in self.py_modifier_keys:
@@ -658,27 +884,6 @@ class DAFields:
                     self._validate_python_modifier(
                         py_key, field_item[py_key], field_item, screen_variables
                     )
-
-    def _variable_candidates(self, var_expr):
-        expr = var_expr.strip()
-        candidates = {expr}
-        if "." in expr:
-            parts = expr.split(".")
-            for i in range(len(parts), 0, -1):
-                candidates.add(".".join(parts[:i]))
-        expanded = set()
-        for candidate in candidates:
-            candidate = candidate.strip()
-            if not candidate:
-                continue
-            expanded.add(candidate)
-            # Accept both full indexed paths and their base paths, e.g.:
-            # children[i].parents["Other"] -> children[i].parents
-            while candidate.endswith("]") and "[" in candidate:
-                candidate = candidate[: candidate.rfind("[")].strip()
-                if candidate:
-                    expanded.add(candidate)
-        return expanded
 
 
 # type notes what the value for that dictionary key is,
@@ -752,6 +957,9 @@ big_dict: dict[str, dict[str, Any]] = {
     "default validation messages": {},
     "machine learning storage": {},
     "scan for variables": {},
+    "show if": {
+        "type": ShowIf,
+    },
     "if": {},
     "sets": {},
     "initial": {},
@@ -773,7 +981,6 @@ big_dict: dict[str, dict[str, Any]] = {
     "on change": {},
     "image sets": {},
     "images": {},
-    "interview help": {},
     "continue button field": {
         "type": DAPythonVar,
     },
@@ -1111,21 +1318,37 @@ class YAMLError:
         line_number: int,
         file_name: str,
         experimental: bool = True,
+        code: str | None = None,
     ):
         self.err_str = err_str
         self.line_number = line_number
         self.file_name = file_name
         self.experimental = experimental
-        pass
+        self.code = code
+
+    @property
+    def severity(self) -> Literal["error", "warning", "convention"]:
+        if self.code is not None:
+            return _message_severity(self.code)
+        lowered = self.err_str.lower()
+        if lowered.startswith("info:"):
+            return "convention"
+        if lowered.startswith("warning:"):
+            return "warning"
+        return "error"
 
     def __str__(self):
-        if not self.experimental:
-            return f"REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"
-        return f"At {self.file_name}:{self.line_number}: {self.err_str}"
+        return self.format()
+
+    def format(self, *, show_experimental: bool = True) -> str:
+        code_prefix = f"[{self.code}] " if self.code else ""
+        if not self.experimental and show_experimental:
+            return f"REAL ERROR: {code_prefix}At {self.file_name}:{self.line_number}: {self.err_str}"
+        return f"{code_prefix}At {self.file_name}:{self.line_number}: {self.err_str}"
 
 
 def _make_yaml_parser() -> YAML:
-    yaml = YAML()
+    yaml = _RuamelYAML()
     yaml.allow_duplicate_keys = False
     return yaml
 
@@ -1145,6 +1368,38 @@ def _with_line_metadata(value: Any) -> Any:
 def _normalize_expr(expr: str) -> str:
     normalized = re.sub(r"\s+", "", expr or "")
     return normalized.replace('"', "'")
+
+
+def _lc_line(obj: Any) -> int:
+    """Return a 1-indexed line number from a ruamel.yaml object's position metadata.
+
+    Falls back to 1 when no position data is available (e.g. plain dicts in tests).
+    """
+    lc = getattr(obj, "lc", None)
+    if lc is not None:
+        line = getattr(lc, "line", None)
+        if line is not None:
+            return line + 1
+    return 1
+
+
+def _lc_key_line(obj: Any, key: Any) -> int:
+    """Return a 1-indexed line number for a mapping key when available."""
+    lc = getattr(obj, "lc", None)
+    if lc is not None:
+        key_getter = getattr(lc, "key", None)
+        if callable(key_getter):
+            try:
+                line_info = key_getter(key)
+            except (AttributeError, KeyError, TypeError):
+                line_info = None
+            if isinstance(line_info, tuple) and len(line_info) >= 1:
+                line = line_info[0]
+                if isinstance(line, int):
+                    return line + 1
+    # If key-specific location data is unavailable (e.g. no metadata for this key,
+    # unexpected type/shape, or non-integer line), fall back to the object's line.
+    return _lc_line(obj)
 
 
 def _contains_interview_order_marker(value: Any) -> bool:
@@ -1173,7 +1428,7 @@ def _extract_field_var_name(field_item: Any) -> Optional[str]:
         return None
     modifier_keys = DAFields.modifier_keys
     for key, value in field_item.items():
-        if key in modifier_keys:
+        if key in modifier_keys:  # pragma: no branch
             continue
         if isinstance(value, str):
             return value
@@ -1307,7 +1562,7 @@ def _extract_conditional_fields_from_doc(
                 {
                     "field_var": field_var,
                     "guards": guards,
-                    "line_number": line_number + field_item.get("__line__", 1),
+                    "line_number": line_number + _lc_line(field_item),
                 }
             )
     return conditional_fields
@@ -1483,6 +1738,34 @@ def find_errors_from_string(
     if not input_file:
         input_file = "<string input>"
 
+    # Pre-process Jinja2 templates before YAML parsing only when the file
+    # explicitly opts in with '# use jinja' on the first line.
+    if _has_jinja_header(full_content):
+        rendered, render_errors = preprocess_jinja(full_content)
+        if render_errors:
+            return [
+                _yaml_error(
+                    code=e.code,
+                    line_number=1,
+                    file_name=input_file,
+                    err_str=e.message,
+                )
+                for e in render_errors
+            ]
+        # Strip the '# use jinja' header from the rendered output so the
+        # recursive call does not re-enter this branch.  Add 1 to every
+        # returned line number to compensate for the removed header line.
+        _, _sep, rendered_body = rendered.partition("\n")
+        errors = find_errors_from_string(
+            rendered_body,
+            input_file=input_file,
+            lint_mode=lint_mode,
+            runtime_options=runtime_options,
+        )
+        for err in errors:
+            err.line_number += 1
+        return errors
+
     exclusive_keys = [
         key
         for key in types_of_blocks.keys()
@@ -1492,25 +1775,52 @@ def find_errors_from_string(
     prior_conditional_fields: list[dict[str, Any]] = []
     line_number = 1
     for source_code in document_match.split(full_content):
-        lines_in_code = sum(l == "\n" for l in source_code)
+        lines_in_code = sum(source_line == "\n" for source_line in source_code)
         source_code = remove_trailing_dots.sub("", source_code)
         source_code = fix_tabs.sub("  ", source_code)
         try:
             doc = _with_line_metadata(yaml_parser.load(source_code))
         except Exception as errMess:
-            if isinstance(errMess, MarkedYAMLError):
+            if isinstance(errMess, DuplicateKeyError):
+                # Extract just the key name from ruamel's verbose problem string:
+                # 'found duplicate key "foo" with value ... (original value: ...)'
+                key_match = re.match(
+                    r'found duplicate key "([^"]+)"', errMess.problem or ""
+                )
+                key_name = key_match.group(1) if key_match else "unknown"
+                dup_line = line_number
+                if errMess.problem_mark is not None:
+                    dup_line = line_number + errMess.problem_mark.line
+                all_errors.append(
+                    _yaml_error(
+                        code=MessageCode.YAML_DUPLICATE_KEY,
+                        line_number=dup_line,
+                        file_name=input_file,
+                        key_name=key_name,
+                    )
+                )
+            elif isinstance(errMess, MarkedYAMLError):
                 if errMess.context_mark is not None:
                     errMess.context_mark.line += line_number - 1
                 if errMess.problem_mark is not None:
                     errMess.problem_mark.line += line_number - 1
-            all_errors.append(
-                YAMLError(
-                    err_str=str(errMess),
-                    line_number=line_number,
-                    file_name=input_file,
-                    experimental=False,
+                all_errors.append(
+                    _yaml_error(
+                        code=MessageCode.YAML_PARSE_ERROR,
+                        line_number=line_number,
+                        file_name=input_file,
+                        error=str(errMess),
+                    )
                 )
-            )
+            else:
+                all_errors.append(
+                    _yaml_error(
+                        code=MessageCode.YAML_PARSE_ERROR,
+                        line_number=line_number,
+                        file_name=input_file,
+                        error=str(errMess),
+                    )
+                )
             line_number += lines_in_code
             continue
 
@@ -1557,13 +1867,11 @@ def find_errors_from_string(
             ]
             if len(any_types) == 0:
                 all_errors.append(
-                    YAMLError(
-                        err_str=(
-                            "Couldn't identify a block type: no valid combination of keys found "
-                            "(looking for keys like question, include, metadata, code, objects, etc. See https://docassemble.org/docs.html)"
-                        ),
+                    _yaml_error(
+                        code=MessageCode.NO_POSSIBLE_TYPES,
                         line_number=line_number,
                         file_name=input_file,
+                        document=doc,
                     )
                 )
         posb_types = [block for block in exclusive_keys if block in doc_keys_lower]
@@ -1574,10 +1882,11 @@ def find_errors_from_string(
                 pass
             else:
                 all_errors.append(
-                    YAMLError(
-                        err_str=f"Too many types this block could be: {posb_types}",
+                    _yaml_error(
+                        code=MessageCode.TOO_MANY_TYPES,
                         line_number=line_number,
                         file_name=input_file,
+                        possible_types=posb_types,
                     )
                 )
 
@@ -1592,11 +1901,11 @@ def find_errors_from_string(
                 weird_keys.append(attr)
         if len(weird_keys) > 0:
             all_errors.append(
-                YAMLError(
-                    err_str=f"Keys that shouldn't exist! {weird_keys}",
+                _yaml_error(
+                    code=MessageCode.UNKNOWN_KEYS,
                     line_number=line_number,
                     file_name=input_file,
-                    experimental=False,
+                    keys=weird_keys,
                 )
             )
         for key in doc.keys():
@@ -1606,10 +1915,12 @@ def find_errors_from_string(
             if lower_key in big_dict and "type" in big_dict[lower_key]:
                 test = big_dict[lower_key]["type"](doc[key])
                 for err in test.errors:
+                    err_msg, err_line, err_code = _normalize_validator_error(err)
                     all_errors.append(
-                        YAMLError(
-                            err_str=f"{err[0]}",
-                            line_number=err[1] + doc["__line__"] + line_number,
+                        _yaml_error(
+                            code=err_code,
+                            err_str=err_msg,
+                            line_number=err_line + _lc_line(doc) + line_number,
                             file_name=input_file,
                         )
                     )
@@ -1619,26 +1930,22 @@ def find_errors_from_string(
         )
         for field_var, ref_line in unmatched_refs:
             all_errors.append(
-                YAMLError(
-                    err_str=(
-                        f'interview-order style block references "{field_var}" without a matching guard '
-                        f"for that field's show/hide logic; this can cause the interview to get stuck"
-                    ),
-                    line_number=doc["__line__"] + line_number + ref_line,
+                _yaml_error(
+                    code=MessageCode.INTERVIEW_ORDER_UNMATCHED_GUARD,
+                    line_number=_lc_line(doc) + line_number + ref_line,
                     file_name=input_file,
+                    field_var=field_var,
                 )
             )
 
         nesting_depth = _max_screen_visibility_nesting_depth(doc)
         if nesting_depth > 2:
             all_errors.append(
-                YAMLError(
-                    err_str=(
-                        f"Warning: show if/hide if visibility logic is nested {nesting_depth} levels "
-                        "on this screen (more than 2)"
-                    ),
-                    line_number=doc["__line__"] + line_number,
+                _yaml_error(
+                    code=MessageCode.NESTED_VISIBILITY_LOGIC,
+                    line_number=_lc_line(doc) + line_number,
                     file_name=input_file,
+                    depth=nesting_depth,
                 )
             )
 
@@ -1657,8 +1964,9 @@ def find_errors(
 ) -> list[YAMLError]:
     """Return list of YAMLError found in the given input_file
 
-    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
-    it is ignored and an empty list is returned.
+    If the file starts with the ``# use jinja`` header, the content is
+    pre-processed through Jinja2 (with undefined variables rendered as empty
+    strings) and the rendered output is then validated as normal YAML.
 
     Args:
         input_file (str): Path to the YAML file to check.
@@ -1669,11 +1977,6 @@ def find_errors(
     with open(input_file, "r") as f:
         full_content = f.read()
 
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return []
-
     return find_errors_from_string(
         full_content,
         input_file=input_file,
@@ -1682,31 +1985,31 @@ def find_errors(
     )
 
 
-def _collect_yaml_files(
-    paths: list[Path], include_default_ignores: bool = True
-) -> list[Path]:
-    from dayamlchecker.code_formatter import _collect_yaml_files as _formatter_collect
-
-    return _formatter_collect(paths, include_default_ignores=include_default_ignores)
-
-
-def _message_level(err_str: str) -> str:
-    lowered = err_str.lower()
-    if lowered.startswith("info:"):
-        return "info"
-    if lowered.startswith("warning:"):
-        return "warning"
-    return "error"
-
-
 def process_file(
     input_file,
+    quiet: bool = False,
+    display_path: str | None = None,
+    show_experimental: bool = False,
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
-) -> int:
-    """
+) -> Literal["ok", "warning", "error", "skipped"]:
+    """Process a single file and report its validation status.
+
+    Args:
+        input_file: Path to the YAML file to check.
+        quiet: If True, suppress output for successful and skipped files.
+            Errors are still printed.
+        display_path: Optional path string to use in output instead of the
+            full ``input_file`` path (e.g. a relative path).
+        show_experimental: If True, prefix non-experimental errors with
+            ``REAL ERROR:``. The default is False.
     Returns:
-        int: the number of errors found in the input_file
+        A string indicating the result of processing:
+        - "ok": The file was checked and no errors were found.
+                - "warning": The file was checked and only warnings/conventions were found.
+                - "error": The file was checked and one or more errors were found.
+        - "skipped": The file was not checked because it matches a known
+          pattern of files to ignore.
     """
     for dumb_da_file in [
         "pgcodecache.yml",
@@ -1717,46 +2020,61 @@ def process_file(
         "examples.yml",
     ]:
         if input_file.endswith(dumb_da_file):
-            print()
-            print(f"ignoring {dumb_da_file}")
-            return 0
+            if not quiet:
+                print(f"skipped: {display_path or input_file}")
+            return "skipped"
 
-    all_errors = find_errors(
-        input_file, lint_mode=lint_mode, runtime_options=runtime_options
+    with open(input_file, "r") as f:
+        full_content = f.read()
+
+    is_jinja = _has_jinja_header(full_content)
+
+    all_errors = find_errors_from_string(
+        full_content,
+        input_file=display_path or input_file,
+        lint_mode=lint_mode,
+        runtime_options=runtime_options,
     )
 
     if len(all_errors) == 0:
-        print(".", end="")
-        return 0
-    error_count = 0
-    warning_count = 0
-    info_count = 0
-    for err in all_errors:
-        level = _message_level(err.err_str)
-        if level == "info":
-            info_count += 1
-        elif level == "warning":
-            warning_count += 1
-        else:
-            error_count += 1
-    blocking_count = error_count + warning_count
-    print()
-    if info_count > 0:
+        if not quiet:
+            label = "ok (jinja)" if is_jinja else "ok"
+            print(f"{label}: {display_path or input_file}")
+        return "ok"
+
+    error_findings = [err for err in all_errors if err.severity == "error"]
+    warning_findings = [err for err in all_errors if err.severity == "warning"]
+    convention_findings = [err for err in all_errors if err.severity == "convention"]
+
+    jinja_note = " (jinja)" if is_jinja else ""
+
+    if error_findings:
         print(
-            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):"
+            f"errors ({len(error_findings)}){jinja_note}: {display_path or input_file}"
         )
-    elif warning_count > 0:
+        for err in error_findings:
+            print(f"  {err.format(show_experimental=show_experimental)}")
+
+    if not quiet and warning_findings:
         print(
-            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings):"
+            f"warnings ({len(warning_findings)}){jinja_note}: {display_path or input_file}"
         )
-    else:
-        print(f"Found {len(all_errors)} errors:")
-    for err in all_errors:
-        print(f"{err}")
-    return blocking_count
+        for err in warning_findings:
+            print(f"  {err.format(show_experimental=show_experimental)}")
+
+    if not quiet and convention_findings:
+        print(
+            f"conventions ({len(convention_findings)}){jinja_note}: {display_path or input_file}"
+        )
+        for err in convention_findings:
+            print(f"  {err.format(show_experimental=show_experimental)}")
+
+    if error_findings:
+        return "error"
+    return "warning"
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
     )
@@ -1773,6 +2091,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Do not ignore default directories during recursive search "
             "(.git*, .github*, build, dist, node_modules, sources)"
         ),
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress all output except errors",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Do not print the summary line after processing",
+    )
+    parser.add_argument(
+        "--show-experimental",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help='Prefix non-experimental errors with "REAL ERROR:" (default: off)',
     )
     parser.add_argument(
         "--no-wcag",
@@ -1871,6 +2206,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
     )
 
+    base_dirs = [p.resolve() if p.is_dir() else p.resolve().parent for p in args.files]
+
+    def _display(file_path: Path) -> Path:
+        resolved = file_path.resolve()
+        for base in base_dirs:
+            try:
+                return resolved.relative_to(base)
+            except ValueError:
+                continue
+        return resolved
+
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
     )
@@ -1878,16 +2224,30 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("No YAML files found.", file=sys.stderr)
         return 1
 
-    failed = False
+    files_ok = 0
+    files_warning = 0
+    files_error = 0
+    files_skipped = 0
+
     for input_file in yaml_files:
-        error_count = process_file(
+        status = process_file(
             str(input_file),
+            quiet=args.quiet,
+            display_path=str(_display(input_file)),
+            show_experimental=args.show_experimental,
             lint_mode=lint_mode,
             runtime_options=runtime_options,
         )
-        if error_count > 0:
-            failed = True
+        if status == "ok":
+            files_ok += 1
+        elif status == "warning":
+            files_warning += 1
+        elif status == "error":
+            files_error += 1
+        else:
+            files_skipped += 1
 
+    url_check_failed = False
     if args.url_check:
         url_check_root = (
             args.url_check_root.resolve()
@@ -1905,12 +2265,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             document_severity=args.document_url_severity,
             unreachable_severity=args.unreachable_url_severity,
         )
-        print_url_check_report(url_check_result)
+        if not args.quiet:
+            print_url_check_report(url_check_result)
         if url_check_result.has_errors():
-            failed = True
+            url_check_failed = True
 
-    return 1 if failed else 0
+    if not args.quiet and not args.no_summary:
+        total = files_ok + files_warning + files_error + files_skipped
+        print(
+            f"Summary: {files_ok} ok, {files_warning} warnings, {files_error} errors, {files_skipped} skipped ({total} total)"
+        )
+
+    return 1 if files_error > 0 or url_check_failed else 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
