@@ -220,6 +220,8 @@ def _check_multifield_no_label_usage(
 
     findings: list[AccessibilityFinding] = []
     for field in fields:
+        if "code" in field:
+            continue
         field_line = (
             document_start_line + field.get("__line__", doc.get("__line__", 1)) - 1
         )
