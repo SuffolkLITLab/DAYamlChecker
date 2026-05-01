@@ -3,6 +3,8 @@ from pathlib import Path
 import re
 from typing import Any, Optional
 
+from dayamlchecker.messages import MessageCode
+
 TEXT_SECTION_KEYS = ("question", "subquestion", "under", "help", "note", "html")
 FIELD_NON_LABEL_KEYS = {
     "code",
@@ -44,6 +46,7 @@ GENERIC_LINK_TEXT = {
 @dataclass(frozen=True)
 class AccessibilityFinding:
     rule_id: str
+    code: str
     message: str
     line_number: int
 
@@ -181,6 +184,7 @@ def _check_combobox_usage(
         findings.append(
             AccessibilityFinding(
                 rule_id="combobox-not-accessible",
+                code=MessageCode.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
                 message="Accessibility: screen uses `combobox`, which is not allowed for accessibility reasons",
                 line_number=line_number,
             )
@@ -198,6 +202,7 @@ def _check_combobox_usage(
         findings.append(
             AccessibilityFinding(
                 rule_id="combobox-not-accessible",
+                code=MessageCode.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
                 message=(
                     "Accessibility: field uses `datatype: combobox`, which is not allowed for accessibility reasons: "
                     f"{field_label}"
@@ -219,7 +224,10 @@ def _check_multifield_no_label_usage(
         return []
 
     findings: list[AccessibilityFinding] = []
-    for field in fields:
+    for field_index, field in enumerate(fields, start=1):
+        if _is_code_only_field(field):
+            continue
+
         field_line = (
             document_start_line + field.get("__line__", doc.get("__line__", 1)) - 1
         )
@@ -233,10 +241,11 @@ def _check_multifield_no_label_usage(
         if not (has_no_label or label_is_blank or missing_label):
             continue
 
-        field_name = _extract_field_variable(field) or "<unknown field>"
+        field_name = _extract_field_variable(field) or f"field #{field_index}"
         findings.append(
             AccessibilityFinding(
                 rule_id="no-label-on-multi-field-screen",
+                code=MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD,
                 message=(
                     "Accessibility: `no label` or empty/missing field label is only allowed on single-field screens; "
                     f"screen has {len(fields)} fields: {field_name}"
@@ -282,8 +291,9 @@ def _check_tagged_pdf_for_docx(
         findings.append(
             AccessibilityFinding(
                 rule_id="tagged-pdf-not-enabled",
+                code=MessageCode.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED,
                 message=(
-                    "Info: Accessibility: DOCX attachment detected without `tagged pdf: True`; "
+                    "Accessibility: DOCX attachment detected without `tagged pdf: True`; "
                     "set it on `features` or the attachment to improve generated PDF accessibility"
                 ),
                 line_number=line_number,
@@ -333,6 +343,7 @@ def _check_theme_css_contrast(
         findings.append(
             AccessibilityFinding(
                 rule_id="theme-contrast-too-low",
+                code=MessageCode.ACCESSIBILITY_THEME_CONTRAST_TOO_LOW,
                 message=(
                     "Accessibility: bootstrap theme CSS has low contrast for "
                     f"{component} (ratio {ratio:.2f}:1, expected at least {WCAG_MIN_CONTRAST_RATIO:.1f}:1)"
@@ -382,6 +393,7 @@ def _check_missing_alt_text(
         findings.append(
             AccessibilityFinding(
                 rule_id="image-missing-alt-text",
+                code=MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 message=(
                     f"Accessibility: markdown image in {section.location} is missing alt text: {snippet}"
                 ),
@@ -402,6 +414,7 @@ def _check_missing_alt_text(
         findings.append(
             AccessibilityFinding(
                 rule_id="image-missing-alt-text",
+                code=MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 message=(
                     f"Accessibility: [FILE ...] image in {section.location} is missing alt text: {snippet}"
                 ),
@@ -421,6 +434,7 @@ def _check_missing_alt_text(
         findings.append(
             AccessibilityFinding(
                 rule_id="image-missing-alt-text",
+                code=MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 message=(
                     f"Accessibility: HTML image in {section.location} is missing alt text: {img_tag.strip()}"
                 ),
@@ -449,6 +463,7 @@ def _check_markdown_heading_order(
         findings.append(
             AccessibilityFinding(
                 rule_id="markdown-heading-level-skip",
+                code=MessageCode.ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP,
                 message=(
                     "Accessibility: markdown heading levels skip "
                     f"from H{previous_level} to H{current_level} in {section.location}: {line_text}"
@@ -479,6 +494,7 @@ def _check_html_heading_order(
         findings.append(
             AccessibilityFinding(
                 rule_id="html-heading-level-skip",
+                code=MessageCode.ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP,
                 message=(
                     "Accessibility: HTML heading levels skip "
                     f"from H{previous_level} to H{current_level} in {section.location}: {snippet}"
@@ -510,6 +526,7 @@ def _check_empty_link_text(
         findings.append(
             AccessibilityFinding(
                 rule_id="empty-link-text",
+                code=MessageCode.ACCESSIBILITY_EMPTY_LINK_TEXT,
                 message=(
                     f"Accessibility: link in {section.location} has no accessible text: {link['snippet']}"
                 ),
@@ -535,6 +552,7 @@ def _check_non_descriptive_link_text(
         findings.append(
             AccessibilityFinding(
                 rule_id="non-descriptive-link-text",
+                code=MessageCode.ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT,
                 message=(
                     f"Accessibility: link text in {section.location} is too generic: {link['text'].strip() or link['snippet']}"
                 ),
@@ -592,10 +610,29 @@ def _iter_fields(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return [field for field in fields if isinstance(field, dict)]
 
 
+def _is_code_only_field(field: dict[str, Any]) -> bool:
+    keys = {str(key).strip() for key in field if key != "__line__"}
+    return keys == {"code"}
+
+
 def _extract_field_variable(field: dict[str, Any]) -> str:
     explicit = str(field.get("field") or "").strip()
     if explicit:
         return explicit
+    no_label_value = field.get("no label")
+    if isinstance(no_label_value, str):
+        candidate = no_label_value.strip()
+        if candidate and candidate.lower() not in {
+            "true",
+            "false",
+            "yes",
+            "no",
+            "1",
+            "0",
+            "on",
+            "off",
+        }:
+            return candidate
     for key, value in field.items():
         if key in FIELD_NON_LABEL_KEYS:
             continue

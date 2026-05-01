@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import pathlib
 import re
@@ -665,6 +666,16 @@ def collect_urls(
 
 
 _DEAD_STATUS_CODES: frozenset[int] = frozenset({404, 410})
+_MAX_CONCURRENT_URL_CHECKS = 10
+
+
+@dataclass(frozen=True)
+class _URLCheckOutcome:
+    url: str
+    status_code: int | None
+    was_unreachable: bool = False
+    repaired: bool = False
+    skipped: bool = False
 
 
 def _check_single_url(
@@ -685,6 +696,88 @@ def _check_single_url(
         return None, True
 
 
+async def _check_single_url_async(
+    session: requests.Session,
+    url: str,
+    timeout: int,
+    *,
+    report_unreachable: bool = True,
+) -> tuple[int | None, bool]:
+    return await asyncio.to_thread(
+        _check_single_url,
+        session,
+        url,
+        timeout,
+        report_unreachable=report_unreachable,
+    )
+
+
+async def _check_url_with_repairs(
+    session: requests.Session,
+    url: str,
+    timeout: int,
+    repair_candidates: dict[str, set[str]],
+    semaphore: asyncio.Semaphore,
+) -> _URLCheckOutcome:
+    async with semaphore:
+        if is_whitelisted_url(url):
+            return _URLCheckOutcome(url=url, status_code=None, skipped=True)
+
+        status_code, was_unreachable = await _check_single_url_async(
+            session, url, timeout
+        )
+        if was_unreachable:
+            return _URLCheckOutcome(
+                url=url,
+                status_code=status_code,
+                was_unreachable=True,
+            )
+        if status_code not in _DEAD_STATUS_CODES:
+            return _URLCheckOutcome(url=url, status_code=status_code)
+
+        for candidate in sorted(repair_candidates.get(url, ())):
+            if is_whitelisted_url(candidate):
+                return _URLCheckOutcome(
+                    url=url,
+                    status_code=status_code,
+                    repaired=True,
+                )
+            candidate_status, candidate_unreachable = await _check_single_url_async(
+                session,
+                candidate,
+                timeout,
+                report_unreachable=False,
+            )
+            if not candidate_unreachable and candidate_status not in _DEAD_STATUS_CODES:
+                return _URLCheckOutcome(
+                    url=url,
+                    status_code=status_code,
+                    repaired=True,
+                )
+
+        return _URLCheckOutcome(url=url, status_code=status_code)
+
+
+async def _check_urls_async(
+    session: requests.Session,
+    urls: Iterable[str],
+    timeout: int,
+    repair_candidates: dict[str, set[str]],
+) -> tuple[_URLCheckOutcome, ...]:
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_URL_CHECKS)
+    tasks = [
+        _check_url_with_repairs(
+            session,
+            url,
+            timeout,
+            repair_candidates,
+            semaphore,
+        )
+        for url in sorted(urls)
+    ]
+    return tuple(await asyncio.gather(*tasks))
+
+
 def check_urls(
     session: requests.Session,
     urls: Iterable[str],
@@ -696,36 +789,19 @@ def check_urls(
     *broken* contains ``(url, status_code)`` pairs for dead pages.
     *unreachable* lists URLs that could not be fetched at all.
     """
+    outcomes = asyncio.run(
+        _check_urls_async(session, urls, timeout, repair_candidates or {})
+    )
     broken: list[tuple[str, int]] = []
     unreachable: list[str] = []
-    for url in sorted(urls):
-        # Skip whitelisted URLs (e.g., API endpoints requiring authentication)
-        if is_whitelisted_url(url):
+    for outcome in outcomes:
+        if outcome.skipped:
             continue
-
-        status_code, was_unreachable = _check_single_url(session, url, timeout)
-        if was_unreachable:
-            unreachable.append(url)
+        if outcome.was_unreachable:
+            unreachable.append(outcome.url)
             continue
-        if status_code not in _DEAD_STATUS_CODES:
-            continue
-
-        repaired = False
-        for candidate in sorted((repair_candidates or {}).get(url, ())):
-            if is_whitelisted_url(candidate):
-                repaired = True
-                break
-            candidate_status, candidate_unreachable = _check_single_url(
-                session,
-                candidate,
-                timeout,
-                report_unreachable=False,
-            )
-            if not candidate_unreachable and candidate_status not in _DEAD_STATUS_CODES:
-                repaired = True
-                break
-        if not repaired:
-            broken.append((url, status_code))
+        if outcome.status_code in _DEAD_STATUS_CODES and not outcome.repaired:
+            broken.append((outcome.url, outcome.status_code))
     return broken, unreachable
 
 

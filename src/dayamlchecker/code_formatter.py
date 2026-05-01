@@ -15,9 +15,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,12 @@ from typing import Any
 import black
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+from dayamlchecker._files import _collect_yaml_files
+from dayamlchecker._jinja import (
+    _contains_jinja_syntax,
+    _has_jinja_header,
+)
 
 __all__ = [
     "format_yaml_file",
@@ -70,9 +76,7 @@ def _strip_common_indent(lines: list[str]) -> tuple[list[str], int]:
     indents = []
     for line in lines:
         if line.strip():  # Skip empty/whitespace-only lines
-            match = re.match(r"^( *)", line)
-            if match:
-                indents.append(len(match.group(1)))
+            indents.append(len(line) - len(line.lstrip(" ")))
 
     if not indents:
         return lines, 0
@@ -254,16 +258,13 @@ def _collect_text_replacements_for_doc(
     replacements: list[tuple[int, int, str, tuple[str, ...]]] = []
 
     if isinstance(doc, CommentedMap):
-        for key, value in list(doc.items()):
+        has_lc_key = hasattr(doc.lc, "key")
+        for key, value in doc.items():
             key_str = str(key)
             current_path = path + (key_str,)
 
             # Only consider keys we care about and plain strings
-            if (
-                key_str in config.python_keys
-                and isinstance(value, str)
-                and hasattr(doc.lc, "key")
-            ):
+            if key_str in config.python_keys and isinstance(value, str) and has_lc_key:
                 try:
                     key_line, _ = doc.lc.key(key)
                 except Exception:
@@ -308,6 +309,92 @@ def _collect_text_replacements_for_doc(
     return replacements
 
 
+def _code_key_re(python_keys: set[str]) -> re.Pattern[str]:
+    """Build a regex matching block-scalar header lines for the given keys.
+
+    Examples of matched lines::
+
+        code: |
+        validation code: >
+        code: |-
+    """
+    # Sort longest-first so that "validation code" is attempted before "code".
+    alternatives = "|".join(
+        re.escape(k) for k in sorted(python_keys, key=len, reverse=True)
+    )
+    return re.compile(
+        rf"^([ \t]*)({alternatives}):\s*[|>]",
+        re.MULTILINE,
+    )
+
+
+def _format_jinja_yaml_string(
+    yaml_content: str,
+    config: FormatterConfig,
+) -> tuple[str, bool]:
+    """Format Python code blocks inside a '# use jinja' YAML file.
+
+    Because Jinja syntax (``{{ }}``, ``{% %}``, ``{# #}``) is not valid YAML,
+    the file cannot be parsed by the normal YAML path.  Instead this function
+    works directly on the raw text:
+
+    1. Locate every ``code:`` / ``validation code:`` block header line using a
+       regex.
+    2. Use :func:`_find_block_body_span` to determine the exact line range of
+       each block body.
+    3. **Skip** any body that itself contains Jinja syntax — those blocks
+       cannot be safely reformatted because the Jinja expressions may not be
+       valid Python.
+    4. Format the remaining bodies with Black via :func:`format_python_code`.
+    5. Apply replacements bottom-up so line indices stay valid.
+
+    Returns the same ``(result, changed)`` tuple as :func:`format_yaml_string`.
+    """
+    lines = yaml_content.splitlines(keepends=True)
+    replacements: list[tuple[int, int, str]] = []
+    pattern = _code_key_re(config.python_keys)
+
+    for line_idx, line in enumerate(lines):
+        if not pattern.match(line):
+            continue
+
+        body_start, body_end, _body_indent = _find_block_body_span(lines, line_idx)
+        if body_end < body_start:
+            # Empty block body — nothing to format.
+            continue
+
+        body = "".join(lines[body_start : body_end + 1])
+
+        # Don't try to format a code block that itself contains Jinja syntax;
+        # the expressions would make the Python invalid for Black.
+        if _contains_jinja_syntax(body):
+            continue
+
+        try:
+            formatted = format_python_code(body, config)
+        except Exception:
+            # If Black can't parse the block, leave it as-is.
+            continue
+
+        if _normalize_newlines(formatted) != _normalize_newlines(body):
+            replacements.append((body_start, body_end, formatted))
+
+    if not replacements:
+        return yaml_content, False
+
+    # Apply from bottom to top so earlier indices are not invalidated.
+    replacements.sort(key=lambda t: t[0], reverse=True)
+    for start, end, new_text in replacements:
+        new_lines = new_text.splitlines(keepends=True)
+        # Preserve the absence of a trailing newline on the last body line.
+        if end >= start and not lines[end].endswith("\n") and new_lines:
+            new_lines[-1] = new_lines[-1].rstrip("\n")
+        lines[start : end + 1] = new_lines
+
+    result = "".join(lines)
+    return result, result != yaml_content
+
+
 def format_yaml_string(
     yaml_content: str,
     config: FormatterConfig | None = None,
@@ -325,6 +412,10 @@ def format_yaml_string(
 
     Returns:
         Tuple of (formatted YAML string, whether any changes were made)
+
+    Raises:
+        Exception: If YAML parsing fails. Files with the ``# use jinja`` header
+            are handled through a separate text-based formatter path.
     """
     if config is None:
         config = FormatterConfig()
@@ -333,6 +424,16 @@ def format_yaml_string(
     yaml.preserve_quotes = True
     yaml.width = 4096  # Prevent line wrapping in strings
     # Use ruamel's parser to obtain position metadata; we'll replace text
+
+    # Files that explicitly opt in via '# use jinja' must be pre-processed
+    # through Jinja2 before the YAML parser sees them, because Jinja syntax is
+    # not valid YAML.  Files without the header are passed straight to the
+    # YAML parser; if Jinja-like syntax happens to appear (e.g. as literal
+    # example text in a template field) but is valid YAML, it will be handled
+    # normally.  If it is not valid YAML the parser will surface a regular
+    # parse error.
+    if _has_jinja_header(yaml_content):
+        return _format_jinja_yaml_string(yaml_content, config)
 
     # Load as a stream to handle multi-document YAML
     documents = list(yaml.load_all(yaml_content))
@@ -359,7 +460,8 @@ def format_yaml_string(
 
             lines[start : end + 1] = new_lines
 
-    return "".join(lines), bool(all_replacements)
+    result = "".join(lines)
+    return result, result != yaml_content
 
 
 def format_yaml_file(
@@ -389,66 +491,8 @@ def format_yaml_file(
     return formatted, changed
 
 
-def _collect_yaml_files(
-    paths: list[Path],
-    check_all: bool = False,
-    include_default_ignores: bool | None = None,
-) -> list[Path]:
-    """
-    Expand paths to a list of YAML files.
-
-    - Files are included if they have .yml or .yaml extension
-    - Directories are recursively searched for YAML files
-    """
-
-    def _is_default_ignored_dir(dirname: str) -> bool:
-        return (
-            dirname.startswith(".git")
-            or dirname.startswith(".github")
-            or dirname.startswith(".venv")
-            or dirname == "build"
-            or dirname == "dist"
-            or dirname == "node_modules"
-            or dirname == "sources"
-        )
-
-    if include_default_ignores is None:
-        include_default_ignores = not check_all
-
-    yaml_files: list[Path] = []
-    for path in paths:
-        if path.is_dir():
-            # Recursively find all YAML files, pruning ignored directories
-            for root, dirnames, filenames in os.walk(path, topdown=True):
-                if include_default_ignores and _is_default_ignored_dir(Path(root).name):
-                    dirnames[:] = []
-                    continue
-                if include_default_ignores:
-                    dirnames[:] = [
-                        dirname
-                        for dirname in dirnames
-                        if not _is_default_ignored_dir(dirname)
-                    ]
-                root_path = Path(root)
-                for filename in filenames:
-                    if filename.lower().endswith((".yml", ".yaml")):
-                        yaml_files.append(root_path / filename)
-        elif path.suffix.lower() in (".yml", ".yaml"):
-            yaml_files.append(path)
-    seen = set()
-    result = []
-    for f in yaml_files:
-        resolved = f.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            result.append(f)
-    return sorted(result)
-
-
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Format Python code blocks in docassemble YAML files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -488,7 +532,7 @@ Examples:
         "-q",
         "--quiet",
         action="store_true",
-        help="Only output errors",
+        help="Suppress all output except errors",
     )
     parser.add_argument(
         "--check-all",
@@ -498,13 +542,31 @@ Examples:
             "(.git*, .github*, sources)"
         ),
     )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Do not print the summary line after processing",
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     config = FormatterConfig(
         black_line_length=args.line_length,
         convert_indent_4_to_2=not args.no_indent_conversion,
     )
+
+    cwd = Path.cwd().resolve()
+
+    def _display(file_path: Path) -> Path:
+        resolved = file_path.resolve()
+        try:
+            return resolved.relative_to(cwd)
+        except ValueError:
+            pass
+        return resolved
+
+    def _emit_error(message: str) -> None:
+        print(message, file=sys.stderr)
 
     # Collect all YAML files from paths (handles directories recursively)
     yaml_files = _collect_yaml_files(args.files, check_all=args.check_all)
@@ -519,38 +581,37 @@ Examples:
 
     for file_path in yaml_files:
         if not file_path.exists():
-            print(f"Error: File not found: {file_path}", file=sys.stderr)
             files_error += 1
             exit_code = 1
+            _emit_error(f"error: {_display(file_path)} (file not found)")
             continue
 
         try:
-            _, changed = format_yaml_file(
-                file_path,
-                config=config,
-                write=not args.check,
-            )
+            content = file_path.read_text(encoding="utf-8")
+
+            formatted, changed = format_yaml_string(content, config)
+            if changed and not args.check:
+                file_path.write_text(formatted, encoding="utf-8")
 
             if changed:
                 files_changed += 1
                 if args.check:
-                    print(f"Would reformat: {file_path}")
+                    print(f"Would reformat: {_display(file_path)}")
                     exit_code = 1
                 elif not args.quiet:
-                    print(f"Reformatted: {file_path}")
+                    print(f"reformatted: {_display(file_path)}")
             else:
                 files_unchanged += 1
-                if not args.quiet:
-                    print(f"Unchanged: {file_path}")
+                if not args.check and not args.quiet:
+                    print(f"unchanged: {_display(file_path)}")
 
         except Exception as e:
-            print(f"Error processing {file_path}: {e}", file=sys.stderr)
             files_error += 1
             exit_code = 1
+            _emit_error(f"error: {_display(file_path)}: {e}")
 
-    if not args.quiet:
+    if not args.check and not args.quiet and not args.no_summary:
         total = files_changed + files_unchanged + files_error
-        print()
         print(
             f"Summary: {files_changed} reformatted, {files_unchanged} unchanged, {files_error} errors ({total} total)"
         )
@@ -558,5 +619,5 @@ Examples:
     return exit_code
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())

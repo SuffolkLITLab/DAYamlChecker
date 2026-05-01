@@ -1,0 +1,4 @@
+# use jinja
+---
+id: E202_jinja_template_error
+question: {{ [1]|map("missing_filter")|list }}

@@ -1,5 +1,4 @@
 from .yaml_structure import main
 
-import sys
-
-sys.exit(main())
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

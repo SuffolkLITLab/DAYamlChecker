@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "esprima>=4.0.1",
+    "jinja2>=3.1.6",
     "mako>=1.3.10",
     "black>=24.0.0",
     "ruamel.yaml>=0.18.0",
@@ -21,21 +22,46 @@ authors = [
   { name="Bryce Willey", email="bryce.steven.willey@gmail.com" },
 ]
 
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "types-requests>=2.32.0",
+]
+
+[project.scripts]
+dayaml = "dayamlchecker.cli:main"
+dayamlchecker = "dayamlchecker.yaml_structure:main"
+dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+mypy_path = "src"
+exclude = ["^build/"]
+explicit_package_bases = true
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
 dayamlchecker = ["py.typed"]
 
-[build-system]
-requires = ["setuptools >= 77.0.3"]
-build-backend = "setuptools.build_meta"
+[tool.coverage.run]
+    branch = true
+    omit = [
+        "tests/*",
+    ]
+    relative_files = true
+    source = [
+        "src",
+    ]
 
-[project.scripts]
-dayamlchecker = "dayamlchecker.yaml_structure:main"
-dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
-
-[tool.mypy]
-mypy_path = "src"
-exclude = ["^build/"]
-explicit_package_bases = true
+[tool.coverage.report]
+    omit = [
+        "tests/*",
+    ]

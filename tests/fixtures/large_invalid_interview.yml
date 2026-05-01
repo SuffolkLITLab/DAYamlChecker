@@ -1,0 +1,271 @@
+# Intentionally broken docassemble interview fixture.
+#
+# This file covers all currently non-Jinja message codes from the registry.
+# Each document has an id so the expected error code is obvious at a glance.
+
+---
+id: E301_unknown_keys
+question: |
+  Fixture screen with unknown keys.
+field: user_name
+not_a_real_key: true
+another_bad_key: nope
+
+---
+id: E101_yaml_duplicate_key
+question: |
+  First version.
+question: |
+  Duplicate version.
+
+---
+id: E102_yaml_parse_error
+question: Hello
+field: x
+bad: [unclosed
+
+---
+id: W101_yaml_string_type
+ga id:
+  - not
+  - a string
+question: |
+  Non-string ga id should trigger YAMLStr validation.
+field: ga_id_value
+
+---
+id: W111_mako_syntax_error
+question: Hello
+subquestion: |
+  % endfor
+field: x
+
+---
+id: W112_mako_compile_error
+question: Hello
+subquestion: |
+  % if True
+field: x
+
+---
+id: W121_python_code_type
+code:
+  - some_list_item
+
+---
+id: W122_python_syntax_error
+code: |
+  if True
+    x = 1
+
+---
+id: W201_js_modifier_type
+question: Test
+fields:
+  - A: a
+  - B: b
+    js show if:
+      - nope
+
+---
+id: W204_js_unknown_screen_field
+question: Test
+fields:
+  - A: a
+  - B: b
+    js show if: |
+      val("missing_field") === true
+
+---
+id: W301_show_if_malformed
+question: Test
+field: top_level_show_if_malformed
+show if: variable:a
+
+---
+id: W302_show_if_code_type
+question: Test
+field: top_level_show_if_code_type
+show if:
+  code:
+    - a
+    - b
+
+---
+id: W303_show_if_code_syntax
+question: Test
+field: top_level_show_if_code_syntax
+show if:
+  code: |
+    if True
+      x = 1
+
+---
+id: W304_show_if_dict_keys
+question: Test
+field: top_level_show_if_dict_keys
+show if:
+  unknown_key: something
+
+---
+id: W401_python_var_type
+def: 123
+code: |
+  x = 1
+
+---
+id: W402_python_var_whitespace
+question: |
+  Fixture screen with a top-level field name containing whitespace.
+field: some var name
+
+---
+id: W403_invalid_objects_block
+objects: "MyObj: DAObject"
+
+---
+id: W404_fields_code_type
+question: |
+  Fixture screen with a non-string fields: code reference.
+fields:
+  code: 123
+
+---
+id: W405_invalid_fields_dict
+question: |
+  Fixture screen with an invalid fields dict.
+fields:
+  not_code: value
+
+---
+id: W406_fields_scalar
+question: |
+  Fixture screen with scalar fields.
+fields: nope
+
+---
+id: W407_field_modifier_variable_type
+question: Test
+fields:
+  - A: a
+  - B: b
+    show if:
+      variable:
+        - a
+      is: yes
+
+---
+id: W408_field_modifier_unknown_variable_dict
+question: Test
+fields:
+  - A: a
+  - B: b
+    show if:
+      variable: prior_var
+      is: yes
+
+---
+id: W409_field_modifier_code_error
+question: Test
+fields:
+  - A: a
+  - B: b
+    show if:
+      code: |
+        if True
+          x = 1
+
+---
+id: W410_field_modifier_same_screen_code
+question: Test
+fields:
+  - A: a
+  - B: b
+    show if:
+      code: |
+        a == 1
+
+---
+id: W411_field_modifier_dict_keys
+question: |
+  Fixture screen with malformed field metadata.
+fields:
+  - Name: user name
+    datatype: text
+  - Follow up: follow_up
+    show if:
+      unknown_key: something
+
+---
+id: W412_field_modifier_unknown_variable_string
+question: Test
+fields:
+  - A: a
+  - B: b
+    show if: prior_var
+
+---
+id: W601_no_possible_types
+buttons:
+  - continue: true
+
+---
+id: W602_too_many_types
+question: hi
+code: |
+  x = 1
+
+---
+id: W603_interview_order_source
+question: Test
+fields:
+  - First: a
+    datatype: yesnoradio
+  - Second: b
+    show if: a
+
+---
+id: W603_interview_order_unmatched_guard
+mandatory: True
+code: |
+  a
+  b
+
+---
+id: W604_W202_W203_W205_nested_js_visibility
+question: |
+  Fixture screen with nested visibility and JavaScript modifier issues.
+fields:
+  - Fruit: fruit
+    datatype: yesnoradio
+  - Vegetable: vegetable
+    datatype: yesnoradio
+    show if: fruit
+  - Grain: grain
+    datatype: yesnoradio
+    show if: vegetable
+  - Dairy: dairy
+    datatype: yesnoradio
+    show if: grain
+  - Broken JS syntax: broken_js_syntax
+    js show if: |
+      (val("fruit") === "apple"
+  - Missing val call: missing_val_call
+    js show if: |
+      true && false
+  - Unquoted val arg: unquoted_val
+    js show if: |
+      val(fruit) === "apple"
+
+---
+id: C101_missing_validation_error
+question: |
+  Fixture screen with validation code that never calls validation_error().
+fields:
+  - Apples: number_apples
+    datatype: integer
+  - Oranges: number_oranges
+    datatype: integer
+validation code: |
+  if number_apples + number_oranges != 10:
+    raise Exception("Bad total")

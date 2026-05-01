@@ -1,12 +1,16 @@
 import io
+import re
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import dayamlchecker.yaml_structure as yaml_structure
 from dayamlchecker.check_questions_urls import URLCheckResult, URLIssue
-from dayamlchecker.yaml_structure import _collect_yaml_files, main
+from dayamlchecker._files import _collect_yaml_files
+from dayamlchecker.__main__ import main as package_main
+from dayamlchecker.yaml_structure import main, process_file
 
 
 def _write_valid_question(path: Path) -> None:
@@ -108,7 +112,382 @@ def test_collect_yaml_files_can_disable_default_ignores():
         )
 
 
-def test_main_default_wcag_reports_failures():
+# ---------------------------------------------------------------------------
+# CLI (main()) / process_file() integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_valid_file_exits_zero():
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        assert process_file(str(good)) == "ok"
+
+
+def test_cli_no_files_found_exits_nonzero():
+    with TemporaryDirectory() as tmp:
+        # Write a text file, not YAML — _collect_yaml_files skips it, main() returns 1
+        txt = Path(tmp) / "readme.txt"
+        txt.write_text("hello\n", encoding="utf-8")
+        with patch("sys.argv", ["dayamlchecker", str(txt)]):
+            assert main() == 1
+
+
+def test_cli_jinja_file_prints_ok_jinja():
+    with TemporaryDirectory() as tmp:
+        jinja_file = Path(tmp) / "interview.yml"
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(jinja_file))
+        assert result == "ok"
+        assert "ok (jinja)" in buf.getvalue()
+
+
+def test_cli_check_all_flag_includes_git_dirs():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        git_dir = root / ".git"
+        git_dir.mkdir()
+        git_file = git_dir / "hidden.yml"
+        git_file.write_text("---\nquestion: git\nfield: x\n", encoding="utf-8")
+        # --check-all maps to include_default_ignores=False
+        collected = _collect_yaml_files([root], include_default_ignores=False)
+        assert git_file in collected
+        assert process_file(str(git_file)) == "ok"
+
+
+def test_cli_jinja_file_default_mode_prints_ok_status():
+    with TemporaryDirectory() as tmp:
+        jinja_file = Path(tmp) / "interview.yml"
+        jinja_file.write_text(
+            "# use jinja\n---\nquestion: Hello {{ user }}\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(jinja_file))
+        assert result == "ok"
+        output = buf.getvalue()
+        assert "ok (jinja)" in output
+        assert "interview.yml" in output
+
+
+def test_cli_file_with_errors_reports_error_status():
+    """process_file returns 'error' and prints an errors summary line."""
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        bad.write_text("---\nnot_a_real_key: hello\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(bad))
+        assert result == "error"
+        output = buf.getvalue()
+        assert re.search(r"errors \(\d+\):.*bad\.yml", output)
+        assert "[E301]" in output
+
+
+def test_cli_file_with_warnings_reports_warning_status():
+    with TemporaryDirectory() as tmp:
+        warning_file = Path(tmp) / "warning.yml"
+        warning_file.write_text(
+            "---\n"
+            "question: Hello\n"
+            "fields:\n"
+            "  - Preferred salutation: preferred_salutation\n"
+            "  - Follow up: follow_up\n"
+            "    show if:\n"
+            '      code: preferred_salutation == "Ms."\n',
+            encoding="utf-8",
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(warning_file))
+        assert result == "warning"
+        output = buf.getvalue()
+        assert re.search(r"warnings \(\d+\):.*warning\.yml", output)
+        assert "[W410]" in output
+        assert "errors" not in output.lower()
+
+
+def test_cli_file_with_conventions_reports_convention_status():
+    with TemporaryDirectory() as tmp:
+        convention_file = Path(tmp) / "convention.yml"
+        convention_file.write_text(
+            "---\n"
+            "question: Total fruit\n"
+            "fields:\n"
+            "  - Apples: number_apples\n"
+            "    datatype: integer\n"
+            "  - Oranges: number_oranges\n"
+            "    datatype: integer\n"
+            "validation code: |\n"
+            "  if number_apples + number_oranges != 10:\n"
+            "    raise Exception('Bad total')\n",
+            encoding="utf-8",
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(convention_file))
+        assert result == "warning"
+        output = buf.getvalue()
+        assert re.search(r"conventions \(\d+\):.*convention\.yml", output)
+        assert "[C101]" in output
+        assert "warnings (" not in output
+        assert "errors (" not in output
+
+
+def test_cli_main_exits_nonzero_when_any_file_has_errors():
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        bad.write_text("---\nnot_a_real_key: hello\n", encoding="utf-8")
+
+        with patch("sys.argv", ["dayamlchecker", str(bad)]):
+            assert main() == 1
+
+
+def test_cli_main_exits_zero_when_file_has_only_warnings():
+    with TemporaryDirectory() as tmp:
+        warning_file = Path(tmp) / "warning.yml"
+        warning_file.write_text(
+            "---\n"
+            "question: Hello\n"
+            "fields:\n"
+            "  - Preferred salutation: preferred_salutation\n"
+            "  - Follow up: follow_up\n"
+            "    show if:\n"
+            '      code: preferred_salutation == "Ms."\n',
+            encoding="utf-8",
+        )
+        buf = io.StringIO()
+
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", str(warning_file)]):
+                result = main()
+
+        assert result == 0
+        output = buf.getvalue()
+        assert "1 warnings" in output
+        assert "0 errors" in output
+
+
+def test_cli_jinja_file_with_bad_key_reports_errors():
+    """Errors in the Jinja-rendered content must still be caught and reported.
+
+    This is a companion to test_cli_jinja_file_default_mode_prints_ok_status:
+    it verifies that the Jinja pre-processing path (preprocess_jinja -> recursive
+    find_errors_from_string call) doesn't silently discard validation errors.
+    """
+    with TemporaryDirectory() as tmp:
+        jinja_file = Path(tmp) / "bad_jinja.yml"
+        jinja_file.write_text(
+            "# use jinja\n---\nnot_a_real_key: hello\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(jinja_file))
+        assert result == "error"
+        output = buf.getvalue()
+        assert re.search(r"errors \(\d+\).*bad_jinja\.yml", output)
+        assert "[E301]" in output
+
+
+def test_cli_process_file_skips_known_da_files():
+    """process_file returns 'skipped' for known DA helper files like docstring.yml."""
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "docstring.yml"
+        skipped.write_text(
+            "this is not valid yaml interview content\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(skipped))
+        assert result == "skipped"
+        assert "skipped" in buf.getvalue()
+
+
+def test_cli_process_file_quiet_skips_no_output():
+    """process_file with quiet=True suppresses output for skipped files."""
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "docstring.yml"
+        skipped.write_text("ignored\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(skipped), quiet=True)
+        assert result == "skipped"
+        assert buf.getvalue() == ""
+
+
+def test_cli_process_file_quiet_ok_no_output():
+    """process_file with quiet=True suppresses output for ok files."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(good), quiet=True)
+        assert result == "ok"
+        assert buf.getvalue() == ""
+
+
+def test_cli_main_no_summary_flag():
+    """--no-summary flag suppresses the summary line."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", "--no-summary", str(good)]):
+                result = main()
+        assert result == 0
+        assert "summary" not in buf.getvalue().lower()
+
+
+def test_cli_main_quiet_flag():
+    """--quiet flag suppresses all non-error output."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", "--quiet", str(good)]):
+                result = main()
+        assert result == 0
+        assert buf.getvalue().strip() == ""
+
+
+def test_cli_main_summary_shows_counts():
+    """Summary line shows counts for ok, errors, skipped."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", str(good)]):
+                main()
+        output = buf.getvalue()
+        assert "Summary:" in output
+        assert "1 ok" in output
+
+
+def test_cli_main_summary_counts_skipped_files():
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "good.yml"
+        skipped.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch(
+                "dayamlchecker.yaml_structure.process_file", return_value="skipped"
+            ):
+                with patch("sys.argv", ["dayamlchecker", str(skipped)]):
+                    result = main()
+
+        assert result == 0
+        assert "1 skipped" in buf.getvalue()
+
+
+def test_cli_display_falls_back_to_absolute_path_when_not_under_base():
+    with TemporaryDirectory() as base_tmp, TemporaryDirectory() as other_tmp:
+        base = Path(base_tmp)
+        outside = Path(other_tmp) / "outside.yml"
+        outside.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+
+        with redirect_stdout(buf):
+            with patch(
+                "dayamlchecker.yaml_structure._collect_yaml_files",
+                return_value=[outside],
+            ):
+                with patch("sys.argv", ["dayamlchecker", str(base)]):
+                    result = main()
+
+        assert result == 0
+        assert str(outside.resolve()) in buf.getvalue()
+
+
+def test_cli_display_prefers_path_relative_to_cwd(monkeypatch):
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        scan_dir = root / "docassemble"
+        interview = scan_dir / "WorkflowDocs" / "data" / "questions" / "test.yml"
+        _write_valid_question(interview)
+        buf = io.StringIO()
+
+        previous_cwd = Path.cwd()
+        monkeypatch.chdir(root)
+        try:
+            with redirect_stdout(buf):
+                result = main(["--no-url-check", str(scan_dir)])
+        finally:
+            monkeypatch.chdir(previous_cwd)
+
+        assert result == 0
+        assert "ok: docassemble/WorkflowDocs/data/questions/test.yml" in buf.getvalue()
+
+
+def test_cli_display_path_used_in_output():
+    """process_file uses display_path when provided."""
+    with TemporaryDirectory() as tmp:
+        good = Path(tmp) / "good.yml"
+        good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(good), display_path="custom/path.yml")
+        assert result == "ok"
+        assert "custom/path.yml" in buf.getvalue()
+
+
+def test_cli_default_omits_real_error_prefix():
+    """process_file omits the REAL ERROR prefix by default on non-experimental errors."""
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        bad.write_text("---\nnot_a_real_key: hello\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(bad))
+        assert result == "error"
+        output = buf.getvalue()
+        assert "[E301]" in output
+        assert "REAL ERROR" not in output
+
+
+def test_cli_show_experimental_flag_via_main():
+    """--show-experimental adds the REAL ERROR prefix through the main() entry point."""
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        bad.write_text("---\nnot_a_real_key: hello\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("sys.argv", ["dayamlchecker", "--show-experimental", str(bad)]):
+                main()
+        output = buf.getvalue()
+        assert "[E301]" in output
+        assert "REAL ERROR" in output
+
+
+def test_cli_no_show_experimental_flag_via_main():
+    """--no-show-experimental explicitly suppresses the REAL ERROR prefix."""
+    with TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.yml"
+        bad.write_text("---\nnot_a_real_key: hello\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch(
+                "sys.argv", ["dayamlchecker", "--no-show-experimental", str(bad)]
+            ):
+                main()
+        output = buf.getvalue()
+        assert "[E301]" in output
+        assert "REAL ERROR" not in output
+
+
+def test_package_main_aliases_yaml_structure_main():
+    """The package entrypoint should directly expose the checker CLI main."""
+    assert package_main is main
+
+
+def test_main_default_wcag_reports_errors_and_fails():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "accessibility.yml"
@@ -123,31 +502,33 @@ def test_main_default_wcag_reports_failures():
 
         output = stdout.getvalue().lower()
         assert exit_code == 1
-        assert "found 1 errors" in output
+        assert "errors (1)" in output
+        assert "[e505]" in output
         assert "accessibility: markdown image" in output
 
+    def test_main_wcag_accessibility_error_fails():
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            interview = root / "tagged-pdf-warning.yml"
+            interview.write_text(
+                "attachments:\n"
+                "  - name: My attachment\n"
+                "    docx template file: demo_template.docx\n",
+                encoding="utf-8",
+            )
 
-def test_main_wcag_info_only_does_not_fail():
-    with TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        interview = root / "tagged-pdf-warning.yml"
-        interview.write_text(
-            "attachments:\n"
-            "  - name: My attachment\n"
-            "    docx template file: demo_template.docx\n",
-            encoding="utf-8",
-        )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main([str(interview)])
 
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            exit_code = main([str(interview)])
-
-        output = stdout.getvalue().lower()
-        assert exit_code == 0
-        assert "info: accessibility: docx attachment detected" in output
+            output = stdout.getvalue().lower()
+            assert exit_code == 1
+            assert "errors (1)" in output
+            assert "[e503]" in output
+            assert "accessibility: docx attachment detected" in output
 
 
-def test_main_warning_still_fails_outside_info_only_mode():
+def test_main_warning_only_does_not_fail():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "warning.yml"
@@ -172,8 +553,8 @@ def test_main_warning_still_fails_outside_info_only_mode():
             exit_code = main(["--no-wcag", str(interview)])
 
         output = stdout.getvalue().lower()
-        assert exit_code == 1
-        assert "warning:" in output
+        assert exit_code == 0
+        assert "warnings (" in output
 
 
 def test_main_combobox_widget_check_disabled_by_default():
@@ -191,10 +572,10 @@ def test_main_combobox_widget_check_disabled_by_default():
 
         output = stdout.getvalue().lower()
         assert exit_code == 0
-        assert "combobox" not in output
+        assert "screen uses `combobox`" not in output
 
 
-def test_main_can_enable_combobox_widget_check():
+def test_main_can_enable_combobox_widget_error():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "combobox.yml"
@@ -216,6 +597,8 @@ def test_main_can_enable_combobox_widget_check():
 
         output = stdout.getvalue().lower()
         assert exit_code == 1
+        assert "errors (1)" in output
+        assert "[e501]" in output
         assert "screen uses `combobox`" in output
 
 
@@ -252,9 +635,9 @@ def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
         )
 
         assert yaml_structure.main() == 0
-        assert captured["root"] == root
+        assert captured["root"] == root.resolve()
         assert captured["question_files"] == [interview]
-        assert captured["package_dirs"] == [root / "docassemble" / "Demo"]
+        assert captured["package_dirs"] == [(root / "docassemble" / "Demo").resolve()]
         assert captured["timeout"] == 10
         assert captured["check_documents"] is True
         assert captured["ignore_urls"] == set()
@@ -360,7 +743,7 @@ def test_main_passes_custom_url_checker_flags(monkeypatch):
         )
 
         assert yaml_structure.main() == 0
-        assert captured["root"] == root
+        assert captured["root"] == root.resolve()
         assert captured["timeout"] == 3
         assert captured["check_documents"] is False
         assert captured["ignore_urls"] == {"https://ignore.example/path"}

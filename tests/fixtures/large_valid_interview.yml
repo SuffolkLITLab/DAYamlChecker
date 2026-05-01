@@ -1,0 +1,68 @@
+# Intentionally valid docassemble interview fixture.
+#
+# Each block has an id so it is easy to refer to a specific section while
+# reviewing validator behavior. All of these blocks should produce no errors.
+
+---
+id: VALID_simple_question
+question: |
+  What is your full name?
+field: user_name
+
+---
+id: VALID_fields_with_show_if
+question: |
+  Tell us about your household.
+fields:
+  - Do you have children?: has_children
+    datatype: yesnoradio
+  - How many children?: child_count
+    datatype: integer
+    show if: has_children
+  - Do you have pets?: has_pets
+    datatype: yesnoradio
+  - What kind of pets?: pet_types
+    datatype: text
+    show if: has_pets
+
+---
+id: VALID_js_show_if
+question: |
+  Tell us about your transportation.
+fields:
+  - Do you have a car?: has_car
+    datatype: yesnoradio
+  - Car make: car_make
+    js show if: |
+      val("has_car") === true
+  - Do you bike to work?: bikes_to_work
+    datatype: yesnoradio
+  - Bike brand: bike_brand
+    js show if: |
+      val("bikes_to_work") === true
+
+---
+id: VALID_objects_block
+objects:
+  - client: Individual
+  - household: DAList
+
+---
+id: VALID_fields_dict_code_reference
+question: |
+  Dynamic fields example.
+fields:
+  code: generated_question_fields
+
+---
+id: VALID_validation_code
+question: |
+  There should be ten fruit total.
+fields:
+  - Apples: number_apples
+    datatype: integer
+  - Oranges: number_oranges
+    datatype: integer
+validation code: |
+  if number_apples + number_oranges != 10:
+    validation_error("The numbers must add up to 10!")
