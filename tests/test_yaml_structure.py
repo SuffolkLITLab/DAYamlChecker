@@ -573,6 +573,28 @@ fields:
             f"Expected missing-label accessibility error, got: {errs}",
         )
 
+    def test_accessibility_dynamic_code_field_no_error_on_multi_field_screen(self):
+        yaml_content = """id: court county
+question: |
+  Court
+fields:
+  - code: |
+      dynamic_fields()
+  - What is the court county?: court_county
+    choices:
+      - Contra Costa
+      - Alameda
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Did not expect no-label accessibility error for dynamic code field, got: {errs}",
+        )
+
     def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
