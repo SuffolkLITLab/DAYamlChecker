@@ -26,6 +26,14 @@ def _write_valid_question(path: Path) -> None:
     )
 
 
+def _write_valid_code_interview(path: Path, *, code: str = "x=1") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"mandatory: True\ncode: |\n  {code}\n",
+        encoding="utf-8",
+    )
+
+
 def test_collect_yaml_files_recurses_directories_and_dedupes():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -516,6 +524,18 @@ def test_cli_process_file_skips_known_da_files():
         assert "skipped" in buf.getvalue()
 
 
+def test_cli_process_file_skipped_uses_line_reporter():
+    with TemporaryDirectory() as tmp:
+        skipped = Path(tmp) / "docstring.yml"
+        skipped.write_text("ignored\n", encoding="utf-8")
+
+        messages: list[str] = []
+        result = process_file(str(skipped), line_reporter=messages.append)
+
+        assert result == "skipped"
+        assert messages == [f"skipped: {skipped}"]
+
+
 def test_cli_process_file_quiet_skips_no_output():
     """process_file with quiet=True suppresses output for skipped files."""
     with TemporaryDirectory() as tmp:
@@ -538,6 +558,93 @@ def test_cli_process_file_quiet_ok_no_output():
             result = process_file(str(good), quiet=True)
         assert result == "ok"
         assert buf.getvalue() == ""
+
+
+def test_process_file_format_on_success_prints_reformatted_without_line_reporter():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "format_me.yml"
+        _write_valid_code_interview(interview)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(interview), format_on_success=True)
+
+        assert result == "ok"
+        assert (
+            interview.read_text(encoding="utf-8")
+            == "mandatory: True\ncode: |\n  x = 1\n"
+        )
+        assert buf.getvalue() == f"reformatted: {interview}\n"
+
+
+def test_process_file_format_on_success_leaves_already_formatted_file_unchanged():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "already_formatted.yml"
+        _write_valid_code_interview(interview, code="x = 1")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(interview), format_on_success=True)
+
+        assert result == "ok"
+        assert (
+            interview.read_text(encoding="utf-8")
+            == "mandatory: True\ncode: |\n  x = 1\n"
+        )
+        assert buf.getvalue() == f"ok: {interview}\n"
+
+
+def test_process_file_warning_uses_line_reporter():
+    with TemporaryDirectory() as tmp:
+        warning_file = Path(tmp) / "warning.yml"
+        warning_file.write_text(
+            "---\nquestion: Hello\nfield: user_name\n", encoding="utf-8"
+        )
+        messages: list[str] = []
+        warning = YAMLError(
+            err_str="Warning: heads up",
+            line_number=2,
+            file_name="warning.yml",
+        )
+
+        with patch(
+            "dayamlchecker.yaml_structure.find_errors_from_string",
+            return_value=[warning],
+        ):
+            result = process_file(str(warning_file), line_reporter=messages.append)
+
+        assert result == "warning"
+        assert messages == [f"warnings (1): {warning_file}"]
+
+
+def test_process_file_format_on_success_warning_prints_reformatted_without_line_reporter():
+    with TemporaryDirectory() as tmp:
+        convention_file = Path(tmp) / "convention.yml"
+        convention_file.write_text(
+            "---\n"
+            "question: Total fruit\n"
+            "fields:\n"
+            "  - Apples: number_apples\n"
+            "    datatype: integer\n"
+            "  - Oranges: number_oranges\n"
+            "    datatype: integer\n"
+            "validation code: |\n"
+            "  if number_apples+number_oranges !=10:\n"
+            "    raise Exception('Bad total')\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = process_file(str(convention_file), format_on_success=True)
+
+        assert result == "warning"
+        assert "if number_apples + number_oranges != 10:" in convention_file.read_text(
+            encoding="utf-8"
+        )
+        output = buf.getvalue()
+        assert f"conventions (1): {convention_file}" in output
+        assert f"reformatted: {convention_file}" in output
 
 
 def test_cli_main_no_summary_flag():
@@ -564,6 +671,155 @@ def test_cli_main_quiet_flag():
                 result = main()
         assert result == 0
         assert buf.getvalue().strip() == ""
+
+
+def test_main_format_on_success_reformats_ok_file_without_url_check(monkeypatch):
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "format_me.yml"
+        _write_valid_code_interview(interview)
+
+        called = False
+
+        def fake_run_url_check(**kwargs):
+            nonlocal called
+            called = True
+            return URLCheckResult(checked_url_count=0, ignored_url_count=0, issues=())
+
+        monkeypatch.setattr(yaml_structure, "run_url_check", fake_run_url_check)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(["--format-on-success", "--no-url-check", str(interview)])
+
+        assert result == 0
+        assert called is False
+        assert (
+            interview.read_text(encoding="utf-8")
+            == "mandatory: True\ncode: |\n  x = 1\n"
+        )
+        output = buf.getvalue()
+        assert "reformatted:" in output
+        assert "format_me.yml" in output
+        assert "Summary: 1 ok" in output
+
+
+def test_main_format_on_success_reformats_warning_file():
+    with TemporaryDirectory() as tmp:
+        convention_file = Path(tmp) / "convention.yml"
+        convention_file.write_text(
+            "---\n"
+            "question: Total fruit\n"
+            "fields:\n"
+            "  - Apples: number_apples\n"
+            "    datatype: integer\n"
+            "  - Oranges: number_oranges\n"
+            "    datatype: integer\n"
+            "validation code: |\n"
+            "  if number_apples+number_oranges !=10:\n"
+            "    raise Exception('Bad total')\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(
+                ["--format-on-success", "--no-url-check", str(convention_file)]
+            )
+
+        assert result == 0
+        assert "if number_apples + number_oranges != 10:" in convention_file.read_text(
+            encoding="utf-8"
+        )
+        output = buf.getvalue()
+        assert result == 0
+        assert "conventions (1):" in output
+        assert "convention.yml" in output
+        assert "reformatted:" in output
+        assert "Summary: 0 ok, 1 warnings, 0 errors, 0 skipped" in output
+
+
+def test_main_format_on_success_does_not_write_yaml_error_file():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "bad.yml"
+        original = "mandatory: True\ncode: |\n  x=1\nnot_a_real_key: hello\n"
+        interview.write_text(original, encoding="utf-8")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(["--format-on-success", "--no-url-check", str(interview)])
+
+        assert result == 1
+        assert interview.read_text(encoding="utf-8") == original
+        output = buf.getvalue()
+        assert "errors (1):" in output
+        assert "bad.yml" in output
+        assert "reformatted:" not in output
+
+
+def test_main_format_on_success_respects_ignore_codes():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "ignored.yml"
+        interview.write_text(
+            "mandatory: True\ncode: |\n  x=1\nnot_a_real_key: hello\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(
+                [
+                    "--format-on-success",
+                    "--no-url-check",
+                    "--ignore-codes",
+                    "E301",
+                    str(interview),
+                ]
+            )
+
+        assert result == 0
+        assert interview.read_text(encoding="utf-8").startswith(
+            "mandatory: True\ncode: |\n  x = 1\n"
+        )
+        output = buf.getvalue()
+        assert "reformatted:" in output
+        assert "ignored.yml" in output
+        assert "[E301]" not in output
+
+
+def test_main_format_on_success_writes_before_url_checker_error(monkeypatch, capsys):
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "docassemble" / "Demo" / "data" / "questions" / "test.yml"
+        _write_valid_code_interview(interview)
+
+        def fake_run_url_check(**kwargs):
+            return URLCheckResult(
+                checked_url_count=1,
+                ignored_url_count=0,
+                issues=(
+                    URLIssue(
+                        severity="error",
+                        category="broken",
+                        source_kind="yaml",
+                        url="https://example.invalid/question",
+                        sources=("docassemble/Demo/data/questions/test.yml",),
+                        status_code=404,
+                    ),
+                ),
+            )
+
+        monkeypatch.setattr(yaml_structure, "run_url_check", fake_run_url_check)
+
+        assert main(["--format-on-success", str(interview)]) == 1
+        assert (
+            interview.read_text(encoding="utf-8")
+            == "mandatory: True\ncode: |\n  x = 1\n"
+        )
+
+        output = capsys.readouterr().out
+        assert "reformatted:" in output
+        assert "test.yml" in output
+        assert "url checker errors:" in output.lower()
 
 
 def test_cli_main_summary_shows_counts():

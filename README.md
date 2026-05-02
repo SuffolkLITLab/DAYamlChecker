@@ -11,6 +11,7 @@ dayaml format             # defaults to ./docassemble
 dayaml check path/to/yaml-or-dir
 dayaml check --show-experimental path/to/yaml-or-dir
 dayaml check --ignore-codes E410,E301 path/to/yaml-or-dir
+dayaml check --format-on-success --no-url-check path/to/yaml-or-dir
 dayaml format path/to/interview.yml
 
 # Backwards-compatible entry points
@@ -50,6 +51,15 @@ defaults to `docassemble`.
 Those args are applied before the actual command-line args, so an explicit CLI
 flag still wins. For example, `args = ["--no-url-check"]` disables URL checks
 by default, while `dayaml check --url-check ...` turns them back on for one run.
+
+`dayaml check --format-on-success ...` validates each file first and then runs
+the formatter on files that have no error-severity findings after ignore-code
+filtering. This uses the already-read file content in memory, so it avoids a
+separate checker-then-formatter pass over the same file. Formatting happens
+before the later URL-check phase, so a run can still exit nonzero for URL
+errors after formatting changes have already been written. Use
+`--no-url-check` with this mode if you want the combined YAML-check-and-format
+behavior without the later repository URL scan.
 
 ### Real Errors
 

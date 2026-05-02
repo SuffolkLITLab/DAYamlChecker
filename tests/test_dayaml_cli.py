@@ -136,6 +136,24 @@ def test_dayaml_check_returns_nonzero_for_promoted_error_file():
     assert "[E410]" in result.stdout
 
 
+def test_dayaml_check_format_on_success_reformats_file():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "interview.yml"
+        interview.write_text("mandatory: True\ncode: |\n  x=1\n", encoding="utf-8")
+
+        result = _run_dayaml(
+            "check", "--format-on-success", "--no-url-check", str(interview)
+        )
+
+        assert result.returncode == 0
+        assert "reformatted:" in result.stdout
+        assert "interview.yml" in result.stdout
+        assert (
+            interview.read_text(encoding="utf-8")
+            == "mandatory: True\ncode: |\n  x = 1\n"
+        )
+
+
 def test_dayaml_format_check_flag_does_not_write():
     with TemporaryDirectory() as tmp:
         interview = Path(tmp) / "interview.yml"

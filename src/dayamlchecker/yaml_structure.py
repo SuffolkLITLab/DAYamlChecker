@@ -38,6 +38,7 @@ from dayamlchecker.check_questions_urls import (
     print_url_check_report,
     run_url_check,
 )
+from dayamlchecker.code_formatter import FormatterConfig, format_yaml_string
 from dayamlchecker.messages import MessageCode, format_message, is_experimental_code
 
 _RuamelYAML = YAML
@@ -2035,6 +2036,8 @@ def process_file(
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
     ignore_codes: frozenset[str] = frozenset(),
+    format_on_success: bool = False,
+    formatter_config: FormatterConfig | None = None,
     ok_reporter: Callable[[], None] | None = None,
     line_reporter: Callable[[str], None] | None = None,
 ) -> Literal["ok", "warning", "error", "skipped"]:
@@ -2090,18 +2093,35 @@ def process_file(
         if err.code is None or err.code.upper() not in ignore_codes
     ]
 
+    error_findings = [err for err in all_errors if err.severity == "error"]
+    warning_findings = [err for err in all_errors if err.severity == "warning"]
+    convention_findings = [err for err in all_errors if err.severity == "convention"]
+
+    reformatted = False
+    if format_on_success and not error_findings:
+        formatted, changed = format_yaml_string(
+            full_content,
+            config=formatter_config,
+        )
+        if changed:
+            with open(input_file, "w", encoding="utf-8") as f:
+                f.write(formatted)
+            reformatted = True
+
     if len(all_errors) == 0:
         if not quiet:
-            if ok_reporter is not None:
+            if reformatted:
+                message = f"reformatted: {display_path or input_file}"
+                if line_reporter is not None:
+                    line_reporter(message)
+                else:
+                    print(message)
+            elif ok_reporter is not None:
                 ok_reporter()
             else:
                 label = "ok (jinja)" if is_jinja else "ok"
                 print(f"{label}: {display_path or input_file}")
         return "ok"
-
-    error_findings = [err for err in all_errors if err.severity == "error"]
-    warning_findings = [err for err in all_errors if err.severity == "warning"]
-    convention_findings = [err for err in all_errors if err.severity == "convention"]
 
     jinja_note = " (jinja)" if is_jinja else ""
 
@@ -2133,6 +2153,13 @@ def process_file(
             print(header)
         for err in convention_findings:
             print(f"  {err.format(show_experimental=show_experimental)}")
+
+    if reformatted and not quiet:
+        message = f"reformatted: {display_path or input_file}"
+        if line_reporter is not None:
+            line_reporter(message)
+        else:
+            print(message)
 
     if error_findings:
         return "error"
@@ -2167,6 +2194,11 @@ def _build_arg_parser(*, require_files: bool = True) -> argparse.ArgumentParser:
         "--no-summary",
         action="store_true",
         help="Do not print the summary line after processing",
+    )
+    parser.add_argument(
+        "--format-on-success",
+        action="store_true",
+        help="Format files that pass YAML validation before running URL checks",
     )
     parser.add_argument(
         "--ignore-codes",
@@ -2290,6 +2322,7 @@ def main(argv: list[str] | None = None) -> int:
             if widget.strip()
         )
     )
+    formatter_config = FormatterConfig() if args.format_on_success else None
 
     cwd = Path.cwd().resolve()
 
@@ -2323,6 +2356,8 @@ def main(argv: list[str] | None = None) -> int:
             lint_mode=lint_mode,
             runtime_options=runtime_options,
             ignore_codes=ignore_codes,
+            format_on_success=args.format_on_success,
+            formatter_config=formatter_config,
             ok_reporter=progress.dot if progress is not None else None,
             line_reporter=progress.line if progress is not None else None,
         )
