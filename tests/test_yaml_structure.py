@@ -54,6 +54,7 @@ ACCESSIBILITY_ERROR_CODES = {
 
 def test_message_severity_handles_none_convention_and_unknown_codes():
     assert _message_severity(None) == "error"
+    assert _message_severity("W101") == "warning"
     assert _message_severity("C101") == "convention"
     assert _message_severity("Z999") == "error"
 

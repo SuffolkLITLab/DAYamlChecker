@@ -10,7 +10,12 @@ import dayamlchecker.yaml_structure as yaml_structure
 from dayamlchecker.check_questions_urls import URLCheckResult, URLIssue
 from dayamlchecker._files import _collect_yaml_files
 from dayamlchecker.__main__ import main as package_main
-from dayamlchecker.yaml_structure import main, parse_ignore_codes, process_file
+from dayamlchecker.yaml_structure import (
+    YAMLError,
+    main,
+    parse_ignore_codes,
+    process_file,
+)
 
 
 def _write_valid_question(path: Path) -> None:
@@ -309,6 +314,34 @@ def test_cli_file_with_conventions_reports_convention_status():
         assert "errors (" not in output
 
 
+def test_cli_file_with_warnings_reports_warning_status():
+    with TemporaryDirectory() as tmp:
+        warning_file = Path(tmp) / "warning.yml"
+        warning_file.write_text(
+            "---\nquestion: Hello\nfield: user_name\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+        warning = YAMLError(
+            err_str="Warning: heads up",
+            line_number=2,
+            file_name="warning.yml",
+        )
+
+        with patch(
+            "dayamlchecker.yaml_structure.find_errors_from_string",
+            return_value=[warning],
+        ):
+            with redirect_stdout(buf):
+                result = process_file(str(warning_file))
+
+        assert result == "warning"
+        output = buf.getvalue()
+        assert re.search(r"warnings \(1\):.*warning\.yml", output)
+        assert "Warning: heads up" in output
+        assert "conventions (" not in output
+        assert "errors (" not in output
+
+
 def test_cli_main_exits_nonzero_when_any_file_has_errors():
     with TemporaryDirectory() as tmp:
         bad = Path(tmp) / "bad.yml"
@@ -561,6 +594,24 @@ def test_cli_main_summary_counts_skipped_files():
 
         assert result == 0
         assert "1 skipped" in buf.getvalue()
+
+
+def test_cli_main_summary_counts_warning_files():
+    with TemporaryDirectory() as tmp:
+        warning_file = Path(tmp) / "warning.yml"
+        warning_file.write_text(
+            "---\nquestion: Hello\nfield: user_name\n", encoding="utf-8"
+        )
+        buf = io.StringIO()
+
+        with redirect_stdout(buf):
+            with patch(
+                "dayamlchecker.yaml_structure.process_file", return_value="warning"
+            ):
+                result = main(["--no-url-check", str(warning_file)])
+
+        assert result == 0
+        assert "1 warnings" in buf.getvalue()
 
 
 def test_cli_display_falls_back_to_absolute_path_when_not_under_base():
