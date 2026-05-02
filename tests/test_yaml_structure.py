@@ -40,9 +40,15 @@ ALL_ERROR_CODE_FIXTURES = (
     LARGE_INVALID_JINJA_TEMPLATE_FIXTURE,
 )
 ACCESSIBILITY_ERROR_CODES = {
-    code
-    for code in MESSAGE_DEFINITIONS
-    if getattr(code, "value", str(code)).startswith("E5")
+    MessageCode.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
+    MessageCode.ACCESSIBILITY_NO_LABEL_MULTI_FIELD,
+    MessageCode.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED,
+    MessageCode.ACCESSIBILITY_THEME_CONTRAST_TOO_LOW,
+    MessageCode.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
+    MessageCode.ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP,
+    MessageCode.ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP,
+    MessageCode.ACCESSIBILITY_EMPTY_LINK_TEXT,
+    MessageCode.ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT,
 }
 
 
@@ -2902,7 +2908,7 @@ fields:
       - .jpg
 """
         errs = find_errors_from_string(content, input_file="<test>")
-        accept_errs = [e for e in errs if e.code == "W121"]
+        accept_errs = [e for e in errs if e.code == "E121"]
         self.assertGreaterEqual(
             len(accept_errs),
             1,

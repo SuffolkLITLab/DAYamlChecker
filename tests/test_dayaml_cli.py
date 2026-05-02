@@ -115,7 +115,7 @@ def test_dayaml_check_propagates_nonzero_for_invalid_file():
         assert result.returncode != 0
 
 
-def test_dayaml_check_returns_zero_for_warning_only_file():
+def test_dayaml_check_returns_nonzero_for_promoted_error_file():
     with TemporaryDirectory() as tmp:
         warning_file = Path(tmp) / "warning.yml"
         warning_file.write_text(
@@ -131,9 +131,9 @@ def test_dayaml_check_returns_zero_for_warning_only_file():
 
         result = _run_dayaml("check", str(warning_file))
 
-        assert result.returncode == 0
-        assert "warnings (1)" in result.stdout
-        assert "[W410]" in result.stdout
+    assert result.returncode == 1
+    assert "errors (1)" in result.stdout
+    assert "[E410]" in result.stdout
 
 
 def test_dayaml_format_check_flag_does_not_write():

@@ -10,7 +10,7 @@ dayaml check              # defaults to ./docassemble
 dayaml format             # defaults to ./docassemble
 dayaml check path/to/yaml-or-dir
 dayaml check --show-experimental path/to/yaml-or-dir
-dayaml check --ignore-codes W410,E301 path/to/yaml-or-dir
+dayaml check --ignore-codes E410,E301 path/to/yaml-or-dir
 dayaml format path/to/interview.yml
 
 # Backwards-compatible entry points
@@ -30,14 +30,14 @@ Validation output now includes stable message codes in the style of tools like p
 Use `dayaml check --show-experimental ...` to include the legacy `REAL ERROR:`
 prefix for non-experimental errors.
 
-Use `dayaml check --ignore-codes W410,E301 ...` to suppress specific
+Use `dayaml check --ignore-codes E410,E301 ...` to suppress specific
 diagnostic codes when you need to waive known findings.
 
 `dayaml` also reads optional project settings from `pyproject.toml`:
 
 ```toml
 [tool.dayaml]
-ignore_codes = ["E503", "W410"]
+ignore_codes = ["E503", "E410"]
 yaml_path = "docassemble"
 args = ["--no-url-check"]
 ```
@@ -57,9 +57,39 @@ by default, while `dayaml check --url-check ...` turns them back on for one run.
 | --- | --- |
 | `E101` | Duplicate YAML key |
 | `E102` | YAML parsing error |
+| `E103` | Value should be a YAML string |
+| `E111` | Invalid Mako syntax |
+| `E112` | Mako compile error |
+| `E121` | Python code block must be a YAML string |
+| `E122` | Python syntax error |
 | `E201` | Jinja2 syntax error |
 | `E202` | Jinja2 template error |
+| `E203` | JavaScript modifier must be a string |
+| `E204` | Invalid JavaScript syntax |
+| `E205` | JavaScript modifier must contain at least one `val()` call |
+| `E206` | `val()` references a field not defined on this screen |
+| `E207` | `val()` argument must be a quoted string literal |
 | `E301` | Unknown YAML keys |
+| `E302` | Malformed `show if` shorthand |
+| `E303` | `show if: code` must be a YAML string |
+| `E304` | `show if: code` has a Python syntax error |
+| `E305` | `show if` dict must include `variable` or `code` |
+| `E306` | No recognized block type found |
+| `E307` | Block matches too many exclusive interview types |
+| `E308` | Interview-order block is missing a matching show/hide guard |
+| `E309` | Show/hide visibility logic is nested too deeply |
+| `E401` | Python variable reference must be a YAML string |
+| `E402` | Python variable reference cannot contain whitespace |
+| `E403` | `objects` block must be a list or dict |
+| `E404` | `fields: code` must be a YAML string |
+| `E405` | Bare `fields` dict has no recognized field or `code` key |
+| `E406` | `fields` must be a list or dict |
+| `E407` | Field modifier `variable` must be a string |
+| `E408` | Field modifier `variable` references a field not defined on this screen |
+| `E409` | Field modifier `code` contains another validation error |
+| `E410` | `show if: code` references a variable defined on the same screen |
+| `E411` | Field modifier dict must include `variable` or `code` |
+| `E412` | Field modifier shorthand references a field not defined on this screen |
 | `E501` | Combobox widget is not accessible |
 | `E502` | Field label is missing on a multi-field screen |
 | `E503` | DOCX attachment is missing `tagged pdf` |
@@ -69,41 +99,6 @@ by default, while `dayaml check --url-check ...` turns them back on for one run.
 | `E507` | HTML heading levels skip |
 | `E508` | Link has no accessible text |
 | `E509` | Link text is too generic |
-
-### Warnings
-
-| Code | Meaning |
-| --- | --- |
-| `W101` | Value should be a YAML string |
-| `W111` | Invalid Mako syntax |
-| `W112` | Mako compile error |
-| `W121` | Python code block must be a YAML string |
-| `W122` | Python syntax error |
-| `W201` | JavaScript modifier must be a string |
-| `W202` | Invalid JavaScript syntax |
-| `W203` | JavaScript modifier must contain at least one `val()` call |
-| `W204` | `val()` references a field not defined on this screen |
-| `W205` | `val()` argument must be a quoted string literal |
-| `W301` | Malformed `show if` shorthand |
-| `W302` | `show if: code` must be a YAML string |
-| `W303` | `show if: code` has a Python syntax error |
-| `W304` | `show if` dict must include `variable` or `code` |
-| `W401` | Python variable reference must be a YAML string |
-| `W402` | Python variable reference cannot contain whitespace |
-| `W403` | `objects` block must be a list or dict |
-| `W404` | `fields: code` must be a YAML string |
-| `W405` | Bare `fields` dict has no recognized field or `code` key |
-| `W406` | `fields` must be a list or dict |
-| `W407` | Field modifier `variable` must be a string |
-| `W408` | Field modifier `variable` references a field not defined on this screen |
-| `W409` | Field modifier `code` contains another validation error |
-| `W410` | `show if: code` references a variable defined on the same screen |
-| `W411` | Field modifier dict must include `variable` or `code` |
-| `W412` | Field modifier shorthand references a field not defined on this screen |
-| `W601` | No recognized block type found |
-| `W602` | Block matches too many exclusive interview types |
-| `W603` | Interview-order block is missing a matching show/hide guard |
-| `W604` | Show/hide visibility logic is nested too deeply |
 
 ### Conventions
 

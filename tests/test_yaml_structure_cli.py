@@ -231,7 +231,7 @@ def test_cli_file_with_errors_reports_error_status():
         assert "[E301]" in output
 
 
-def test_cli_file_with_warnings_reports_warning_status():
+def test_cli_file_with_promoted_errors_reports_error_status():
     with TemporaryDirectory() as tmp:
         warning_file = Path(tmp) / "warning.yml"
         warning_file.write_text(
@@ -247,20 +247,19 @@ def test_cli_file_with_warnings_reports_warning_status():
         buf = io.StringIO()
         with redirect_stdout(buf):
             result = process_file(str(warning_file))
-        assert result == "warning"
+        assert result == "error"
         output = buf.getvalue()
-        assert re.search(r"warnings \(\d+\):.*warning\.yml", output)
-        assert "[W410]" in output
-        assert "errors" not in output.lower()
+        assert re.search(r"errors \(\d+\):.*warning\.yml", output)
+        assert "[E410]" in output
 
 
 def test_parse_ignore_codes_normalizes_comma_separated_codes():
-    assert parse_ignore_codes(" w410, E301 ,, c101 ") == frozenset(
-        {"W410", "E301", "C101"}
+    assert parse_ignore_codes(" e410, E301 ,, c101 ") == frozenset(
+        {"E410", "E301", "C101"}
     )
 
 
-def test_cli_process_file_can_ignore_warning_codes():
+def test_cli_process_file_can_ignore_promoted_error_codes():
     with TemporaryDirectory() as tmp:
         warning_file = Path(tmp) / "warning.yml"
         warning_file.write_text(
@@ -275,11 +274,11 @@ def test_cli_process_file_can_ignore_warning_codes():
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = process_file(str(warning_file), ignore_codes=frozenset({"W410"}))
+            result = process_file(str(warning_file), ignore_codes=frozenset({"E410"}))
         assert result == "ok"
         output = buf.getvalue()
         assert "ok:" in output
-        assert "[W410]" not in output
+        assert "[E410]" not in output
         assert "warnings (" not in output
 
 
@@ -341,7 +340,7 @@ def test_cli_main_can_ignore_error_codes_from_flag():
         assert "0 errors" in output
 
 
-def test_cli_main_exits_zero_when_file_has_only_warnings():
+def test_cli_main_exits_nonzero_when_file_has_only_promoted_errors():
     with TemporaryDirectory() as tmp:
         warning_file = Path(tmp) / "warning.yml"
         warning_file.write_text(
@@ -360,10 +359,10 @@ def test_cli_main_exits_zero_when_file_has_only_warnings():
             with patch("sys.argv", ["dayamlchecker", str(warning_file)]):
                 result = main()
 
-        assert result == 0
+        assert result == 1
         output = buf.getvalue()
-        assert "1 warnings" in output
-        assert "0 errors" in output
+        assert "1 errors" in output
+        assert "0 warnings" in output
 
 
 def test_cli_main_reads_ignore_codes_from_parent_pyproject():
@@ -372,7 +371,7 @@ def test_cli_main_reads_ignore_codes_from_parent_pyproject():
         (root / "pyproject.toml").write_text(
             '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
             "[tool.dayaml]\n"
-            'ignore_codes = ["W410"]\n',
+            'ignore_codes = ["E410"]\n',
             encoding="utf-8",
         )
         warning_file = root / "docassemble" / "warning.yml"
@@ -395,7 +394,7 @@ def test_cli_main_reads_ignore_codes_from_parent_pyproject():
         assert result == 0
         output = buf.getvalue()
         assert "ok:" in output
-        assert "[W410]" not in output
+        assert "[E410]" not in output
         assert "1 ok" in output
 
 
@@ -705,7 +704,7 @@ def test_main_default_wcag_reports_errors_and_fails():
             assert "accessibility: docx attachment detected" in output
 
 
-def test_main_warning_only_does_not_fail():
+def test_main_promoted_error_only_file_fails():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         interview = root / "warning.yml"
@@ -730,8 +729,8 @@ def test_main_warning_only_does_not_fail():
             exit_code = main(["--no-wcag", str(interview)])
 
         output = stdout.getvalue().lower()
-        assert exit_code == 0
-        assert "warnings (" in output
+        assert exit_code == 1
+        assert "errors (" in output
 
 
 def test_main_combobox_widget_check_disabled_by_default():

@@ -2135,7 +2135,7 @@ def _build_arg_parser(*, require_files: bool = True) -> argparse.ArgumentParser:
         "--ignore-codes",
         default="",
         help=(
-            "Comma-separated diagnostic codes to suppress, " 'for example: "W410,E301"'
+            "Comma-separated diagnostic codes to suppress, " 'for example: "E410,E301"'
         ),
     )
     parser.add_argument(
