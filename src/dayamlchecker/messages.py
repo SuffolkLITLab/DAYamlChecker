@@ -52,6 +52,7 @@ class MessageCode(StrEnum):
     FIELD_MODIFIER_SAME_SCREEN_CODE = "E410"
     FIELD_MODIFIER_DICT_KEYS = "E411"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING = "E412"
+    OBJECT_FIELD_CHOICES_CODE_DICT = "E413"
 
     ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE = "E501"
     ACCESSIBILITY_NO_LABEL_MULTI_FIELD = "E502"
@@ -226,6 +227,11 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         code=MessageCode.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING,
         summary="field modifier shorthand references off-screen field",
         template="{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+    ),
+    MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT: MessageDefinition(
+        code=MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT,
+        summary="Object field choices cannot use nested code block",
+        template='Object-style fields cannot use "choices: {{ code: ... }}". Use a direct choices expression instead, for example "choices: some_object.choices()"',
     ),
     MessageCode.NO_POSSIBLE_TYPES: MessageDefinition(
         code=MessageCode.NO_POSSIBLE_TYPES,

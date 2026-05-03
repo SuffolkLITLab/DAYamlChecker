@@ -197,10 +197,14 @@ def test_cli_main_defaults_to_current_directory_when_no_files_passed(monkeypatch
         good = docassemble_dir / "good.yml"
         good.write_text("---\nquestion: Hello\nfield: my_var\n", encoding="utf-8")
 
+        previous_cwd = Path.cwd()
         monkeypatch.chdir(root)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = main([])
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = main([])
+        finally:
+            monkeypatch.chdir(previous_cwd)
 
         assert result == 0
         output = buf.getvalue()
@@ -228,9 +232,13 @@ def test_cli_main_no_files_reads_pyproject_args_from_cwd(monkeypatch):
             return URLCheckResult(checked_url_count=0, ignored_url_count=0, issues=())
 
         monkeypatch.setattr(yaml_structure, "run_url_check", fake_run_url_check)
+        previous_cwd = Path.cwd()
         monkeypatch.chdir(root)
+        try:
+            assert main([]) == 0
+        finally:
+            monkeypatch.chdir(previous_cwd)
 
-        assert main([]) == 0
         assert called is False
 
 
@@ -1047,26 +1055,27 @@ def test_main_default_wcag_reports_errors_and_fails():
         assert "[e505]" in output
         assert "accessibility: markdown image" in output
 
-    def test_main_wcag_accessibility_error_fails():
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            interview = root / "tagged-pdf-warning.yml"
-            interview.write_text(
-                "attachments:\n"
-                "  - name: My attachment\n"
-                "    docx template file: demo_template.docx\n",
-                encoding="utf-8",
-            )
 
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                exit_code = main([str(interview)])
+def test_main_wcag_accessibility_error_fails():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        interview = root / "tagged-pdf-warning.yml"
+        interview.write_text(
+            "attachments:\n"
+            "  - name: My attachment\n"
+            "    docx template file: demo_template.docx\n",
+            encoding="utf-8",
+        )
 
-            output = stdout.getvalue().lower()
-            assert exit_code == 1
-            assert "errors (1)" in output
-            assert "[e503]" in output
-            assert "accessibility: docx attachment detected" in output
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([str(interview)])
+
+        output = stdout.getvalue().lower()
+        assert exit_code == 1
+        assert "errors (1)" in output
+        assert "[e503]" in output
+        assert "accessibility: docx attachment detected" in output
 
 
 def test_main_promoted_error_only_file_fails():

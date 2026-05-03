@@ -1,6 +1,7 @@
 # Each doc, apply this to each block
 import argparse
 import ast
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
@@ -632,6 +633,8 @@ class ObjectsAttrType:
 
 
 class DAFields:
+    object_field_keys = {"object", "object multiselect", "object radio"}
+
     modifier_keys = {
         "code",
         "default",
@@ -848,6 +851,25 @@ class DAFields:
                 matches.add(screen_var)
         return matches
 
+    def _validate_object_field_choices(self, field_item):
+        datatype = field_item.get("datatype")
+        is_object_style_field = (
+            isinstance(datatype, str) and datatype.lower().startswith("object")
+        ) or any(key in field_item for key in self.object_field_keys)
+        if not is_object_style_field:
+            return
+
+        choices_value = field_item.get("choices")
+        if isinstance(choices_value, Mapping) and (
+            set(choices_value.keys()) - {"__line__"} == {"code"}
+        ):
+            self.errors.append(
+                _validator_error(
+                    MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT,
+                    self._key_line_for(field_item, "choices"),
+                )
+            )
+
     def _validate_field_modifiers(self, fields_list):
         self.has_dynamic_fields_code = any(  # pragma: no branch
             # looking for any example in the field list. Note that there can be `code` and traditional non-code mixed in the same field list
@@ -866,6 +888,8 @@ class DAFields:
         for field_item in fields_list:
             if not isinstance(field_item, dict):
                 continue
+
+            self._validate_object_field_choices(field_item)
 
             if "accept" in field_item:
                 validator = AcceptFieldValue(field_item["accept"])

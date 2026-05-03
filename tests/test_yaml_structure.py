@@ -1715,6 +1715,39 @@ continue button field: interrogatory_questions
             f"Expected one mako field error, got: {field_errors}",
         )
 
+    def test_object_checkboxes_choices_code_dict_errors(self):
+        """Error: object-style fields must use a direct choices expression, not choices: {code: ...}."""
+        invalid = """
+question: |
+  Choose enclosures
+fields:
+  - no label: s3_enclosure_object.selected_enclosures
+    datatype: object_checkboxes
+    choices:
+      code: |
+        s3_enclosure_object.choices()
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(e.code == MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT for e in errs),
+            f"Expected object choices code-dict error, got: {errs}",
+        )
+
+    def test_object_checkboxes_choices_direct_expression_valid(self):
+        valid = """
+question: |
+  Choose enclosures
+fields:
+  - no label: s3_enclosure_object.selected_enclosures
+    datatype: object_checkboxes
+    choices: s3_enclosure_object.choices()
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.code == MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT for e in errs),
+            f"Did not expect object choices code-dict error, got: {errs}",
+        )
+
     # -- _variable_candidates coverage --
 
     def test_variable_candidates_empty_string(self):
@@ -2401,6 +2434,46 @@ class TestDAFields(unittest.TestCase):
         v = DAFields("not a list")
         self.assertEqual(len(v.errors), 1)
         self.assertIn("should be a list or dict", v.errors[0][0])
+
+    def test_object_style_field_choices_code_dict_errors(self):
+        from dayamlchecker.yaml_structure import DAFields
+
+        v = DAFields(
+            [
+                {
+                    "no label": "s3_enclosure_object.selected_enclosures",
+                    "datatype": "object_checkboxes",
+                    "choices": {"code": "s3_enclosure_object.choices()"},
+                }
+            ]
+        )
+
+        self.assertTrue(
+            any(
+                err[2] == MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT for err in v.errors
+            ),
+            f"Expected object choices code-dict error, got: {v.errors}",
+        )
+
+    def test_object_style_field_choices_direct_expression_valid(self):
+        from dayamlchecker.yaml_structure import DAFields
+
+        v = DAFields(
+            [
+                {
+                    "no label": "s3_enclosure_object.selected_enclosures",
+                    "datatype": "object_checkboxes",
+                    "choices": "s3_enclosure_object.choices()",
+                }
+            ]
+        )
+
+        self.assertFalse(
+            any(
+                err[2] == MessageCode.OBJECT_FIELD_CHOICES_CODE_DICT for err in v.errors
+            ),
+            f"Did not expect object choices code-dict error, got: {v.errors}",
+        )
 
     def test_fields_js_validator_invalid_error_shape_raises_value_error(self):
         from dayamlchecker import yaml_structure

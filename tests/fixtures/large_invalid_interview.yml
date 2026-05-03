@@ -205,6 +205,17 @@ fields:
     show if: prior_var
 
 ---
+id: W413_object_field_choices_code_dict
+question: |
+  Choose enclosures
+fields:
+  - no label: s3_enclosure_object.selected_enclosures
+    datatype: object_checkboxes
+    choices:
+      code: |
+        s3_enclosure_object.choices()
+
+---
 id: W601_no_possible_types
 buttons:
   - continue: true
