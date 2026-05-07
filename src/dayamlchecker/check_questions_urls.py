@@ -287,13 +287,28 @@ def is_absolute_http_url(url: str) -> bool:
 
 
 def is_reserved_example_domain(url: str) -> bool:
-    """Check if URL is in a reserved example domain (RFC 2606)."""
-    example_domains: frozenset[str] = frozenset(
-        {"example.com", "example.net", "example.org"}
+    """Check if URL is in a non-registrable example/test domain.
+
+    RFC 2606 and RFC 6761 reserve the special-use names below. IANA also
+    operates example.edu as an example domain, even though it is not listed
+    in the RFC 6761 Special-Use Domain Names registry.
+    """
+    rfc_special_use_domains: frozenset[str] = frozenset(
+        {
+            "example",
+            "example.com",
+            "example.net",
+            "example.org",
+            "invalid",
+            "localhost",
+            "test",
+        }
     )
+    iana_managed_example_domains: frozenset[str] = frozenset({"example.edu"})
+    ignored_domains = rfc_special_use_domains | iana_managed_example_domains
     hostname = (urlparse(url).hostname or "").lower()
-    return hostname in example_domains or any(
-        hostname.endswith(f".{domain}") for domain in example_domains
+    return hostname in ignored_domains or any(
+        hostname.endswith(f".{domain}") for domain in ignored_domains
     )
 
 
@@ -348,8 +363,10 @@ def parse_url_token(raw_url: str) -> tuple[str | None, bool]:
     if not url.startswith(("http://", "https://")):
         return None, False
 
-    # Link extraction in YAML/JS text can include trailing punctuation.
-    url = url.rstrip(".,;:!?)>]}")
+    # Link extraction in YAML/JS text can include trailing punctuation or
+    # markup artifacts (like markdown bold asterisks or Docassemble variable
+    # prefix symbols).
+    url = url.rstrip(".,;:!?)>]}{*$")
 
     # Query strings are valid. For concatenation checks, inspect only the
     # URL part before '?' so embedded URLs in query parameters don't trigger
