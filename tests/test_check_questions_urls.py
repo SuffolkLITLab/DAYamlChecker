@@ -9,17 +9,30 @@ from dayamlchecker.check_questions_urls import (
     check_urls,
     extract_text_from_pdf,
     extract_urls_from_file,
+    parse_url_token,
 )
 
 
+def test_parse_url_token_normalizes_markdown_and_docassemble_artifacts() -> None:
+    # Markdown bold
+    assert parse_url_token("https://example.com**")[0] == "https://example.com"
+    # Docassemble variable prefixes
+    assert parse_url_token("https://github.com/$")[0] == "https://github.com/"
+    assert parse_url_token("https://github.com/${")[0] == "https://github.com/"
+    # Trailing braces
+    assert parse_url_token("https://example.com/}")[0] == "https://example.com/"
+    # Combined trailing artifacts
+    assert parse_url_token("https://example.com/}$")[0] == "https://example.com/"
+
+
 def test_extract_urls_skips_python_comment_urls(tmp_path: Path) -> None:
-    file_path = tmp_path / "example.py"
+    file_path = tmp_path / "suffolklitlab.org.py"
     file_path.write_text(
         "\n".join(
             [
-                "# https://commented.example/full-line",
-                'live = "https://live.example/value"',
-                "value = 1  # https://commented.example/trailing",
+                "# https://commented.suffolklitlab.org/full-line",
+                'live = "https://live.suffolklitlab.org/value"',
+                "value = 1  # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -30,19 +43,19 @@ def test_extract_urls_skips_python_comment_urls(tmp_path: Path) -> None:
         file_path, LinkifyIt(options={"fuzzy_link": False})
     )
 
-    assert urls == ["https://live.example/value"]
+    assert urls == ["https://live.suffolklitlab.org/value"]
     assert concatenated == []
 
 
 def test_extract_urls_skips_yaml_comment_urls(tmp_path: Path) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
-                "# https://commented.example/full-line",
-                'live: "https://live.example/value"',
+                "# https://commented.suffolklitlab.org/full-line",
+                'live: "https://live.suffolklitlab.org/value"',
                 "note: keep # not-a-comment-inside-value",
-                "value: yes # https://commented.example/trailing",
+                "value: yes # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -53,21 +66,21 @@ def test_extract_urls_skips_yaml_comment_urls(tmp_path: Path) -> None:
         file_path, LinkifyIt(options={"fuzzy_link": False})
     )
 
-    assert urls == ["https://live.example/value"]
+    assert urls == ["https://live.suffolklitlab.org/value"]
     assert concatenated == []
 
 
 def test_extract_urls_keeps_urls_in_multiline_double_quoted_yaml_scalar(
     tmp_path: Path,
 ) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
                 'note: "first line',
-                "  https://live.example/double-quoted",
+                "  https://live.suffolklitlab.org/double-quoted",
                 '  # still content"',
-                "field: value # https://commented.example/trailing",
+                "field: value # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -78,21 +91,21 @@ def test_extract_urls_keeps_urls_in_multiline_double_quoted_yaml_scalar(
         file_path, LinkifyIt(options={"fuzzy_link": False})
     )
 
-    assert urls == ["https://live.example/double-quoted"]
+    assert urls == ["https://live.suffolklitlab.org/double-quoted"]
     assert concatenated == []
 
 
 def test_extract_urls_keeps_urls_in_multiline_single_quoted_yaml_scalar(
     tmp_path: Path,
 ) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
                 "note: 'first line",
-                "  https://live.example/single-quoted",
+                "  https://live.suffolklitlab.org/single-quoted",
                 "  it''s still content # not a comment'",
-                "field: value # https://commented.example/trailing",
+                "field: value # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -103,25 +116,25 @@ def test_extract_urls_keeps_urls_in_multiline_single_quoted_yaml_scalar(
         file_path, LinkifyIt(options={"fuzzy_link": False})
     )
 
-    assert urls == ["https://live.example/single-quoted"]
+    assert urls == ["https://live.suffolklitlab.org/single-quoted"]
     assert concatenated == []
 
 
 def test_extract_urls_keeps_markdown_heading_urls_in_yaml_block_scalar(
     tmp_path: Path,
 ) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
                 "question: |",
                 "  # Heading",
-                "  Visit https://live.example/question",
+                "  Visit https://live.suffolklitlab.org/question",
                 "subquestion: |",
-                "  ## Subheading https://live.example/subquestion",
+                "  ## Subheading https://live.suffolklitlab.org/subquestion",
                 "note: |",
-                "  ### Note https://live.example/note",
-                "field: value # https://commented.example/trailing",
+                "  ### Note https://live.suffolklitlab.org/note",
+                "field: value # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -133,9 +146,9 @@ def test_extract_urls_keeps_markdown_heading_urls_in_yaml_block_scalar(
     )
 
     assert urls == [
-        "https://live.example/question",
-        "https://live.example/subquestion",
-        "https://live.example/note",
+        "https://live.suffolklitlab.org/question",
+        "https://live.suffolklitlab.org/subquestion",
+        "https://live.suffolklitlab.org/note",
     ]
     assert concatenated == []
 
@@ -143,22 +156,22 @@ def test_extract_urls_keeps_markdown_heading_urls_in_yaml_block_scalar(
 def test_extract_urls_keeps_markdown_heading_urls_in_template_and_attachment_blocks(
     tmp_path: Path,
 ) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
                 "template: review_email",
                 "subject: |",
-                "  # Subject https://live.example/template-subject",
+                "  # Subject https://live.suffolklitlab.org/template-subject",
                 "content: |",
-                "  ## Content https://live.example/template-content",
+                "  ## Content https://live.suffolklitlab.org/template-content",
                 "---",
                 "attachment:",
                 "  name: review_letter",
                 "  content: |",
-                "    ### Attachment https://live.example/attachment-content",
+                "    ### Attachment https://live.suffolklitlab.org/attachment-content",
                 "  filename: review.pdf",
-                "metadata: yes # https://commented.example/trailing",
+                "metadata: yes # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -170,9 +183,9 @@ def test_extract_urls_keeps_markdown_heading_urls_in_template_and_attachment_blo
     )
 
     assert urls == [
-        "https://live.example/template-subject",
-        "https://live.example/template-content",
-        "https://live.example/attachment-content",
+        "https://live.suffolklitlab.org/template-subject",
+        "https://live.suffolklitlab.org/template-content",
+        "https://live.suffolklitlab.org/attachment-content",
     ]
     assert concatenated == []
 
@@ -180,14 +193,14 @@ def test_extract_urls_keeps_markdown_heading_urls_in_template_and_attachment_blo
 def test_extract_urls_skips_python_comment_urls_in_code_block_scalar(
     tmp_path: Path,
 ) -> None:
-    file_path = tmp_path / "example.yml"
+    file_path = tmp_path / "suffolklitlab.org.yml"
     file_path.write_text(
         "\n".join(
             [
                 "code: |",
-                "  # https://commented.example/full-line",
-                '  live = "https://live.example/value"',
-                "  value = 1  # https://commented.example/trailing",
+                "  # https://commented.suffolklitlab.org/full-line",
+                '  live = "https://live.suffolklitlab.org/value"',
+                "  value = 1  # https://commented.suffolklitlab.org/trailing",
                 "",
             ]
         ),
@@ -198,14 +211,14 @@ def test_extract_urls_skips_python_comment_urls_in_code_block_scalar(
         file_path, LinkifyIt(options={"fuzzy_link": False})
     )
 
-    assert urls == ["https://live.example/value"]
+    assert urls == ["https://live.suffolklitlab.org/value"]
     assert concatenated == []
 
 
 def test_extract_text_from_pdf_keeps_wrapped_urls_in_raw_text(
     tmp_path: Path, monkeypatch
 ) -> None:
-    file_path = tmp_path / "example.pdf"
+    file_path = tmp_path / "suffolklitlab.org.pdf"
     file_path.write_bytes(b"%PDF-1.4\n")
 
     class FakePage:
