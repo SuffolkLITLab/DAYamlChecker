@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import jinja2
+import dayamlchecker.yaml_structure as yaml_structure
 
 from dayamlchecker._jinja import JinjaError, _SilentUndefined, preprocess_jinja
 from dayamlchecker.messages import (
@@ -15,7 +16,9 @@ from dayamlchecker.messages import (
 from dayamlchecker.yaml_structure import (
     RuntimeOptions,
     YAMLError,
+    _extract_yaml_parse_problem_line,
     _lc_key_line,
+    _map_rendered_lines_to_source_lines,
     _message_severity,
     _variable_candidates,
     find_errors_from_string,
@@ -2118,6 +2121,114 @@ class TestJinjaHandling(unittest.TestCase):
                 2,
                 f"Expected line >= 2 for error after header, got {err.line_number}",
             )
+
+    def test_jinja_yaml_parse_error_lines_map_back_to_original_source(self):
+        content = (
+            "# use jinja\n"
+            "---\n"
+            "question: ok\n"
+            "{% for item in [1, 2] %}\n"
+            'if: documents.category == "intake":\n'
+            "{% endfor %}\n"
+        )
+
+        errs = find_errors_from_string(content, input_file="<jinja_parse_lines>")
+
+        parse_err = next(e for e in errs if e.code == MessageCode.YAML_PARSE_ERROR)
+        self.assertEqual(parse_err.line_number, 5)
+        self.assertIn("line 5, column", parse_err.err_str)
+        self.assertIn("(line: 5)", parse_err.err_str)
+
+    def test_jinja_yaml_parse_error_falls_back_to_error_line_when_problem_line_missing(
+        self,
+    ):
+        content = (
+            "# use jinja\n"
+            "---\n"
+            "question: ok\n"
+            "{% for item in [1, 2] %}\n"
+            'if: documents.category == "intake":\n'
+            "{% endfor %}\n"
+        )
+
+        real_find_errors = yaml_structure.find_errors_from_string
+
+        def fake_find_errors(text, *args, **kwargs):
+            if not text.startswith("# use jinja"):
+                return [
+                    YAMLError(
+                        code=MessageCode.YAML_PARSE_ERROR,
+                        line_number=2,
+                        file_name=kwargs["input_file"],
+                        err_str="mock parse error without embedded line",
+                    )
+                ]
+            return real_find_errors(text, *args, **kwargs)
+
+        with (
+            patch(
+                "dayamlchecker.yaml_structure._map_rendered_lines_to_source_lines",
+                return_value={2: 99},
+            ),
+            patch(
+                "dayamlchecker.yaml_structure.find_errors_from_string",
+                side_effect=fake_find_errors,
+            ),
+        ):
+            errs = real_find_errors(content, input_file="<jinja_parse_lines>")
+
+        parse_err = next(e for e in errs if e.code == MessageCode.YAML_PARSE_ERROR)
+        self.assertEqual(parse_err.line_number, 99)
+
+
+class TestJinjaLineMappingHelpers(unittest.TestCase):
+    def test_map_rendered_lines_returns_empty_for_empty_rendered_text(self):
+        self.assertEqual(
+            _map_rendered_lines_to_source_lines("question: ok\n", ""),
+            {},
+        )
+
+    def test_map_rendered_lines_uses_source_start_when_source_empty(self):
+        self.assertEqual(
+            _map_rendered_lines_to_source_lines(
+                "", "alpha\nbeta\n", source_start_line=7
+            ),
+            {1: 7, 2: 7},
+        )
+
+    def test_map_rendered_lines_uses_next_known_line_before_first_match(self):
+        self.assertEqual(
+            _map_rendered_lines_to_source_lines(
+                "alpha\nbeta\n",
+                "inserted\nalpha\nbeta\n",
+                source_start_line=10,
+            )[1],
+            10,
+        )
+
+    def test_map_rendered_lines_matches_replace_candidates_when_matcher_groups_them(
+        self,
+    ):
+        class FakeMatcher:
+            def __init__(self, *, a, b, autojunk):
+                self.a = a
+                self.b = b
+                self.autojunk = autojunk
+
+            def get_opcodes(self):
+                return [("replace", 0, 2, 0, 2)]
+
+        with patch("dayamlchecker.yaml_structure.SequenceMatcher", FakeMatcher):
+            line_map = _map_rendered_lines_to_source_lines(
+                "shared\nsource-only\n",
+                "shared\nrendered-only\n",
+                source_start_line=4,
+            )
+
+        self.assertEqual(line_map[1], 4)
+
+    def test_extract_yaml_parse_problem_line_returns_none_without_match(self):
+        self.assertIsNone(_extract_yaml_parse_problem_line("not a parser line message"))
 
 
 class TestPreprocessJinja(unittest.TestCase):

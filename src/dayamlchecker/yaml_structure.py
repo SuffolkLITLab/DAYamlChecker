@@ -3,6 +3,7 @@ import argparse
 import ast
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from pathlib import Path
 import re
 import sys
@@ -118,6 +119,8 @@ _HIDE_STYLE_MODIFIERS = {
     "js disable if",
 }
 _CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
+_YAML_ERROR_LINE_RE = re.compile(r"line (\d+), column \d+")
+_YAML_ERROR_TRAILING_LINE_RE = re.compile(r"\(line: (\d+)\)")
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -197,6 +200,94 @@ def _yaml_error(
         experimental=is_experimental_code(code),
         code=code,
     )
+
+
+def _map_rendered_lines_to_source_lines(
+    source_text: str,
+    rendered_text: str,
+    *,
+    source_start_line: int = 1,
+) -> dict[int, int]:
+    """Best-effort mapping from rendered line numbers back to source lines."""
+    source_lines = source_text.splitlines()
+    rendered_lines = rendered_text.splitlines()
+
+    if not rendered_lines:
+        return {}
+    if not source_lines:
+        return {
+            line_no: source_start_line for line_no in range(1, len(rendered_lines) + 1)
+        }
+
+    line_map: dict[int, int] = {}
+    matcher = SequenceMatcher(a=source_lines, b=rendered_lines, autojunk=False)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(j2 - j1):
+                line_map[j1 + offset + 1] = source_start_line + i1 + offset
+            continue
+
+        if tag == "replace":
+            unmatched_source_by_text: dict[str, list[int]] = {}
+            for source_index in range(i1, i2):
+                unmatched_source_by_text.setdefault(
+                    source_lines[source_index], []
+                ).append(source_index)
+            for rendered_index in range(j1, j2):
+                candidates = unmatched_source_by_text.get(
+                    rendered_lines[rendered_index]
+                )
+                if candidates:
+                    line_map[rendered_index + 1] = source_start_line + candidates.pop(0)
+
+    previous_line: int | None = None
+    next_known_for_line: dict[int, int] = {}
+    next_line: int | None = None
+    for rendered_line in range(len(rendered_lines), 0, -1):
+        if rendered_line in line_map:
+            next_line = line_map[rendered_line]
+        if next_line is not None:
+            next_known_for_line[rendered_line] = next_line
+
+    for rendered_line in range(1, len(rendered_lines) + 1):
+        mapped_line = line_map.get(rendered_line)
+        if mapped_line is not None:
+            previous_line = mapped_line
+            continue
+
+        next_line = next_known_for_line.get(rendered_line)
+        if previous_line is not None and next_line is not None:
+            line_map[rendered_line] = previous_line
+        elif previous_line is not None:
+            line_map[rendered_line] = previous_line
+        elif next_line is not None:
+            line_map[rendered_line] = next_line
+        else:
+            line_map[rendered_line] = source_start_line
+
+    return line_map
+
+
+def _extract_yaml_parse_problem_line(err_str: str) -> int | None:
+    match = _YAML_ERROR_LINE_RE.search(err_str)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _rewrite_yaml_parse_error_lines(
+    err_str: str,
+    *,
+    old_line: int,
+    new_line: int,
+) -> str:
+    updated = _YAML_ERROR_LINE_RE.sub(
+        lambda match: match.group(0).replace(str(old_line), str(new_line), 1),
+        err_str,
+        count=1,
+    )
+    return _YAML_ERROR_TRAILING_LINE_RE.sub(f"(line: {new_line})", updated)
 
 
 def _variable_candidates(var_expr: str) -> set[str]:
@@ -1817,8 +1908,9 @@ def find_errors_from_string(
                 for e in render_errors
             ]
         # Strip the '# use jinja' header from the rendered output so the
-        # recursive call does not re-enter this branch.  Add 1 to every
-        # returned line number to compensate for the removed header line.
+        # recursive call does not re-enter this branch. Afterwards, remap
+        # rendered line numbers back onto the original source lines.
+        _, _sep, original_body = full_content.partition("\n")
         _, _sep, rendered_body = rendered.partition("\n")
         errors = find_errors_from_string(
             rendered_body,
@@ -1826,8 +1918,28 @@ def find_errors_from_string(
             lint_mode=lint_mode,
             runtime_options=runtime_options,
         )
+        rendered_line_map = _map_rendered_lines_to_source_lines(
+            original_body,
+            rendered_body,
+            source_start_line=2,
+        )
         for err in errors:
-            err.line_number += 1
+            if err.code == MessageCode.YAML_PARSE_ERROR:
+                problem_line = _extract_yaml_parse_problem_line(err.err_str)
+                if problem_line is not None:
+                    mapped_problem_line = rendered_line_map.get(
+                        problem_line, problem_line + 1
+                    )
+                    err.line_number = mapped_problem_line
+                    err.err_str = _rewrite_yaml_parse_error_lines(
+                        err.err_str,
+                        old_line=problem_line,
+                        new_line=mapped_problem_line,
+                    )
+                    continue
+            err.line_number = rendered_line_map.get(
+                err.line_number, err.line_number + 1
+            )
         return errors
 
     exclusive_keys = [
