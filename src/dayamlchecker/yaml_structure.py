@@ -28,6 +28,10 @@ from dayamlchecker._jinja import (
     _has_jinja_header,
     preprocess_jinja,
 )
+from dayamlchecker._yaml_parsing import (
+    DOCUMENT_MATCH,
+    normalize_yaml_document_for_parser,
+)
 from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
@@ -1172,11 +1176,6 @@ types_of_blocks: dict[str, dict[str, Any]] = {
 # Last updated: 1.7.7, 484736005270dd6107
 #######
 
-# From parse.py:89-91
-document_match = re.compile(r"^--- *$", flags=re.MULTILINE)
-remove_trailing_dots = re.compile(r"[\n\r]+\.\.\.$")
-fix_tabs = re.compile(r"\t")
-
 # All of the known dictionary keys: from docassemble/base/parse.py:2186, in Question.__init__
 all_dict_keys = (
     "features",
@@ -1839,10 +1838,9 @@ def find_errors_from_string(
     yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
     line_number = 1
-    for source_code in document_match.split(full_content):
+    for source_code in DOCUMENT_MATCH.split(full_content):
         lines_in_code = sum(source_line == "\n" for source_line in source_code)
-        source_code = remove_trailing_dots.sub("", source_code)
-        source_code = fix_tabs.sub("  ", source_code)
+        source_code = normalize_yaml_document_for_parser(source_code)
         try:
             doc = _with_line_metadata(yaml_parser.load(source_code))
         except Exception as errMess:

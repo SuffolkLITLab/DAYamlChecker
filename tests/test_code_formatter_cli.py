@@ -423,3 +423,21 @@ def test_formatter_summary_shows_error_count():
 
         assert result.returncode == 1
         assert "error" in result.stderr.lower() or "error" in result.stdout.lower()
+
+
+def test_formatter_accepts_tab_indented_non_code_blocks():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "interview.yml"
+        original = (
+            "question: |\n"
+            '\t${question("Intake", "Client name")}\n'
+            "field: user_name\n"
+        )
+        interview.write_text(original, encoding="utf-8")
+
+        result = _run_formatter(str(interview))
+
+        assert result.returncode == 0
+        assert "error:" not in result.stderr.lower()
+        assert interview.read_text(encoding="utf-8") == original
+        assert "1 unchanged" in result.stdout

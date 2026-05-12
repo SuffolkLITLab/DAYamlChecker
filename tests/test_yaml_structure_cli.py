@@ -809,6 +809,27 @@ def test_main_format_on_success_does_not_write_yaml_error_file():
         assert "reformatted:" not in output
 
 
+def test_main_format_on_success_accepts_tab_indented_non_code_blocks():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "tabs.yml"
+        original = (
+            "question: |\n"
+            '\t${question("Intake", "Client name")}\n'
+            "field: user_name\n"
+        )
+        interview.write_text(original, encoding="utf-8")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(["--format-on-success", "--no-url-check", str(interview)])
+
+        assert result == 0
+        assert interview.read_text(encoding="utf-8") == original
+        output = buf.getvalue()
+        assert "reformatted:" not in output
+        assert "Summary: 1 ok" in output
+
+
 def test_main_format_on_success_respects_ignore_codes():
     with TemporaryDirectory() as tmp:
         interview = Path(tmp) / "ignored.yml"

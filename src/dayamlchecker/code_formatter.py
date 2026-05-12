@@ -31,6 +31,7 @@ from dayamlchecker._jinja import (
     _contains_jinja_syntax,
     _has_jinja_header,
 )
+from dayamlchecker._yaml_parsing import normalize_yaml_for_parser
 
 __all__ = [
     "format_yaml_file",
@@ -436,7 +437,7 @@ def format_yaml_string(
         return _format_jinja_yaml_string(yaml_content, config)
 
     # Load as a stream to handle multi-document YAML
-    documents = list(yaml.load_all(yaml_content))
+    documents = list(yaml.load_all(normalize_yaml_for_parser(yaml_content)))
 
     lines = yaml_content.splitlines(keepends=True)
     all_replacements: list[tuple[int, int, str, tuple[str, ...]]] = []
