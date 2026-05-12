@@ -55,6 +55,9 @@ class FormatterConfig:
     # Indentation conversion
     convert_indent_4_to_2: bool = True
 
+    # If True, replace literal tab characters in the YAML source with two spaces
+    convert_tabs_to_spaces: bool = False
+
     # If True, folded scalars (">") become literal ("|") after formatting
     prefer_literal_blocks: bool = True
 
@@ -65,6 +68,11 @@ class FormatterConfig:
 def _normalize_newlines(text: str) -> str:
     """Normalize all newline variants to Unix-style LF."""
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _convert_tabs_to_spaces(text: str) -> str:
+    """Replace literal tab characters with two spaces."""
+    return text.replace("\t", "  ")
 
 
 def _strip_common_indent(lines: list[str]) -> tuple[list[str], int]:
@@ -421,6 +429,10 @@ def format_yaml_string(
     if config is None:
         config = FormatterConfig()
 
+    original_content = yaml_content
+    if config.convert_tabs_to_spaces:
+        yaml_content = _convert_tabs_to_spaces(yaml_content)
+
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.width = 4096  # Prevent line wrapping in strings
@@ -434,7 +446,8 @@ def format_yaml_string(
     # normally.  If it is not valid YAML the parser will surface a regular
     # parse error.
     if _has_jinja_header(yaml_content):
-        return _format_jinja_yaml_string(yaml_content, config)
+        result, _changed = _format_jinja_yaml_string(yaml_content, config)
+        return result, result != original_content
 
     # Load as a stream to handle multi-document YAML
     documents = list(yaml.load_all(normalize_yaml_for_parser(yaml_content)))
@@ -462,7 +475,7 @@ def format_yaml_string(
             lines[start : end + 1] = new_lines
 
     result = "".join(lines)
-    return result, result != yaml_content
+    return result, result != original_content
 
 
 def format_yaml_file(
@@ -531,6 +544,12 @@ Examples:
         help="Disable 4-to-2 space indentation conversion",
     )
     parser.add_argument(
+        "--convert-tabs-to-spaces",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Replace literal tab characters in YAML files with two spaces",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -557,6 +576,7 @@ Examples:
     config = FormatterConfig(
         black_line_length=args.line_length,
         convert_indent_4_to_2=not args.no_indent_conversion,
+        convert_tabs_to_spaces=args.convert_tabs_to_spaces,
     )
 
     cwd = Path.cwd().resolve()

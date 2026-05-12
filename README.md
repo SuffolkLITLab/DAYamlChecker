@@ -12,6 +12,7 @@ dayaml check path/to/yaml-or-dir
 dayaml check --show-experimental path/to/yaml-or-dir
 dayaml check --ignore-codes E410,E301 path/to/yaml-or-dir
 dayaml check --format-on-success --no-url-check path/to/yaml-or-dir
+dayaml check --format-on-success --convert-tabs-to-spaces --no-url-check path/to/yaml-or-dir
 dayaml format path/to/interview.yml
 
 # Backwards-compatible entry points
@@ -60,6 +61,8 @@ these commands from a project root will scan `./docassemble`.
 Those args are applied before the actual command-line args, so an explicit CLI
 flag still wins. For example, `args = ["--no-url-check"]` disables URL checks
 by default, while `dayaml check --url-check ...` turns them back on for one run.
+That same mechanism can enable formatting behavior by default, for example
+`args = ["--format-on-success", "--convert-tabs-to-spaces", "--no-url-check"]`.
 
 `dayaml check --format-on-success ...` validates each file first and then runs
 the formatter on files that have no error-severity findings after ignore-code
@@ -69,6 +72,10 @@ before the later URL-check phase, so a run can still exit nonzero for URL
 errors after formatting changes have already been written. Use
 `--no-url-check` with this mode if you want the combined YAML-check-and-format
 behavior without the later repository URL scan.
+
+Use `--convert-tabs-to-spaces` with either `dayaml format` or
+`dayaml check --format-on-success` to rewrite literal tab characters in the YAML
+source as two spaces when the file is saved.
 
 ### Real Errors
 

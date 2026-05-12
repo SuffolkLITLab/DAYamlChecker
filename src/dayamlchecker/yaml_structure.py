@@ -2335,6 +2335,14 @@ def _build_arg_parser(*, require_files: bool = True) -> argparse.ArgumentParser:
         help="Format files that pass YAML validation before running URL checks",
     )
     parser.add_argument(
+        "--convert-tabs-to-spaces",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "When formatting, replace literal tab characters in YAML files with two spaces"
+        ),
+    )
+    parser.add_argument(
         "--ignore-codes",
         default="",
         help=(
@@ -2459,7 +2467,11 @@ def main(argv: list[str] | None = None) -> int:
             if widget.strip()
         )
     )
-    formatter_config = FormatterConfig() if args.format_on_success else None
+    formatter_config = (
+        FormatterConfig(convert_tabs_to_spaces=args.convert_tabs_to_spaces)
+        if args.format_on_success
+        else None
+    )
 
     cwd = Path.cwd().resolve()
 

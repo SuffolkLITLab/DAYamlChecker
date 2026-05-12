@@ -441,3 +441,24 @@ def test_formatter_accepts_tab_indented_non_code_blocks():
         assert "error:" not in result.stderr.lower()
         assert interview.read_text(encoding="utf-8") == original
         assert "1 unchanged" in result.stdout
+
+
+def test_formatter_convert_tabs_to_spaces_rewrites_non_code_blocks():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "interview.yml"
+        interview.write_text(
+            "question: |\n"
+            '\t${question("Intake", "Client name")}\n'
+            "field: user_name\n",
+            encoding="utf-8",
+        )
+
+        result = _run_formatter("--convert-tabs-to-spaces", str(interview))
+
+        assert result.returncode == 0
+        assert interview.read_text(encoding="utf-8") == (
+            "question: |\n"
+            '  ${question("Intake", "Client name")}\n'
+            "field: user_name\n"
+        )
+        assert "reformatted:" in result.stdout

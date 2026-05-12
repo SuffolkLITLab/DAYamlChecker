@@ -830,6 +830,70 @@ def test_main_format_on_success_accepts_tab_indented_non_code_blocks():
         assert "Summary: 1 ok" in output
 
 
+def test_main_format_on_success_convert_tabs_to_spaces_rewrites_non_code_blocks():
+    with TemporaryDirectory() as tmp:
+        interview = Path(tmp) / "tabs.yml"
+        interview.write_text(
+            "question: |\n"
+            '\t${question("Intake", "Client name")}\n'
+            "field: user_name\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = main(
+                [
+                    "--format-on-success",
+                    "--convert-tabs-to-spaces",
+                    "--no-url-check",
+                    str(interview),
+                ]
+            )
+
+        assert result == 0
+        assert interview.read_text(encoding="utf-8") == (
+            "question: |\n"
+            '  ${question("Intake", "Client name")}\n'
+            "field: user_name\n"
+        )
+        output = buf.getvalue()
+        assert "reformatted:" in output
+        assert "tabs.yml" in output
+
+
+def test_main_reads_pyproject_format_args_for_tab_conversion(monkeypatch):
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+            "[tool.dayaml]\n"
+            'args = ["--format-on-success", "--convert-tabs-to-spaces", "--no-url-check"]\n',
+            encoding="utf-8",
+        )
+        interview = root / "docassemble" / "Demo" / "data" / "questions" / "tabs.yml"
+        interview.parent.mkdir(parents=True, exist_ok=True)
+        interview.write_text(
+            "question: |\n"
+            '\t${question("Intake", "Client name")}\n'
+            "field: user_name\n",
+            encoding="utf-8",
+        )
+
+        previous_cwd = Path.cwd()
+        monkeypatch.chdir(root)
+        try:
+            assert main([]) == 0
+        finally:
+            monkeypatch.chdir(previous_cwd)
+
+        assert interview.read_text(encoding="utf-8") == (
+            "question: |\n"
+            '  ${question("Intake", "Client name")}\n'
+            "field: user_name\n"
+        )
+
+
 def test_main_format_on_success_respects_ignore_codes():
     with TemporaryDirectory() as tmp:
         interview = Path(tmp) / "ignored.yml"
