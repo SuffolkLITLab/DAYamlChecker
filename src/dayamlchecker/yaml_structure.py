@@ -203,7 +203,22 @@ class PythonBool:
 
     def __init__(self, x):
         self.errors = []
-        pass
+        if isinstance(x, bool):
+            return
+        #number like 10 or 0 - not valid, even though Python treats them as truthy/falsy
+        if isinstance(x, (int, float)):
+            self.errors = [(f"expected True, False, or a Python expression, got number: {x}", 1)]
+            return
+        #must be a string at this point
+        if not isinstance(x, str):
+            self.errors = [(f"expected True, False, or a Python expression, got: {type(x).__name__}", 1)]
+            return
+        #try parsing it as a Python expression - covers things like "user_age > 18"
+        try:
+            ast.parse(x)
+        except SyntaxError as ex:
+            msg = ex.msg or str(ex)
+            self.errors = [(f"expected True, False, or a valid Python expression, got: {x!r} (Python syntax error: {msg})", 1)]
 
 
 class JavascriptText:
@@ -751,10 +766,10 @@ big_dict: dict[str, dict[str, Any]] = {
     "default language": {},
     "default validation messages": {},
     "machine learning storage": {},
-    "scan for variables": {},
+    "scan for variables": {"type": PythonBool},
     "if": {},
     "sets": {},
-    "initial": {},
+    "initial": {"type": PythonBool},
     "event": {},
     "comment": {},
     "generic object": {"type": DAPythonVar},
