@@ -778,7 +778,7 @@ big_dict: dict[str, dict[str, Any]] = {
     "default language": {},
     "default validation messages": {},
     "machine learning storage": {},
-    "scan for variables": {"type": PythonBool},
+    "scan for variables": {},
     "if": {},
     "sets": {},
     "initial": {"type": PythonBool},

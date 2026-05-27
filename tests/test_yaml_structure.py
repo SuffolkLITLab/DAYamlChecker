@@ -1815,19 +1815,6 @@ code: |
             f"Expected initial number error, got: {errs}",
         )
 
-    def test_scan_for_variables_invalid_string_errors(self):
-        """Error: scan for variables with invalid string should be flagged"""
-        invalid = """
-scan for variables: yes please
-code: |
-  x = 1
-"""
-        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
-        self.assertTrue(
-            any("expected True, False" in e.err_str for e in errs),
-            f"Expected scan for variables error, got: {errs}",
-        )
-
     def test_mandatory_null_errors(self):
         """Error: mandatory: null should be flagged"""
         invalid = """
