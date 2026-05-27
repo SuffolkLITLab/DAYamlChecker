@@ -1732,7 +1732,6 @@ fields:
             f"Did not expect nesting warning, got: {errs}",
         )
 
-
     def test_attachment_content_references_conditional_variable_errors(self):
         """Error: attachment content references a variable that is only conditionally asked"""
         invalid = """
@@ -1902,7 +1901,6 @@ subquestion: |
             any("subquestion references" in e.err_str for e in errs),
             f"Expected subquestion conditional variable error, got: {errs}",
         )
-    
 
     def test_duplicate_block_id_errors(self):
         """Error: two blocks with the same id should be flagged"""
