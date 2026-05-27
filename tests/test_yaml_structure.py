@@ -1733,5 +1733,251 @@ fields:
         )
 
 
+    def test_attachment_content_references_conditional_variable_errors(self):
+        """Error: attachment content references a variable that is only conditionally asked"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("attachment content references" in e.err_str for e in errs),
+            f"Expected attachment content conditional variable error, got: {errs}",
+        )
+
+    def test_attachment_content_unconditional_variable_valid(self):
+        """Valid: attachment content references a variable that is always asked"""
+        valid = """
+question: |
+  What is your employer name?
+fields:
+  - Employer name: employer_name
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("attachment content references" in e.err_str for e in errs),
+            f"Did not expect attachment content error, got: {errs}",
+        )
+
+    def test_attachment_content_mako_guarded_variable_valid(self):
+        """Valid: attachment content references conditional variable inside matching Mako guard"""
+        valid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    % if is_employed:
+    Your employer is ${ employer_name }.
+    % endif
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("attachment content references" in e.err_str for e in errs),
+            f"Did not expect attachment content error with Mako guard, got: {errs}",
+        )
+
+    def test_attachment_content_skip_undefined_suppresses_error(self):
+        """Valid: skip undefined: True suppresses attachment content conditional variable error"""
+        valid = """
+features:
+  skip undefined: True
+---
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("attachment content references" in e.err_str for e in errs),
+            f"Did not expect attachment content error with skip undefined, got: {errs}",
+        )
+
+    def test_attachments_plural_references_conditional_variable_errors(self):
+        """Error: attachments (plural) block also catches conditional variable references"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachments:
+  - name: Test doc
+    filename: test
+    content: |
+      Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("attachment content references" in e.err_str for e in errs),
+            f"Expected attachment content conditional variable error for attachments, got: {errs}",
+        )
+
+    def test_question_references_conditional_variable_errors(self):
+        """Error: question text references a variable that is only conditionally asked"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: |
+  Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("question references" in e.err_str for e in errs),
+            f"Expected question conditional variable error, got: {errs}",
+        )
+
+    def test_subquestion_references_conditional_variable_errors(self):
+        """Error: subquestion text references a variable that is only conditionally asked"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Summary
+subquestion: |
+  Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("subquestion references" in e.err_str for e in errs),
+            f"Expected subquestion conditional variable error, got: {errs}",
+        )
+    
+
+    def test_duplicate_block_id_errors(self):
+        """Error: two blocks with the same id should be flagged"""
+        invalid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("duplicate block id" in e.err_str.lower() for e in errs),
+            f"Expected duplicate id error, got: {errs}",
+        )
+
+    def test_unique_block_ids_valid(self):
+        """Valid: blocks with different ids should pass"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: summary
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("duplicate block id" in e.err_str.lower() for e in errs),
+            f"Did not expect duplicate id error, got: {errs}",
+        )
+
+    def test_duplicate_id_case_sensitive(self):
+        """Valid: id matching is case sensitive — intro and Intro are different"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: Intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("duplicate block id" in e.err_str.lower() for e in errs),
+            f"Did not expect duplicate id error for different cases, got: {errs}",
+        )
+
+    def test_no_ids_valid(self):
+        """Valid: blocks with no ids should pass clean"""
+        valid = """
+question: |
+  What is your name?
+field: user_name
+---
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("duplicate block id" in e.err_str.lower() for e in errs),
+            f"Did not expect duplicate id error with no ids, got: {errs}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
