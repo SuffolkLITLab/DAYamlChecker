@@ -1974,6 +1974,101 @@ question: |
         self.assertFalse(
             any("duplicate block id" in e.err_str.lower() for e in errs),
             f"Did not expect duplicate id error with no ids, got: {errs}",
+    def test_mandatory_number_errors(self):
+        """Error: mandatory with a number should be flagged"""
+        invalid = """
+mandatory: 10
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("got number: 10" in e.err_str for e in errs),
+            f"Expected mandatory number error, got: {errs}",
+        )
+
+    def test_mandatory_bool_true_valid(self):
+        """Valid: mandatory: True should pass"""
+        valid = """
+mandatory: True
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("expected True, False" in e.err_str for e in errs),
+            f"Did not expect mandatory error for True, got: {errs}",
+        )
+
+    def test_mandatory_bool_false_valid(self):
+        """Valid: mandatory: False should pass"""
+        valid = """
+mandatory: False
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("expected True, False" in e.err_str for e in errs),
+            f"Did not expect mandatory error for False, got: {errs}",
+        )
+
+    def test_mandatory_python_expression_valid(self):
+        """Valid: mandatory with a Python expression should pass"""
+        valid = """
+mandatory: user_age > 18
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any("expected True, False" in e.err_str for e in errs),
+            f"Did not expect mandatory error for Python expression, got: {errs}",
+        )
+
+    def test_mandatory_invalid_string_errors(self):
+        """Error: mandatory with a non-Python string should be flagged"""
+        invalid = """
+mandatory: yes please
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("expected True, False" in e.err_str for e in errs),
+            f"Expected mandatory invalid string error, got: {errs}",
+        )
+
+    def test_initial_number_errors(self):
+        """Error: initial with a number should be flagged"""
+        invalid = """
+initial: 10
+code: |
+  x = 1
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("got number: 10" in e.err_str for e in errs),
+            f"Expected initial number error, got: {errs}",
+        )
+
+    def test_mandatory_null_errors(self):
+        """Error: mandatory: null should be flagged"""
+        invalid = """
+mandatory: null
+question: |
+  Hello
+field: user_name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any("expected True, False" in e.err_str for e in errs),
+            f"Expected mandatory null error, got: {errs}",
         )
 
 
