@@ -1175,6 +1175,21 @@ def _yaml_error_message_id(error_text: str) -> str:
     return MessageId.YAML_PARSE_ERROR
 
 
+def _yaml_error_line_number(
+    error: MarkedYAMLError, full_content: str, default_line_number: int
+) -> int:
+    lines = full_content.splitlines()
+    for mark in (error.problem_mark, error.context_mark):
+        if mark is None:
+            continue
+        if 0 <= mark.line < len(lines) and lines[mark.line].strip():
+            return mark.line + 1
+    for mark in (error.problem_mark, error.context_mark):
+        if mark is not None:
+            return mark.line + 1
+    return default_line_number
+
+
 def _make_yaml_parser() -> YAML:
     yaml = YAML()
     yaml.allow_duplicate_keys = False
@@ -1554,16 +1569,20 @@ def find_errors_from_string(
         try:
             doc = _with_line_metadata(yaml_parser.load(source_code))
         except Exception as errMess:
+            error_line_number = line_number
             if isinstance(errMess, MarkedYAMLError):
                 if errMess.context_mark is not None:
                     errMess.context_mark.line += line_number - 1
                 if errMess.problem_mark is not None:
                     errMess.problem_mark.line += line_number - 1
+                error_line_number = _yaml_error_line_number(
+                    errMess, full_content, line_number
+                )
             rendered_error = str(errMess)
             all_errors.append(
                 make_finding(
                     _yaml_error_message_id(rendered_error),
-                    line_number=line_number,
+                    line_number=error_line_number,
                     file_name=input_file,
                     error=rendered_error,
                 )

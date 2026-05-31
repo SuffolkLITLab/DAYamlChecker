@@ -87,6 +87,28 @@ question: |
             _has_code(errs, "EG101"),
             f"Expected duplicate key error, got: {errs}",
         )
+        duplicate_key_error = next(e for e in errs if e.code == "EG101")
+        self.assertEqual(
+            duplicate_key_error.line_number,
+            4,
+            f"Expected duplicate key to point at the repeated key line, got: {duplicate_key_error}",
+        )
+
+    def test_yaml_parse_error_uses_exact_line_in_later_document(self):
+        invalid = """question: Hello
+---
+question: |
+  Hi
+fields
+  - name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        parse_error = next(e for e in errs if e.code == "EG102")
+        self.assertEqual(
+            parse_error.line_number,
+            5,
+            f"Expected parse error to point at the exact line in the later document, got: {parse_error}",
+        )
 
     def test_accessibility_mode_disabled_by_default(self):
         yaml_content = """question: |
