@@ -1019,9 +1019,7 @@ def print_url_check_report(result: URLCheckResult) -> None:
                 ]
                 if not bucket:
                     continue
-                print(
-                    title_labels[category].format(source=_source_label(source_kind))
-                )
+                print(title_labels[category].format(source=_source_label(source_kind)))
                 for issue in bucket:
                     print(f"- [{issue.code}] {issue.message}")
 

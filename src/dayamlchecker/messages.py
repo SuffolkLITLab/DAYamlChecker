@@ -63,32 +63,20 @@ class MessageId(StrEnum):
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
     FIELD_MODIFIER_SAME_SCREEN_CODE = "field_modifier_same_screen_code"
     FIELD_MODIFIER_DICT_KEYS = "field_modifier_dict_keys"
-    FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING = (
-        "field_modifier_unknown_variable_string"
-    )
+    FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING = "field_modifier_unknown_variable_string"
     FIELD_MODIFIER_CASE = "field_modifier_case"
 
     ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE = "accessibility_combobox_not_accessible"
     ACCESSIBILITY_NO_LABEL_MULTI_FIELD = "accessibility_no_label_multi_field"
-    ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED = (
-        "accessibility_tagged_pdf_not_enabled"
-    )
-    ACCESSIBILITY_THEME_CONTRAST_TOO_LOW = (
-        "accessibility_theme_contrast_too_low"
-    )
-    ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT = (
-        "accessibility_image_missing_alt_text"
-    )
+    ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED = "accessibility_tagged_pdf_not_enabled"
+    ACCESSIBILITY_THEME_CONTRAST_TOO_LOW = "accessibility_theme_contrast_too_low"
+    ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT = "accessibility_image_missing_alt_text"
     ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP = (
         "accessibility_markdown_heading_level_skip"
     )
-    ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP = (
-        "accessibility_html_heading_level_skip"
-    )
+    ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP = "accessibility_html_heading_level_skip"
     ACCESSIBILITY_EMPTY_LINK_TEXT = "accessibility_empty_link_text"
-    ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT = (
-        "accessibility_non_descriptive_link_text"
-    )
+    ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT = "accessibility_non_descriptive_link_text"
 
     URL_CONCATENATED_ERROR = "url_concatenated_error"
     URL_CONCATENATED_WARNING = "url_concatenated_warning"
@@ -257,7 +245,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="val() argument must be a quoted string literal",
         template=(
             'val() argument must be a quoted string literal, not "{bad_arg}". '
-            'Use val("...") or val(\'...\') instead'
+            "Use val(\"...\") or val('...') instead"
         ),
     ),
     MessageId.UNKNOWN_KEYS: MessageDefinition(

@@ -87,9 +87,7 @@ class YAMLStr:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [
-                draft(MessageId.YAML_STRING_REQUIRED, value_repr=repr(x))
-            ]
+            self.errors = [draft(MessageId.YAML_STRING_REQUIRED, value_repr=repr(x))]
 
 
 class MakoText:
@@ -225,16 +223,16 @@ class PythonBool:
             return
         # must be a string at this point
         if not isinstance(x, str):
-            self.errors = [draft(MessageId.PYTHON_BOOL_TYPE, value_type=type(x).__name__)]
+            self.errors = [
+                draft(MessageId.PYTHON_BOOL_TYPE, value_type=type(x).__name__)
+            ]
             return
         # try parsing it as a Python expression - covers things like "user_age > 18"
         try:
             ast.parse(x)
         except SyntaxError as ex:
             msg = ex.msg or str(ex)
-            self.errors = [
-                draft(MessageId.PYTHON_BOOL_SYNTAX, value=x, error=msg)
-            ]
+            self.errors = [draft(MessageId.PYTHON_BOOL_SYNTAX, value=x, error=msg)]
 
 
 class JavascriptText:
@@ -322,8 +320,7 @@ class JSShowIf:
                         draft(
                             MessageId.JS_UNKNOWN_SCREEN_FIELD,
                             line_number=(
-                                call.get("loc", {}).get("start", {}).get("line", 1)
-                                or 1
+                                call.get("loc", {}).get("start", {}).get("line", 1) or 1
                             ),
                             modifier_key=modifier_key,
                             var_name=var_name,
@@ -397,9 +394,7 @@ class ShowIf:
                 pass
             elif x.startswith("variable:") or x.startswith("code:"):
                 # Malformed - these should be YAML dict format
-                self.errors.append(
-                    draft(MessageId.SHOW_IF_MALFORMED, value=x)
-                )
+                self.errors.append(draft(MessageId.SHOW_IF_MALFORMED, value=x))
         elif isinstance(x, dict):
             # YAML dict form
             if "variable" in x:
@@ -576,7 +571,9 @@ class DAFields:
                     self.errors.append(
                         draft(
                             MessageId.FIELD_MODIFIER_CODE_ERROR,
-                            line_number=self._line_for(field_item, err.line_number or 1),
+                            line_number=self._line_for(
+                                field_item, err.line_number or 1
+                            ),
                             modifier_key=modifier_key,
                             detail=err.message.lower(),
                         )

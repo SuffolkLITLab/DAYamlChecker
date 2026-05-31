@@ -252,11 +252,7 @@ subquestion: |
             input_file="<string_invalid>",
             lint_mode="accessibility",
         )
-        heading_error = next(
-            e
-            for e in errs
-            if e.code == "EA506"
-        )
+        heading_error = next(e for e in errs if e.code == "EA506")
         self.assertEqual(
             heading_error.line_number,
             7,
@@ -589,8 +585,7 @@ fields:
         )
         self.assertTrue(
             any(
-                e.code == "IA503"
-                and "docx attachment detected" in e.err_str.lower()
+                e.code == "IA503" and "docx attachment detected" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected tagged-pdf info note, got: {errs}",
@@ -1461,11 +1456,7 @@ fields:
 continue button field: interrogatory_questions
 """
         errs = find_errors_from_string(valid, input_file="<string_valid>")
-        field_errors = [
-            e
-            for e in errs
-            if e.code in {"EG405", "EG406"}
-        ]
+        field_errors = [e for e in errs if e.code in {"EG405", "EG406"}]
         self.assertEqual(
             len(field_errors),
             0,
@@ -1488,7 +1479,8 @@ continue button field: interrogatory_questions
         field_errors = [
             e
             for e in errs
-            if e.code == "EG111" and "default value has (indentationerror)" in e.err_str.lower()
+            if e.code == "EG111"
+            and "default value has (indentationerror)" in e.err_str.lower()
         ]
         self.assertEqual(
             len(field_errors),
