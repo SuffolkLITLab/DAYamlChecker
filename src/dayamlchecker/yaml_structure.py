@@ -1454,20 +1454,20 @@ def _find_unmatched_interview_order_references(
 
     guards_by_line = _extract_branch_guards_by_line(code)
     unmatched: list[tuple[str, int]] = []
-    seen_unmatched: set[tuple[str, int]] = set()
+    seen_fields: set[str] = set()
     for conditional in conditional_fields:
         field_var = conditional["field_var"]
+        if field_var in seen_fields:
+            continue
         expected_guards = conditional["guards"]
         for ref_line in _find_variable_reference_lines(code, field_var):
             active_guards = guards_by_line.get(ref_line, [])
             if _has_showifdef_guard(active_guards, field_var):
                 continue
             if not _has_matching_guard(active_guards, expected_guards):
-                key = (field_var, ref_line)
-                if key in seen_unmatched:
-                    continue
-                seen_unmatched.add(key)
-                unmatched.append(key)
+                seen_fields.add(field_var)
+                unmatched.append((field_var, ref_line))
+                break
     return unmatched
 
 

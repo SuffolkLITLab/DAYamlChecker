@@ -1731,6 +1731,32 @@ code: |
             f"Expected one deduplicated interview-order guard error, got: {guard_errors}",
         )
 
+    def test_interview_order_repeated_same_variable_only_reports_once(self):
+        repeated = """
+question: |
+  Relationship
+fields:
+  - Relationship detail: relationship_detail
+    show if:
+      variable: married
+      is: True
+---
+id: interview_order
+mandatory: True
+code: |
+  if married:
+    relationship_detail = "first"
+  relationship_detail += " second"
+  relationship_detail = relationship_detail.strip()
+"""
+        errs = find_errors_from_string(repeated, input_file="<string_invalid>")
+        guard_errors = [e for e in errs if e.code == "EG308"]
+        self.assertEqual(
+            len(guard_errors),
+            1,
+            f"Expected one interview-order guard error for repeated references, got: {guard_errors}",
+        )
+
     def test_show_hide_nesting_depth_over_two_warns(self):
         """Warn when a single page has show/hide dependency depth greater than two"""
         warning_yaml = """
