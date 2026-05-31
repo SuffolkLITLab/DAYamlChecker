@@ -124,7 +124,8 @@ def test_main_default_wcag_reports_failures():
         output = stdout.getvalue().lower()
         assert exit_code == 1
         assert "found 1 errors" in output
-        assert "accessibility: markdown image" in output
+        assert "[ea505]" in output
+        assert "markdown image" in output
 
 
 def test_main_wcag_info_only_does_not_fail():
@@ -144,7 +145,8 @@ def test_main_wcag_info_only_does_not_fail():
 
         output = stdout.getvalue().lower()
         assert exit_code == 0
-        assert "info: accessibility: docx attachment detected" in output
+        assert "[ia503]" in output
+        assert "docx attachment detected" in output
 
 
 def test_main_warning_still_fails_outside_info_only_mode():
@@ -173,7 +175,7 @@ def test_main_warning_still_fails_outside_info_only_mode():
 
         output = stdout.getvalue().lower()
         assert exit_code == 1
-        assert "warning:" in output
+        assert "[wg206]" in output
 
 
 def test_main_combobox_widget_check_disabled_by_default():
@@ -233,7 +235,7 @@ def test_main_invokes_url_checker_with_default_severities(monkeypatch, capsys):
                 checked_url_count=1,
                 ignored_url_count=0,
                 issues=(
-                    URLIssue(
+                    URLIssue.create(
                         severity="warning",
                         category="broken",
                         source_kind="template",
@@ -302,7 +304,7 @@ def test_main_fails_on_url_checker_errors(monkeypatch, capsys):
                 checked_url_count=1,
                 ignored_url_count=0,
                 issues=(
-                    URLIssue(
+                    URLIssue.create(
                         severity="error",
                         category="broken",
                         source_kind="yaml",

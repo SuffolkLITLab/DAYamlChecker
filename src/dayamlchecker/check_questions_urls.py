@@ -16,6 +16,7 @@ from io import StringIO
 from typing import Literal
 from urllib.parse import urlparse
 
+from dayamlchecker.messages import Finding, MessageId
 import requests
 from docx2python import docx2python
 from linkify_it import LinkifyIt  # type: ignore[attr-defined,import-untyped]
@@ -33,14 +34,42 @@ SourceKind = Literal["yaml", "template"]
 IssueCategory = Literal["broken", "concatenated", "unreachable"]
 
 
-@dataclass(frozen=True)
-class URLIssue:
-    severity: ReportSeverity
+@dataclass(frozen=True, kw_only=True)
+class URLIssue(Finding):
     category: IssueCategory
     source_kind: SourceKind
     url: str
     sources: tuple[str, ...]
     status_code: int | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        severity: ReportSeverity,
+        category: IssueCategory,
+        source_kind: SourceKind,
+        url: str,
+        sources: tuple[str, ...],
+        status_code: int | None = None,
+    ) -> "URLIssue":
+        source_label = _source_label(source_kind)
+        return cls(
+            message_id=_url_message_id(severity=severity, category=category),
+            file_name=sources[0] if len(sources) == 1 else None,
+            line_number=None,
+            context={
+                "source_label": source_label,
+                "url": url,
+                "sources": ", ".join(sources),
+                "status_code": status_code,
+            },
+            category=category,
+            source_kind=source_kind,
+            url=url,
+            sources=sources,
+            status_code=status_code,
+        )
 
 
 @dataclass(frozen=True)
@@ -68,6 +97,32 @@ class URLSourceCollection:
     @property
     def unique_url_count(self) -> int:
         return len(set(self.yaml_urls) | set(self.document_urls))
+
+
+def _source_label(source_kind: SourceKind) -> str:
+    if source_kind == "yaml":
+        return "question files"
+    return "template files"
+
+
+def _url_message_id(*, severity: ReportSeverity, category: IssueCategory) -> str:
+    if category == "concatenated":
+        return (
+            MessageId.URL_CONCATENATED_ERROR
+            if severity == "error"
+            else MessageId.URL_CONCATENATED_WARNING
+        )
+    if category == "broken":
+        return (
+            MessageId.URL_BROKEN_ERROR
+            if severity == "error"
+            else MessageId.URL_BROKEN_WARNING
+        )
+    return (
+        MessageId.URL_UNREACHABLE_ERROR
+        if severity == "error"
+        else MessageId.URL_UNREACHABLE_WARNING
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -782,7 +837,7 @@ def _append_issue(
     if severity == "ignore":
         return
     issues.append(
-        URLIssue(
+        URLIssue.create(
             severity=severity,
             category=category,
             source_kind=source_kind,
@@ -942,10 +997,6 @@ def print_url_check_report(result: URLCheckResult) -> None:
         print(f"Checked {result.checked_url_count} URLs; none returned HTTP 404/410.")
         return
 
-    source_labels = {
-        "yaml": "question files",
-        "template": "template files",
-    }
     title_labels = {
         "concatenated": (
             "Found malformed URL text that appears to contain another URL in {source}:"
@@ -968,16 +1019,9 @@ def print_url_check_report(result: URLCheckResult) -> None:
                 ]
                 if not bucket:
                     continue
-                print(title_labels[category].format(source=source_labels[source_kind]))
+                print(title_labels[category].format(source=_source_label(source_kind)))
                 for issue in bucket:
-                    sources = ", ".join(issue.sources)
-                    if issue.status_code is None:
-                        print(f"- {issue.url} (found in: {sources})")
-                    else:
-                        print(
-                            f"- [{issue.status_code}] {issue.url} "
-                            f"(found in: {sources})"
-                        )
+                    print(f"- [{issue.code}] {issue.message}")
 
 
 def main() -> int:

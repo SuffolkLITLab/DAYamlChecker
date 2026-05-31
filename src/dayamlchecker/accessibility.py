@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Optional
+from dayamlchecker.messages import Finding, FindingDraft, MessageId, draft
 
 TEXT_SECTION_KEYS = ("question", "subquestion", "under", "help", "note", "html")
 FIELD_NON_LABEL_KEYS = {
@@ -41,11 +42,9 @@ GENERIC_LINK_TEXT = {
 }
 
 
-@dataclass(frozen=True)
-class AccessibilityFinding:
-    rule_id: str
-    message: str
-    line_number: int
+@dataclass(frozen=True, slots=True)
+class AccessibilityFinding(Finding):
+    pass
 
 
 @dataclass(frozen=True)
@@ -118,7 +117,7 @@ def find_accessibility_findings(
     options: Optional[AccessibilityLintOptions] = None,
 ) -> list[AccessibilityFinding]:
     options = options or AccessibilityLintOptions()
-    findings: list[AccessibilityFinding] = []
+    findings: list[FindingDraft] = []
     findings.extend(_check_multifield_no_label_usage(doc, document_start_line))
     findings.extend(
         _check_combobox_usage(doc, source_code, document_start_line, options=options)
@@ -151,11 +150,17 @@ def find_accessibility_findings(
     unique_findings: list[AccessibilityFinding] = []
     seen: set[tuple[str, str, int]] = set()
     for finding in findings:
-        key = (finding.rule_id, finding.message, finding.line_number)
+        rendered = AccessibilityFinding(
+            message_id=finding.message_id,
+            file_name=input_file,
+            line_number=finding.line_number,
+            context=finding.context,
+        )
+        key = (rendered.code, rendered.message, rendered.line_number or 0)
         if key in seen:
             continue
         seen.add(key)
-        unique_findings.append(finding)
+        unique_findings.append(rendered)
     return unique_findings
 
 
@@ -165,11 +170,11 @@ def _check_combobox_usage(
     document_start_line: int,
     *,
     options: AccessibilityLintOptions,
-) -> list[AccessibilityFinding]:
+) -> list[FindingDraft]:
     if not options.errors_on_widget("combobox"):
         return []
 
-    findings: list[AccessibilityFinding] = []
+    findings: list[FindingDraft] = []
     top_level_combobox = doc.get("combobox")
     if top_level_combobox is not None:
         line_number = _absolute_line_number(
@@ -179,10 +184,10 @@ def _check_combobox_usage(
             "combobox:",
         )
         findings.append(
-            AccessibilityFinding(
-                rule_id="combobox-not-accessible",
-                message="Accessibility: screen uses `combobox`, which is not allowed for accessibility reasons",
+            draft(
+                MessageId.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
                 line_number=line_number,
+                subject="screen",
             )
         )
 
@@ -196,15 +201,12 @@ def _check_combobox_usage(
             or "<unknown field>"
         )
         findings.append(
-            AccessibilityFinding(
-                rule_id="combobox-not-accessible",
-                message=(
-                    "Accessibility: field uses `datatype: combobox`, which is not allowed for accessibility reasons: "
-                    f"{field_label}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE,
                 line_number=document_start_line
                 + field.get("__line__", doc.get("__line__", 1))
                 - 1,
+                subject=f'field "{field_label}"',
             )
         )
 
@@ -213,12 +215,12 @@ def _check_combobox_usage(
 
 def _check_multifield_no_label_usage(
     doc: dict[str, Any], document_start_line: int
-) -> list[AccessibilityFinding]:
+) -> list[FindingDraft]:
     fields = _iter_fields(doc)
     if len(fields) <= 1:
         return []
 
-    findings: list[AccessibilityFinding] = []
+    findings: list[FindingDraft] = []
     for field in fields:
         if "code" in field:
             continue
@@ -237,13 +239,11 @@ def _check_multifield_no_label_usage(
 
         field_name = _extract_field_variable(field) or "<unknown field>"
         findings.append(
-            AccessibilityFinding(
-                rule_id="no-label-on-multi-field-screen",
-                message=(
-                    "Accessibility: `no label` or empty/missing field label is only allowed on single-field screens; "
-                    f"screen has {len(fields)} fields: {field_name}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_NO_LABEL_MULTI_FIELD,
                 line_number=field_line,
+                field_count=len(fields),
+                field_name=field_name,
             )
         )
     return findings
@@ -251,7 +251,7 @@ def _check_multifield_no_label_usage(
 
 def _check_tagged_pdf_for_docx(
     doc: dict[str, Any], source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
+) -> list[FindingDraft]:
     attachments = doc.get("attachments")
     if isinstance(attachments, dict):
         attachments = [attachments]
@@ -263,7 +263,7 @@ def _check_tagged_pdf_for_docx(
     if isinstance(features, dict):
         feature_tagged_pdf = _is_truthy(features.get("tagged pdf"))
 
-    findings: list[AccessibilityFinding] = []
+    findings: list[FindingDraft] = []
     for attachment in attachments:
         if not isinstance(attachment, dict):
             continue
@@ -282,12 +282,8 @@ def _check_tagged_pdf_for_docx(
             "attachments:",
         )
         findings.append(
-            AccessibilityFinding(
-                rule_id="tagged-pdf-not-enabled",
-                message=(
-                    "Info: Accessibility: DOCX attachment detected without `tagged pdf: True`; "
-                    "set it on `features` or the attachment to improve generated PDF accessibility"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_TAGGED_PDF_NOT_ENABLED,
                 line_number=line_number,
             )
         )
@@ -300,7 +296,7 @@ def _check_theme_css_contrast(
     document_start_line: int,
     *,
     input_file: Optional[str] = None,
-) -> list[AccessibilityFinding]:
+) -> list[FindingDraft]:
     features = doc.get("features")
     if not isinstance(features, dict):
         return []
@@ -323,7 +319,7 @@ def _check_theme_css_contrast(
         return []
 
     selector_props, variables = _parse_css_rules(css_content)
-    findings: list[AccessibilityFinding] = []
+    findings: list[FindingDraft] = []
     for component, patterns in _COMPONENT_SELECTORS.items():
         pair = _best_component_color_pair(selector_props, variables, patterns)
         if pair is None:
@@ -333,13 +329,12 @@ def _check_theme_css_contrast(
         if ratio >= WCAG_MIN_CONTRAST_RATIO:
             continue
         findings.append(
-            AccessibilityFinding(
-                rule_id="theme-contrast-too-low",
-                message=(
-                    "Accessibility: bootstrap theme CSS has low contrast for "
-                    f"{component} (ratio {ratio:.2f}:1, expected at least {WCAG_MIN_CONTRAST_RATIO:.1f}:1)"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_THEME_CONTRAST_TOO_LOW,
                 line_number=line_number,
+                component=component,
+                ratio=ratio,
+                minimum_ratio=WCAG_MIN_CONTRAST_RATIO,
             )
         )
     return findings
@@ -375,24 +370,24 @@ def _iter_text_sections(doc: dict[str, Any], source_code: str) -> list[TextSecti
 
 def _check_missing_alt_text(
     section: TextSection, source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
-    findings: list[AccessibilityFinding] = []
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
     for alt_text, image_target in _MARKDOWN_IMAGE_RE.findall(section.value):
         if alt_text.strip():
             continue
         snippet = f"![{alt_text}]({image_target})"
         findings.append(
-            AccessibilityFinding(
-                rule_id="image-missing-alt-text",
-                message=(
-                    f"Accessibility: markdown image in {section.location} is missing alt text: {snippet}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     snippet,
                 ),
+                image_kind="markdown image",
+                section_location=section.location,
+                snippet=snippet,
             )
         )
 
@@ -402,17 +397,17 @@ def _check_missing_alt_text(
             continue
         snippet = file_tag_match.group(0)
         findings.append(
-            AccessibilityFinding(
-                rule_id="image-missing-alt-text",
-                message=(
-                    f"Accessibility: [FILE ...] image in {section.location} is missing alt text: {snippet}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     f"[FILE {file_target}",
                 ),
+                image_kind="[FILE ...] image",
+                section_location=section.location,
+                snippet=snippet,
             )
         )
 
@@ -421,17 +416,17 @@ def _check_missing_alt_text(
         if alt_match and alt_match.group(2).strip():
             continue
         findings.append(
-            AccessibilityFinding(
-                rule_id="image-missing-alt-text",
-                message=(
-                    f"Accessibility: HTML image in {section.location} is missing alt text: {img_tag.strip()}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_IMAGE_MISSING_ALT_TEXT,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     img_tag.strip(),
                 ),
+                image_kind="HTML image",
+                section_location=section.location,
+                snippet=img_tag.strip(),
             )
         )
     return findings
@@ -439,8 +434,8 @@ def _check_missing_alt_text(
 
 def _check_markdown_heading_order(
     section: TextSection, source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
-    findings: list[AccessibilityFinding] = []
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
     matches = list(_MARKDOWN_HEADING_RE.finditer(section.value))
     for index in range(1, len(matches)):
         previous_level = len(matches[index - 1].group(1))
@@ -449,18 +444,18 @@ def _check_markdown_heading_order(
             continue
         line_text = matches[index].group(0).strip()
         findings.append(
-            AccessibilityFinding(
-                rule_id="markdown-heading-level-skip",
-                message=(
-                    "Accessibility: markdown heading levels skip "
-                    f"from H{previous_level} to H{current_level} in {section.location}: {line_text}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_MARKDOWN_HEADING_LEVEL_SKIP,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     line_text,
                 ),
+                previous_level=previous_level,
+                current_level=current_level,
+                section_location=section.location,
+                snippet=line_text,
             )
         )
         break
@@ -469,8 +464,8 @@ def _check_markdown_heading_order(
 
 def _check_html_heading_order(
     section: TextSection, source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
-    findings: list[AccessibilityFinding] = []
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
     matches = list(_HTML_HEADING_RE.finditer(section.value))
     for index in range(1, len(matches)):
         previous_level = int(matches[index - 1].group(1))
@@ -479,18 +474,18 @@ def _check_html_heading_order(
             continue
         snippet = re.sub(r"\s+", " ", matches[index].group(0)).strip()
         findings.append(
-            AccessibilityFinding(
-                rule_id="html-heading-level-skip",
-                message=(
-                    "Accessibility: HTML heading levels skip "
-                    f"from H{previous_level} to H{current_level} in {section.location}: {snippet}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_HTML_HEADING_LEVEL_SKIP,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     snippet,
                 ),
+                previous_level=previous_level,
+                current_level=current_level,
+                section_location=section.location,
+                snippet=snippet,
             )
         )
         break
@@ -499,8 +494,8 @@ def _check_html_heading_order(
 
 def _check_empty_link_text(
     section: TextSection, source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
-    findings: list[AccessibilityFinding] = []
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
     for link in _extract_links_from_text(section.value):
         visible_text = _normalize_human_text(link["text"])
         if visible_text:
@@ -510,17 +505,16 @@ def _check_empty_link_text(
         ):
             continue
         findings.append(
-            AccessibilityFinding(
-                rule_id="empty-link-text",
-                message=(
-                    f"Accessibility: link in {section.location} has no accessible text: {link['snippet']}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_EMPTY_LINK_TEXT,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     link["snippet"],
                 ),
+                section_location=section.location,
+                snippet=link["snippet"],
             )
         )
     return findings
@@ -528,24 +522,23 @@ def _check_empty_link_text(
 
 def _check_non_descriptive_link_text(
     section: TextSection, source_code: str, document_start_line: int
-) -> list[AccessibilityFinding]:
-    findings: list[AccessibilityFinding] = []
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
     for link in _extract_links_from_text(section.value):
         normalized = _normalize_human_text(link["text"])
         if not normalized or normalized not in GENERIC_LINK_TEXT:
             continue
         findings.append(
-            AccessibilityFinding(
-                rule_id="non-descriptive-link-text",
-                message=(
-                    f"Accessibility: link text in {section.location} is too generic: {link['text'].strip() or link['snippet']}"
-                ),
+            draft(
+                MessageId.ACCESSIBILITY_NON_DESCRIPTIVE_LINK_TEXT,
                 line_number=_absolute_line_number(
                     source_code,
                     document_start_line,
                     section.key_line,
                     link["snippet"],
                 ),
+                section_location=section.location,
+                text=link["text"].strip() or link["snippet"],
             )
         )
     return findings
@@ -598,6 +591,14 @@ def _extract_field_variable(field: dict[str, Any]) -> str:
     explicit = str(field.get("field") or "").strip()
     if explicit:
         return explicit
+    no_label_value = field.get("no label")
+    if (
+        isinstance(no_label_value, str)
+        and no_label_value.strip()
+        and no_label_value.strip().lower()
+        not in {"true", "false", "yes", "no", "1", "0", "on", "off"}
+    ):
+        return no_label_value.strip()
     for key, value in field.items():
         if key in FIELD_NON_LABEL_KEYS:
             continue

@@ -4,6 +4,10 @@ from tempfile import TemporaryDirectory
 from dayamlchecker.yaml_structure import RuntimeOptions, find_errors_from_string
 
 
+def _has_code(errs, code: str) -> bool:
+    return any(err.code == code for err in errs)
+
+
 class TestYAMLStructure(unittest.TestCase):
     def test_valid_question_no_errors(self):
         valid = """
@@ -23,7 +27,7 @@ template: |
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(
-            any("Too many types this block could be" in e.err_str for e in errs),
+            _has_code(errs, "EG307"),
             f"Expected exclusivity error, got: {errs}",
         )
 
@@ -33,11 +37,7 @@ foo: bar
 """
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(
-            any(
-                "Couldn't identify a block type: no valid combination of keys found"
-                in e.err_str
-                for e in errs
-            ),
+            _has_code(errs, "EG306"),
             f"Expected clearer unknown block type error, got: {errs}",
         )
 
@@ -64,7 +64,8 @@ fields:
         errs = find_errors_from_string(invalid, input_file="<string_invalid>")
         self.assertTrue(
             any(
-                'Invalid field key "Show If"' in e.err_str
+                e.code == "EG413"
+                and 'invalid field key "show if"' in e.err_str.lower()
                 and 'use "show if"' in e.err_str
                 for e in errs
             ),
@@ -83,12 +84,30 @@ question: |
             len(errs) > 0, f"Expected parser error for duplicate keys, got: {errs}"
         )
         self.assertTrue(
-            any(
-                "duplicate key" in e.err_str.lower()
-                or "found duplicate key" in e.err_str.lower()
-                for e in errs
-            ),
+            _has_code(errs, "EG101"),
             f"Expected duplicate key error, got: {errs}",
+        )
+        duplicate_key_error = next(e for e in errs if e.code == "EG101")
+        self.assertEqual(
+            duplicate_key_error.line_number,
+            4,
+            f"Expected duplicate key to point at the repeated key line, got: {duplicate_key_error}",
+        )
+
+    def test_yaml_parse_error_uses_exact_line_in_later_document(self):
+        invalid = """question: Hello
+---
+question: |
+  Hi
+fields
+  - name
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        parse_error = next(e for e in errs if e.code == "EG102")
+        self.assertEqual(
+            parse_error.line_number,
+            5,
+            f"Expected parse error to point at the exact line in the later document, got: {parse_error}",
         )
 
     def test_accessibility_mode_disabled_by_default(self):
@@ -96,9 +115,7 @@ question: |
   ![](docassemble.demo:data/static/logo.png)
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
-        accessibility_errors = [
-            e for e in errs if "accessibility:" in e.err_str.lower()
-        ]
+        accessibility_errors = [e for e in errs if e.finding_class == "accessibility"]
         self.assertEqual(
             len(accessibility_errors),
             0,
@@ -116,7 +133,8 @@ question: |
         )
         self.assertTrue(
             any(
-                "accessibility: markdown image" in e.err_str.lower()
+                e.code == "EA505"
+                and "markdown image" in e.err_str.lower()
                 and "missing alt text" in e.err_str.lower()
                 for e in errs
             ),
@@ -134,7 +152,8 @@ question: |
         )
         self.assertTrue(
             any(
-                "accessibility: [file ...] image" in e.err_str.lower()
+                e.code == "EA505"
+                and "[file ...] image" in e.err_str.lower()
                 and "missing alt text" in e.err_str.lower()
                 for e in errs
             ),
@@ -170,7 +189,8 @@ question: |
         )
         self.assertTrue(
             any(
-                "accessibility: html image" in e.err_str.lower()
+                e.code == "EA505"
+                and "html image" in e.err_str.lower()
                 and "missing alt text" in e.err_str.lower()
                 for e in errs
             ),
@@ -191,8 +211,8 @@ subquestion: |
         )
         self.assertTrue(
             any(
-                "accessibility: markdown heading levels skip from h2 to h4"
-                in e.err_str.lower()
+                e.code == "EA506"
+                and "markdown heading levels skip from h2 to h4" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected markdown heading-order accessibility error, got: {errs}",
@@ -212,8 +232,8 @@ subquestion: |
         )
         self.assertTrue(
             any(
-                "accessibility: html heading levels skip from h2 to h4"
-                in e.err_str.lower()
+                e.code == "EA507"
+                and "html heading levels skip from h2 to h4" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected HTML heading-order accessibility error, got: {errs}",
@@ -233,9 +253,7 @@ subquestion: |
             input_file="<string_valid>",
             lint_mode="accessibility",
         )
-        accessibility_errors = [
-            e for e in errs if "accessibility:" in e.err_str.lower()
-        ]
+        accessibility_errors = [e for e in errs if e.finding_class == "accessibility"]
         self.assertEqual(
             len(accessibility_errors),
             0,
@@ -256,11 +274,7 @@ subquestion: |
             input_file="<string_invalid>",
             lint_mode="accessibility",
         )
-        heading_error = next(
-            e
-            for e in errs
-            if "accessibility: markdown heading levels skip" in e.err_str.lower()
-        )
+        heading_error = next(e for e in errs if e.code == "EA506")
         self.assertEqual(
             heading_error.line_number,
             7,
@@ -277,9 +291,7 @@ subquestion: |
             input_file="<string_valid>",
             lint_mode="accessibility",
         )
-        structural_errors = [
-            e for e in errs if "accessibility:" not in e.err_str.lower()
-        ]
+        structural_errors = [e for e in errs if e.finding_class != "accessibility"]
         self.assertGreater(
             len(structural_errors),
             0,
@@ -302,11 +314,7 @@ comment: |
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any(
-                "couldn't identify a block type: no valid combination of keys found"
-                in e.err_str.lower()
-                for e in errs
-            ),
+            _has_code(errs, "EG306"),
             f"Expected comment+id no-type validation error, got: {errs}",
         )
 
@@ -317,11 +325,7 @@ ga id: comment_block
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any(
-                "couldn't identify a block type: no valid combination of keys found"
-                in e.err_str.lower()
-                for e in errs
-            ),
+            _has_code(errs, "EG306"),
             f"Expected comment+ga id no-type validation error, got: {errs}",
         )
 
@@ -332,11 +336,7 @@ mandatory: True
 """
         errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
         self.assertTrue(
-            any(
-                "couldn't identify a block type: no valid combination of keys found"
-                in e.err_str.lower()
-                for e in errs
-            ),
+            _has_code(errs, "EG306"),
             f"Expected comment+mandatory no-type validation error, got: {errs}",
         )
 
@@ -392,8 +392,8 @@ fields:
         )
         self.assertTrue(
             any(
-                "datatype: combobox" in e.err_str.lower()
-                and "accessibility:" in e.err_str.lower()
+                e.code == "EA501"
+                and 'field "option" uses `combobox`' in e.err_str.lower()
                 for e in errs
             ),
             f"Expected combobox accessibility error, got: {errs}",
@@ -595,6 +595,31 @@ fields:
             f"Did not expect no-label accessibility error for dynamic code field, got: {errs}",
         )
 
+    def test_accessibility_no_label_uses_variable_from_no_label_key(self):
+        yaml_content = """question: |
+  Reorder fields
+fields:
+  - note: |
+      Drag to reorder.
+  - no label: interview.questions[i].fld_order_list
+    datatype: draggable_tbl_order_list
+  - Another field: other_value
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                e.code == "EA502"
+                and "interview.questions[i].fld_order_list" in e.err_str
+                and "<unknown field>" not in e.err_str
+                for e in errs
+            ),
+            f"Expected no-label accessibility error to include variable name, got: {errs}",
+        )
+
     def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
@@ -607,8 +632,7 @@ fields:
         )
         self.assertTrue(
             any(
-                e.err_str.lower().startswith("info:")
-                and "docx attachment detected" in e.err_str.lower()
+                e.code == "IA503" and "docx attachment detected" in e.err_str.lower()
                 for e in errs
             ),
             f"Expected tagged-pdf info note, got: {errs}",
@@ -794,7 +818,7 @@ fields:
         errs = find_errors_from_string(warning_yaml, input_file="<string_warn>")
         self.assertTrue(
             any(
-                e.err_str.lower().startswith("warning:")
+                e.code == "WG206"
                 and "unable to fully validate screen variables" in e.err_str.lower()
                 for e in errs
             ),
@@ -1479,12 +1503,7 @@ fields:
 continue button field: interrogatory_questions
 """
         errs = find_errors_from_string(valid, input_file="<string_valid>")
-        field_errors = [
-            e
-            for e in errs
-            if "fields should be a list" in e.err_str.lower()
-            or "fields dict must have" in e.err_str.lower()
-        ]
+        field_errors = [e for e in errs if e.code in {"EG405", "EG406"}]
         self.assertEqual(
             len(field_errors),
             0,
@@ -1507,7 +1526,8 @@ continue button field: interrogatory_questions
         field_errors = [
             e
             for e in errs
-            if "default value has (indentationerror)" in e.err_str.lower()
+            if e.code == "EG111"
+            and "default value has (indentationerror)" in e.err_str.lower()
         ]
         self.assertEqual(
             len(field_errors),
@@ -1693,6 +1713,71 @@ code: |
                     any("without a matching guard" in e.err_str.lower() for e in errs),
                     f"Expected no interview-order guard error for {modifier}, got: {errs}",
                 )
+
+    def test_interview_order_duplicate_conditional_fields_only_report_once(self):
+        duplicated = """
+question: |
+  First screen
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+question: |
+  Second screen
+fields:
+  - Reason again: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details again: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+id: interview_order
+mandatory: True
+code: |
+  other_details
+"""
+        errs = find_errors_from_string(duplicated, input_file="<string_invalid>")
+        guard_errors = [e for e in errs if e.code == "EG308"]
+        self.assertEqual(
+            len(guard_errors),
+            1,
+            f"Expected one deduplicated interview-order guard error, got: {guard_errors}",
+        )
+
+    def test_interview_order_repeated_same_variable_only_reports_once(self):
+        repeated = """
+question: |
+  Relationship
+fields:
+  - Relationship detail: relationship_detail
+    show if:
+      variable: married
+      is: True
+---
+id: interview_order
+mandatory: True
+code: |
+  if married:
+    relationship_detail = "first"
+  relationship_detail += " second"
+  relationship_detail = relationship_detail.strip()
+"""
+        errs = find_errors_from_string(repeated, input_file="<string_invalid>")
+        guard_errors = [e for e in errs if e.code == "EG308"]
+        self.assertEqual(
+            len(guard_errors),
+            1,
+            f"Expected one interview-order guard error for repeated references, got: {guard_errors}",
+        )
 
     def test_show_hide_nesting_depth_over_two_warns(self):
         """Warn when a single page has show/hide dependency depth greater than two"""
