@@ -11,7 +11,6 @@ from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
 )
-from dayamlchecker.messages import Finding, MessageId, draft, make_finding
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
 from mako.exceptions import (  # type: ignore[import-untyped]
     SyntaxException,
@@ -87,9 +86,7 @@ class YAMLStr:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [
-                draft(MessageId.YAML_STRING_REQUIRED, value_repr=repr(x))
-            ]
+            self.errors = [(f"{x} isn't a string", 1)]
 
 
 class MakoText:
@@ -102,21 +99,9 @@ class MakoText:
                 x, strict_undefined=True, input_encoding="utf-8"
             )
         except SyntaxException as ex:
-            self.errors = [
-                draft(
-                    MessageId.MAKO_SYNTAX_ERROR,
-                    line_number=ex.lineno or 1,
-                    error=str(ex),
-                )
-            ]
+            self.errors = [(ex, ex.lineno)]
         except CompileException as ex:
-            self.errors = [
-                draft(
-                    MessageId.MAKO_COMPILE_ERROR,
-                    line_number=ex.lineno or 1,
-                    error=str(ex),
-                )
-            ]
+            self.errors = [(ex, ex.lineno)]
 
 
 class MakoMarkdownText(MakoText):
@@ -138,7 +123,7 @@ class PythonText:
         self.errors = []
         if not isinstance(x, str):
             self.errors = [
-                draft(MessageId.PYTHON_CODE_TYPE, value_type=type(x).__name__)
+                (f"code block must be a YAML string, is {type(x).__name__}", 1)
             ]
             return
         try:
@@ -147,9 +132,7 @@ class PythonText:
             # ex.lineno gives line number within the code block
             lineno = ex.lineno or 1
             msg = ex.msg or str(ex)
-            self.errors = [
-                draft(MessageId.PYTHON_SYNTAX_ERROR, line_number=lineno, error=msg)
-            ]
+            self.errors = [(f"Python syntax error: {msg}", lineno)]
 
 
 class ValidationCode(PythonText):
@@ -208,7 +191,10 @@ class ValidationCode(PythonText):
             # Otherwise, emit a warning suggesting use of validation_error().
             # Use line number 1 because we don't have a more specific mapping here
             self.errors.append(
-                draft(MessageId.VALIDATION_CODE_MISSING_VALIDATION_ERROR)
+                (
+                    "validation code does not call validation_error(); consider calling validation_error(...) to provide user-facing error messages",
+                    1,
+                )
             )
 
 
@@ -221,11 +207,18 @@ class PythonBool:
             return
         # number like 10 or 0 - not valid, even though Python treats them as truthy/falsy
         if isinstance(x, (int, float)):
-            self.errors = [draft(MessageId.PYTHON_BOOL_NUMBER, value=x)]
+            self.errors = [
+                (f"expected True, False, or a Python expression, got number: {x}", 1)
+            ]
             return
         # must be a string at this point
         if not isinstance(x, str):
-            self.errors = [draft(MessageId.PYTHON_BOOL_TYPE, value_type=type(x).__name__)]
+            self.errors = [
+                (
+                    f"expected True, False, or a Python expression, got: {type(x).__name__}",
+                    1,
+                )
+            ]
             return
         # try parsing it as a Python expression - covers things like "user_age > 18"
         try:
@@ -233,7 +226,10 @@ class PythonBool:
         except SyntaxError as ex:
             msg = ex.msg or str(ex)
             self.errors = [
-                draft(MessageId.PYTHON_BOOL_SYNTAX, value=x, error=msg)
+                (
+                    f"expected True, False, or a valid Python expression, got: {x!r} (Python syntax error: {msg})",
+                    1,
+                )
             ]
 
 
@@ -257,11 +253,7 @@ class JSShowIf:
         self.screen_variables = screen_variables or set()
         if not isinstance(x, str):
             self.errors = [
-                draft(
-                    MessageId.JS_MODIFIER_TYPE,
-                    modifier_key=modifier_key,
-                    value_type=type(x).__name__,
-                )
+                (f"{modifier_key} must be a string, is {type(x).__name__}", 1)
             ]
             return
 
@@ -274,11 +266,9 @@ class JSShowIf:
             parsed = esprima.parseScript(js_to_check, tolerant=False, loc=True).toDict()
         except esprima.Error as ex:
             self.errors.append(
-                draft(
-                    MessageId.JS_INVALID_SYNTAX,
-                    line_number=getattr(ex, "lineNumber", 1) or 1,
-                    modifier_key=modifier_key,
-                    error=str(ex),
+                (
+                    f"Invalid JavaScript syntax in {modifier_key}: {ex}",
+                    getattr(ex, "lineNumber", 1) or 1,
                 )
             )
             return
@@ -302,7 +292,10 @@ class JSShowIf:
 
         if not val_calls:
             self.errors.append(
-                draft(MessageId.JS_MISSING_VAL_CALL, modifier_key=modifier_key)
+                (
+                    f"{modifier_key} must contain at least one val() call to reference an on-screen field",
+                    1,
+                )
             )
 
         for call in val_calls:
@@ -319,14 +312,9 @@ class JSShowIf:
                     var_name
                 ):
                     self.errors.append(
-                        draft(
-                            MessageId.JS_UNKNOWN_SCREEN_FIELD,
-                            line_number=(
-                                call.get("loc", {}).get("start", {}).get("line", 1)
-                                or 1
-                            ),
-                            modifier_key=modifier_key,
-                            var_name=var_name,
+                        (
+                            f'{modifier_key} references val("{var_name}"), but "{var_name}" is not defined on this screen',
+                            (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
                         )
                     )
                 continue
@@ -339,12 +327,9 @@ class JSShowIf:
                     or first_arg.get("type", "<unknown>")
                 )
             self.errors.append(
-                draft(
-                    MessageId.JS_VAL_ARG_NOT_QUOTED,
-                    line_number=(
-                        call.get("loc", {}).get("start", {}).get("line", 1) or 1
-                    ),
-                    bad_arg=bad_arg,
+                (
+                    f'val() argument must be a quoted string literal, not "{bad_arg}". Use val("...") or val(\'...\') instead',
+                    (call.get("loc", {}).get("start", {}).get("line", 1) or 1),
                 )
             )
 
@@ -398,7 +383,10 @@ class ShowIf:
             elif x.startswith("variable:") or x.startswith("code:"):
                 # Malformed - these should be YAML dict format
                 self.errors.append(
-                    draft(MessageId.SHOW_IF_MALFORMED, value=x)
+                    (
+                        f'show if value "{x}" appears to be malformed. Use YAML dict syntax: show if: {{ variable: var_name, is: value }} or show if: {{ code: ... }}',
+                        1,
+                    )
                 )
         elif isinstance(x, dict):
             # YAML dict form
@@ -411,7 +399,12 @@ class ShowIf:
                 # Validate Python syntax for the provided code block
                 code_block = x.get("code")
                 if not isinstance(code_block, str):
-                    self.errors.append(draft(MessageId.SHOW_IF_CODE_TYPE))
+                    self.errors.append(
+                        (
+                            f"show if: code must be a YAML string",
+                            1,
+                        )
+                    )
                 else:
                     try:
                         ast.parse(code_block)
@@ -419,14 +412,15 @@ class ShowIf:
                         lineno = ex.lineno or 1
                         msg = ex.msg or str(ex)
                         self.errors.append(
-                            draft(
-                                MessageId.SHOW_IF_CODE_SYNTAX,
-                                line_number=lineno,
-                                error=msg,
+                            (
+                                f"show if: code has Python syntax error: {msg}",
+                                lineno,
                             )
                         )
             else:
-                self.errors.append(draft(MessageId.SHOW_IF_DICT_KEYS))
+                self.errors.append(
+                    (f'show if dict must have either "variable" key or "code" key', 1)
+                )
 
 
 class DAPythonVar:
@@ -435,9 +429,9 @@ class DAPythonVar:
     def __init__(self, x):
         self.errors = []
         if not isinstance(x, str):
-            self.errors = [draft(MessageId.PYTHON_VAR_TYPE, value_repr=repr(x))]
+            self.errors = [(f"The python var needs to be a YAML string, is {x}", 1)]
         elif " " in x and not space_in_str.search(x):
-            self.errors = [draft(MessageId.PYTHON_VAR_WHITESPACE, value=x)]
+            self.errors = [(f"The python var cannot have whitespace (is {x})", 1)]
 
 
 class DAType:
@@ -453,7 +447,7 @@ class ObjectsAttrType:
         # The full typing desc of the var: TODO: how to use this?
         self.errors = []
         if not (isinstance(x, list) or isinstance(x, dict)):
-            self.errors = [draft(MessageId.OBJECTS_BLOCK_TYPE, value_repr=repr(x))]
+            self.errors = [f"Objects block needs to be a list or a dict, is {x}"]
         # for entry in x:
         #   ...
         # if not isinstance(x, Union[list[dict[DAPythonVar, DAType]], dict[DAPythonVar, DAType]]):
@@ -492,18 +486,18 @@ class DAFields:
         self.has_dynamic_fields_code = False
         if isinstance(x, dict):
             if "code" not in x:
-                self.errors = [draft(MessageId.FIELDS_DICT_KEYS, value_repr=repr(x))]
+                self.errors = [(f'fields dict must have "code" key, is {x}', 1)]
                 return
             if not isinstance(x.get("code"), str):
                 self.errors = [
-                    draft(
-                        MessageId.FIELDS_CODE_TYPE,
-                        value_type=type(x.get("code")).__name__,
+                    (
+                        f'fields: code must be a YAML string, is {type(x.get("code")).__name__}',
+                        1,
                     )
                 ]
             return
         if not isinstance(x, list):
-            self.errors = [draft(MessageId.FIELDS_TYPE, value_repr=repr(x))]
+            self.errors = [(f"fields should be a list or dict, is {x}", 1)]
             return
         self._validate_field_modifiers(x)
 
@@ -553,20 +547,16 @@ class DAFields:
                 ref_var = modifier_value.get("variable")
                 if not isinstance(ref_var, str):
                     self.errors.append(
-                        draft(
-                            MessageId.FIELD_MODIFIER_VARIABLE_TYPE,
-                            line_number=self._line_for(field_item),
-                            modifier_key=modifier_key,
-                            value_type=type(ref_var).__name__,
+                        (
+                            f"{modifier_key}: variable must be a string, got {type(ref_var).__name__}",
+                            self._line_for(field_item),
                         )
                     )
                 elif not references_screen_variable(ref_var):
                     self.errors.append(
-                        draft(
-                            MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT,
-                            line_number=self._line_for(field_item),
-                            modifier_key=modifier_key,
-                            variable=ref_var,
+                        (
+                            f"{modifier_key}: variable: {ref_var} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                            self._line_for(field_item),
                         )
                     )
             elif "code" in modifier_value:
@@ -574,11 +564,9 @@ class DAFields:
                 validator = PythonText(code_text)
                 for err in validator.errors:
                     self.errors.append(
-                        draft(
-                            MessageId.FIELD_MODIFIER_CODE_ERROR,
-                            line_number=self._line_for(field_item, err.line_number or 1),
-                            modifier_key=modifier_key,
-                            detail=err.message.lower(),
+                        (
+                            f"{modifier_key}: code has {err[0].lower()}",
+                            self._line_for(field_item, err[1]),
                         )
                     )
                 if (
@@ -592,29 +580,24 @@ class DAFields:
                     if same_screen_refs:
                         refs = ", ".join(sorted(same_screen_refs))
                         self.errors.append(
-                            draft(
-                                MessageId.FIELD_MODIFIER_SAME_SCREEN_CODE,
-                                line_number=self._line_for(field_item),
-                                modifier_key=modifier_key,
-                                variables=refs,
+                            (
+                                f"{modifier_key}: code references variable(s) defined on this screen ({refs}). Use {modifier_key}: <var> or {modifier_key}: {{ variable: <var>, is: ... }} instead",
+                                self._line_for(field_item),
                             )
                         )
             else:
                 self.errors.append(
-                    draft(
-                        MessageId.FIELD_MODIFIER_DICT_KEYS,
-                        line_number=self._line_for(field_item),
-                        modifier_key=modifier_key,
+                    (
+                        f'{modifier_key} dict must have either "variable" or "code"',
+                        self._line_for(field_item),
                     )
                 )
         elif isinstance(modifier_value, str) and ":" not in modifier_value:
             if not references_screen_variable(modifier_value):
                 self.errors.append(
-                    draft(
-                        MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING,
-                        line_number=self._line_for(field_item),
-                        modifier_key=modifier_key,
-                        variable=modifier_value,
+                    (
+                        f"{modifier_key}: {modifier_value} is not defined on this screen. Use {modifier_key}: {{ code: ... }} instead for variables from previous screens",
+                        self._line_for(field_item),
                     )
                 )
 
@@ -660,29 +643,18 @@ class DAFields:
                         and field_key.lower() in self.modifier_keys
                     ):
                         self.errors.append(
-                            draft(
-                                MessageId.FIELD_MODIFIER_CASE,
-                                line_number=self._line_for(field_item),
-                                field_key=field_key,
-                                suggested_key=field_key.lower(),
+                            (
+                                f'Invalid field key "{field_key}". docassemble field modifier keys are case-sensitive; use "{field_key.lower()}"',
+                                self._line_for(field_item),
                             )
                         )
                     if field_key in self.mako_keys:
                         the_mako = MakoText(str(field_item[field_key]))
                         for err in the_mako.errors:
-                            field_message_id = (
-                                MessageId.FIELD_VALUE_MAKO_SYNTAX_ERROR
-                                if err.message_id == MessageId.MAKO_SYNTAX_ERROR
-                                else MessageId.FIELD_VALUE_MAKO_COMPILE_ERROR
-                            )
                             self.errors.append(
-                                draft(
-                                    field_message_id,
-                                    line_number=self._line_for(
-                                        field_item, err.line_number or 1
-                                    ),
-                                    field_key=field_key,
-                                    **dict(err.context),
+                                (
+                                    f"{field_key} value has {err[0]}",
+                                    self._line_for(field_item, err[1]),
                                 )
                             )
 
@@ -694,28 +666,18 @@ class DAFields:
                         screen_variables=screen_variables,
                     )
                     for err in validator.errors:
+                        err_msg = err[0]
                         if (
                             self.has_dynamic_fields_code
-                            and err.message_id == MessageId.JS_UNKNOWN_SCREEN_FIELD
+                            and "not defined on this screen" in err_msg.lower()
                         ):
-                            self.errors.append(
-                                draft(
-                                    MessageId.JS_UNKNOWN_SCREEN_FIELD_PARTIAL,
-                                    line_number=self._line_for(
-                                        field_item, err.line_number or 1
-                                    ),
-                                    **dict(err.context),
-                                )
+                            err_msg = (
+                                "Warning: "
+                                + err_msg
+                                + " (unable to fully validate screen variables because this screen uses fields: code)"
                             )
-                            continue
                         self.errors.append(
-                            draft(
-                                err.message_id,
-                                line_number=self._line_for(
-                                    field_item, err.line_number or 1
-                                ),
-                                **dict(err.context),
-                            )
+                            (err_msg, self._line_for(field_item, err[1]))
                         )
 
             for py_key in self.py_modifier_keys:
@@ -1168,14 +1130,25 @@ def _get_case_insensitive(
     return mapping.get(original_key, default)
 
 
-YAMLError = Finding
+class YAMLError:
+    def __init__(
+        self,
+        *,
+        err_str: str,
+        line_number: int,
+        file_name: str,
+        experimental: bool = True,
+    ):
+        self.err_str = err_str
+        self.line_number = line_number
+        self.file_name = file_name
+        self.experimental = experimental
+        pass
 
-
-def _yaml_error_message_id(error_text: str) -> str:
-    lowered = error_text.lower()
-    if "duplicate key" in lowered or "found duplicate key" in lowered:
-        return MessageId.YAML_DUPLICATE_KEY
-    return MessageId.YAML_PARSE_ERROR
+    def __str__(self):
+        if not self.experimental:
+            return f"REAL ERROR: At {self.file_name}:{self.line_number}: {self.err_str}"
+        return f"At {self.file_name}:{self.line_number}: {self.err_str}"
 
 
 def _make_yaml_parser() -> YAML:
@@ -1524,14 +1497,14 @@ def find_errors_from_string(
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
-    """Return list of findings found in the given full_content string
+    """Return list of YAMLError found in the given full_content string
 
     Args:
         full_content (str): Full YAML content as a string.
     Returns:
-        list[YAMLError]: List of findings found in the content.
+        list[YAMLError]: List of YAMLError instances found in the content.
     """
-    all_errors: list[YAMLError] = []
+    all_errors = []
     runtime_options = runtime_options or RuntimeOptions()
 
     if not input_file:
@@ -1557,13 +1530,12 @@ def find_errors_from_string(
                     errMess.context_mark.line += line_number - 1
                 if errMess.problem_mark is not None:
                     errMess.problem_mark.line += line_number - 1
-            rendered_error = str(errMess)
             all_errors.append(
-                make_finding(
-                    _yaml_error_message_id(rendered_error),
+                YAMLError(
+                    err_str=str(errMess),
                     line_number=line_number,
                     file_name=input_file,
-                    error=rendered_error,
+                    experimental=False,
                 )
             )
             line_number += lines_in_code
@@ -1585,7 +1557,14 @@ def find_errors_from_string(
                 input_file=input_file,
                 options=runtime_options.accessibility_options(),
             )
-            all_errors.extend(accessibility_findings)
+            for finding in accessibility_findings:
+                all_errors.append(
+                    YAMLError(
+                        err_str=finding.message,
+                        line_number=finding.line_number,
+                        file_name=input_file,
+                    )
+                )
 
         doc_keys_lower = _lowercase_key_map(doc)
         non_meta_keys_lower = {
@@ -1605,8 +1584,11 @@ def find_errors_from_string(
             ]
             if len(any_types) == 0:
                 all_errors.append(
-                    make_finding(
-                        MessageId.NO_POSSIBLE_TYPES,
+                    YAMLError(
+                        err_str=(
+                            "Couldn't identify a block type: no valid combination of keys found "
+                            "(looking for keys like question, include, metadata, code, objects, etc. See https://docassemble.org/docs.html)"
+                        ),
                         line_number=line_number,
                         file_name=input_file,
                     )
@@ -1619,11 +1601,10 @@ def find_errors_from_string(
                 pass
             else:
                 all_errors.append(
-                    make_finding(
-                        MessageId.TOO_MANY_TYPES,
+                    YAMLError(
+                        err_str=f"Too many types this block could be: {posb_types}",
                         line_number=line_number,
                         file_name=input_file,
-                        block_types=", ".join(posb_types),
                     )
                 )
 
@@ -1638,11 +1619,11 @@ def find_errors_from_string(
                 weird_keys.append(attr)
         if len(weird_keys) > 0:
             all_errors.append(
-                make_finding(
-                    MessageId.UNKNOWN_KEYS,
+                YAMLError(
+                    err_str=f"Keys that shouldn't exist! {weird_keys}",
                     line_number=line_number,
                     file_name=input_file,
-                    keys=", ".join(weird_keys),
+                    experimental=False,
                 )
             )
         for key in doc.keys():
@@ -1653,11 +1634,10 @@ def find_errors_from_string(
                 test = big_dict[lower_key]["type"](doc[key])
                 for err in test.errors:
                     all_errors.append(
-                        err.to_finding(
+                        YAMLError(
+                            err_str=f"{err[0]}",
+                            line_number=err[1] + doc["__line__"] + line_number,
                             file_name=input_file,
-                            line_number=(err.line_number or 1)
-                            + doc["__line__"]
-                            + line_number,
                         )
                     )
 
@@ -1666,22 +1646,26 @@ def find_errors_from_string(
         )
         for field_var, ref_line in unmatched_refs:
             all_errors.append(
-                make_finding(
-                    MessageId.INTERVIEW_ORDER_UNMATCHED_GUARD,
+                YAMLError(
+                    err_str=(
+                        f'interview-order style block references "{field_var}" without a matching guard '
+                        f"for that field's show/hide logic; this can cause the interview to get stuck"
+                    ),
                     line_number=doc["__line__"] + line_number + ref_line,
                     file_name=input_file,
-                    field_name=field_var,
                 )
             )
 
         nesting_depth = _max_screen_visibility_nesting_depth(doc)
         if nesting_depth > 2:
             all_errors.append(
-                make_finding(
-                    MessageId.NESTED_VISIBILITY_LOGIC,
+                YAMLError(
+                    err_str=(
+                        f"Warning: show if/hide if visibility logic is nested {nesting_depth} levels "
+                        "on this screen (more than 2)"
+                    ),
                     line_number=doc["__line__"] + line_number,
                     file_name=input_file,
-                    nesting_depth=nesting_depth,
                 )
             )
 
@@ -1698,7 +1682,7 @@ def find_errors(
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
-    """Return list of findings found in the given input_file
+    """Return list of YAMLError found in the given input_file
 
     If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
     it is ignored and an empty list is returned.
@@ -1707,7 +1691,7 @@ def find_errors(
         input_file (str): Path to the YAML file to check.
 
     Returns:
-        list[YAMLError]: List of findings found in the file.
+        list[YAMLError]: List of YAMLError instances found in the file.
     """
     with open(input_file, "r") as f:
         full_content = f.read()
@@ -1731,6 +1715,15 @@ def _collect_yaml_files(
     from dayamlchecker.code_formatter import _collect_yaml_files as _formatter_collect
 
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
+
+
+def _message_level(err_str: str) -> str:
+    lowered = err_str.lower()
+    if lowered.startswith("info:"):
+        return "info"
+    if lowered.startswith("warning:"):
+        return "warning"
+    return "error"
 
 
 def process_file(
@@ -1766,9 +1759,10 @@ def process_file(
     warning_count = 0
     info_count = 0
     for err in all_errors:
-        if err.severity == "info":
+        level = _message_level(err.err_str)
+        if level == "info":
             info_count += 1
-        elif err.severity == "warning":
+        elif level == "warning":
             warning_count += 1
         else:
             error_count += 1
