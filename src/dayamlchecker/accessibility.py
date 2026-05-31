@@ -591,6 +591,13 @@ def _extract_field_variable(field: dict[str, Any]) -> str:
     explicit = str(field.get("field") or "").strip()
     if explicit:
         return explicit
+    no_label_value = field.get("no label")
+    if (
+        isinstance(no_label_value, str)
+        and no_label_value.strip()
+        and no_label_value.strip().lower() not in {"true", "false", "yes", "no", "1", "0", "on", "off"}
+    ):
+        return no_label_value.strip()
     for key, value in field.items():
         if key in FIELD_NON_LABEL_KEYS:
             continue

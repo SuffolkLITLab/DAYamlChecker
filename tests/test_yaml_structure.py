@@ -573,6 +573,31 @@ fields:
             f"Did not expect no-label accessibility error for dynamic code field, got: {errs}",
         )
 
+    def test_accessibility_no_label_uses_variable_from_no_label_key(self):
+        yaml_content = """question: |
+  Reorder fields
+fields:
+  - note: |
+      Drag to reorder.
+  - no label: interview.questions[i].fld_order_list
+    datatype: draggable_tbl_order_list
+  - Another field: other_value
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(
+                e.code == "EA502"
+                and "interview.questions[i].fld_order_list" in e.err_str
+                and "<unknown field>" not in e.err_str
+                for e in errs
+            ),
+            f"Expected no-label accessibility error to include variable name, got: {errs}",
+        )
+
     def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
@@ -1666,6 +1691,45 @@ code: |
                     any("without a matching guard" in e.err_str.lower() for e in errs),
                     f"Expected no interview-order guard error for {modifier}, got: {errs}",
                 )
+
+    def test_interview_order_duplicate_conditional_fields_only_report_once(self):
+        duplicated = """
+question: |
+  First screen
+fields:
+  - Reason: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+question: |
+  Second screen
+fields:
+  - Reason again: eviction_reason
+    choices:
+      - Nonpayment
+      - Other
+  - Other details again: other_details
+    show if:
+      variable: eviction_reason
+      is: Other
+---
+id: interview_order
+mandatory: True
+code: |
+  other_details
+"""
+        errs = find_errors_from_string(duplicated, input_file="<string_invalid>")
+        guard_errors = [e for e in errs if e.code == "EG308"]
+        self.assertEqual(
+            len(guard_errors),
+            1,
+            f"Expected one deduplicated interview-order guard error, got: {guard_errors}",
+        )
 
     def test_show_hide_nesting_depth_over_two_warns(self):
         """Warn when a single page has show/hide dependency depth greater than two"""
