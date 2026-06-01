@@ -21,6 +21,30 @@ python3 -m dayamlchecker --accessibility-error-on-widget combobox path/to/interv
 
 Some accessibility checks are behind runtime options while the rules are still being evaluated. Right now `combobox` failures are default-off and can be enabled with `--accessibility-error-on-widget combobox`.
 
+## Style checks
+
+Assembly Line style checks are opt-in. Enable them with `--style` to run deterministic style findings ported from ALLinter without duplicating the checker’s existing YAML, accessibility, or URL coverage.
+
+```bash
+python3 -m dayamlchecker --style --no-url-check path/to/interview.yml
+python3 -m dayamlchecker --style-llm --openai-api-key "$OPENAI_API_KEY" path/to/interview.yml
+OPENAI_BASE_URL=https://api.openai.com/v1 OPENAI_API_KEY=... python3 -m dayamlchecker --style-llm path/to/interview.yml
+```
+
+`--style-llm` also enables `--style`. It reads `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` from the environment when flags are not provided. The checker only emits sanitized configuration/request errors for LLM-backed style rules and does not print the credential values.
+
+For Python callers, use the module helper instead of shelling out:
+
+```python
+from dayamlchecker import RuntimeOptions, find_style_findings_from_string
+
+findings = find_style_findings_from_string(
+    interview_yaml,
+    input_file="interview.yml",
+    runtime_options=RuntimeOptions(style_include_llm=True),
+)
+```
+
 ## URL checks
 
 The main `dayamlchecker` CLI also runs the URL checker by default. Broken URLs in question files fail the command; broken URLs in related `data/templates` files are warnings by default. Use `--no-url-check` to skip it, or tune it with flags such as `--url-check-timeout`, `--url-check-ignore-urls`, `--url-check-skip-templates`, `--template-url-severity`, and `--unreachable-url-severity`.

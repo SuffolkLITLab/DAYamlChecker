@@ -11,6 +11,7 @@ def _has_code(errs, code: str) -> bool:
 class TestYAMLStructure(unittest.TestCase):
     def test_valid_question_no_errors(self):
         valid = """
+id: name_screen
 question: |
   What is your name?
 field: name
@@ -1912,6 +1913,117 @@ field: user_name
         self.assertTrue(
             any("expected True, False" in e.err_str for e in errs),
             f"Expected mandatory null error, got: {errs}",
+        )
+
+
+class TestALLinterParityRules(unittest.TestCase):
+    def test_missing_question_id_is_reported(self):
+        yaml_text = """
+metadata:
+  title: Example interview
+---
+question: |
+  What is your mailing address?
+fields:
+  - Address: user_address
+"""
+        errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
+        self.assertTrue(
+            _has_code(errs, "EG414"),
+            f"Expected missing-question-id finding, got: {errs}",
+        )
+
+    def test_multiple_mandatory_blocks_are_reported(self):
+        yaml_text = """
+id: start
+mandatory: True
+question: |
+  Start here
+field: start_now
+---
+id: review
+mandatory: True
+question: |
+  Review your answers
+field: review_now
+"""
+        errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
+        self.assertTrue(
+            _has_code(errs, "EG415"),
+            f"Expected multiple-mandatory-blocks finding, got: {errs}",
+        )
+
+    def test_metadata_fields_are_checked_when_metadata_is_present(self):
+        yaml_text = """
+metadata:
+  title: Example interview
+"""
+        errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
+        self.assertTrue(
+            _has_code(errs, "IG416"),
+            f"Expected metadata-fields finding, got: {errs}",
+        )
+        metadata_findings = [err for err in errs if err.code == "IG416"]
+        self.assertTrue(metadata_findings)
+        self.assertIn("description", metadata_findings[0].err_str)
+        self.assertIn("can_I_use_this_form", metadata_findings[0].err_str)
+        self.assertNotIn("landing_page_url", metadata_findings[0].err_str)
+
+    def test_accessibility_field_shortcut_and_validation_rules_are_reported(self):
+        yaml_text = """
+id: start
+question: |
+  Ready to continue?
+yesno: ready_to_continue
+continue button label: Continue
+---
+id: details
+question: |
+  Tell us more
+fields:
+  - field: case_notes
+    required: True
+    datatype: radio
+    choices:
+      - label: ""
+        value: skip
+    validation message: invalid
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        codes = {err.code for err in errs}
+        self.assertTrue(
+            {"EA510", "EA511", "EA513", "WA525", "WA527", "WA528"}.issubset(codes),
+            f"Expected new accessibility parity findings, got: {errs}",
+        )
+
+    def test_accessibility_html_rules_are_reported(self):
+        yaml_text = """
+id: content
+question: |
+  [Policy](https://example.com/a)
+  <a href="https://example.com/b">Policy</a>
+subquestion: |
+  <a href="https://example.com/help" target="_blank">Read the guide</a>
+  <svg><circle /></svg>
+  <table><tr><td>Header</td></tr><tr><td>Value</td></tr></table>
+  <div onclick="openThing()">Open</div>
+  <span tabindex="2">Focusable</span>
+  <p>Please click the green button to continue.</p>
+  <span style="color: red">Warning</span>
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        codes = {err.code for err in errs}
+        self.assertTrue(
+            {"WA516", "WA517", "WA518", "WA519", "WA520", "EA521", "EA523", "WA524"}.issubset(codes),
+            f"Expected HTML accessibility parity findings, got: {errs}",
         )
 
 

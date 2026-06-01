@@ -25,7 +25,7 @@ authors = [
 package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
-dayamlchecker = ["py.typed"]
+dayamlchecker = ["py.typed", "data/*.yml"]
 
 [build-system]
 requires = ["setuptools >= 77.0.3"]

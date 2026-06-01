@@ -12,9 +12,13 @@ FIELD_NON_LABEL_KEYS = {
     "hint",
     "help",
     "label",
+    "note",
+    "html",
     "datatype",
     "choices",
+    "value",
     "validation code",
+    "validation message",
     "show if",
     "hide if",
     "js show if",
@@ -24,6 +28,10 @@ FIELD_NON_LABEL_KEYS = {
     "js enable if",
     "js disable if",
     "required",
+    "min",
+    "max",
+    "minlength",
+    "maxlength",
     "no label",
     "field",
     "__line__",
@@ -39,6 +47,43 @@ GENERIC_LINK_TEXT = {
     "clic aquí",
     "aqui",
     "aquí",
+}
+NON_DESCRIPTIVE_FIELD_LABELS = {
+    "yes",
+    "no",
+    "maybe",
+    "n/a",
+    "na",
+    "other",
+    "unknown",
+}
+AMBIGUOUS_BUTTON_TEXT = {
+    "continue",
+    "go",
+    "here",
+    "next",
+    "ok",
+    "submit",
+}
+GENERIC_VALIDATION_MESSAGES = {
+    "error",
+    "invalid",
+    "invalid input",
+    "invalid value",
+    "not valid",
+}
+COLOR_WORDS = {
+    "red",
+    "green",
+    "blue",
+    "yellow",
+    "orange",
+    "purple",
+    "pink",
+    "gray",
+    "grey",
+    "black",
+    "white",
 }
 
 
@@ -118,7 +163,15 @@ def find_accessibility_findings(
 ) -> list[AccessibilityFinding]:
     options = options or AccessibilityLintOptions()
     findings: list[FindingDraft] = []
+    findings.extend(_check_yesno_shortcuts(doc, source_code, document_start_line))
     findings.extend(_check_multifield_no_label_usage(doc, document_start_line))
+    findings.extend(_check_field_labels(doc, document_start_line))
+    findings.extend(_check_choice_labels(doc, document_start_line))
+    findings.extend(_check_duplicate_field_labels(doc, document_start_line))
+    findings.extend(_check_required_fields(doc, document_start_line))
+    findings.extend(_check_validation_guidance(doc, document_start_line))
+    findings.extend(_check_generic_validation_messages(doc, document_start_line))
+    findings.extend(_check_ambiguous_button_text(doc, document_start_line))
     findings.extend(
         _check_combobox_usage(doc, source_code, document_start_line, options=options)
     )
@@ -147,6 +200,26 @@ def find_accessibility_findings(
         findings.extend(
             _check_html_heading_order(section, source_code, document_start_line)
         )
+        findings.extend(
+            _check_color_only_instructions(section, source_code, document_start_line)
+        )
+        findings.extend(
+            _check_inline_color_styling(section, source_code, document_start_line)
+        )
+        findings.extend(
+            _check_new_tab_links(section, source_code, document_start_line)
+        )
+        findings.extend(_check_svg_names(section, source_code, document_start_line))
+        findings.extend(_check_tables(section, source_code, document_start_line))
+        findings.extend(
+            _check_positive_tabindex(section, source_code, document_start_line)
+        )
+        findings.extend(
+            _check_clickable_non_controls(section, source_code, document_start_line)
+        )
+    findings.extend(
+        _check_ambiguous_link_destinations(doc, source_code, document_start_line)
+    )
     unique_findings: list[AccessibilityFinding] = []
     seen: set[tuple[str, str, int]] = set()
     for finding in findings:
@@ -213,6 +286,30 @@ def _check_combobox_usage(
     return findings
 
 
+def _check_yesno_shortcuts(
+    doc: dict[str, Any], source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for shortcut in ("yesno", "noyes", "yesnomaybe", "noyesmaybe"):
+        value = doc.get(shortcut)
+        if value is None:
+            continue
+        line_number = _absolute_line_number(
+            source_code,
+            document_start_line,
+            _find_top_level_key_line(source_code, shortcut) or doc.get("__line__", 1),
+            f"{shortcut}:",
+        )
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_YESNO_SHORTCUT,
+                line_number=line_number,
+                shortcut=shortcut,
+            )
+        )
+    return findings
+
+
 def _check_multifield_no_label_usage(
     doc: dict[str, Any], document_start_line: int
 ) -> list[FindingDraft]:
@@ -244,6 +341,218 @@ def _check_multifield_no_label_usage(
                 line_number=field_line,
                 field_count=len(fields),
                 field_name=field_name,
+            )
+        )
+    return findings
+
+
+def _check_field_labels(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    fields = _iter_fields(doc)
+    for field in _iter_fields(doc):
+        if not _field_collects_user_input(field):
+            continue
+        datatype = str(field.get("datatype") or "").strip().lower()
+        if datatype in {"button", "buttons", "note"}:
+            continue
+        field_name = _extract_field_variable(field) or "<unknown field>"
+        label = _extract_field_label(field)
+        field_line = _field_line_number(doc, field, document_start_line)
+        if not label:
+            if len(fields) > 1:
+                continue
+            findings.append(
+                draft(
+                    MessageId.ACCESSIBILITY_FIELD_MISSING_LABEL,
+                    line_number=field_line,
+                    field_name=field_name,
+                )
+            )
+            continue
+        normalized = _normalize_human_text(label)
+        if normalized in NON_DESCRIPTIVE_FIELD_LABELS or _looks_like_emoji_or_punctuation_only(
+            label
+        ):
+            findings.append(
+                draft(
+                    MessageId.ACCESSIBILITY_NON_DESCRIPTIVE_FIELD_LABEL,
+                    line_number=field_line,
+                    snippet=label,
+                )
+            )
+    return findings
+
+
+def _check_choice_labels(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for field in _iter_fields(doc):
+        for label, line_hint in _iter_choice_labels_with_lines(field.get("choices")):
+            line_number = _field_line_number(doc, field, document_start_line, line_hint)
+            if not label.strip():
+                findings.append(
+                    draft(
+                        MessageId.ACCESSIBILITY_BLANK_CHOICE_LABEL,
+                        line_number=line_number,
+                        location=_extract_field_label(field)
+                        or _extract_field_variable(field)
+                        or "choices",
+                    )
+                )
+                continue
+            normalized = _normalize_human_text(label)
+            if normalized in NON_DESCRIPTIVE_FIELD_LABELS or _looks_like_emoji_or_punctuation_only(
+                label
+            ):
+                findings.append(
+                    draft(
+                        MessageId.ACCESSIBILITY_NON_DESCRIPTIVE_CHOICE_LABEL,
+                        line_number=line_number,
+                        location=_extract_field_label(field)
+                        or _extract_field_variable(field)
+                        or "choices",
+                        snippet=label,
+                    )
+                )
+    return findings
+
+
+def _check_duplicate_field_labels(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    labels: dict[str, list[tuple[int, str]]] = {}
+    for field in _iter_fields(doc):
+        if not _field_collects_user_input(field):
+            continue
+        label = _extract_field_label(field)
+        normalized = _normalize_human_text(label)
+        if not normalized:
+            continue
+        labels.setdefault(normalized, []).append(
+            (
+                _field_line_number(doc, field, document_start_line),
+                label,
+            )
+        )
+
+    findings: list[FindingDraft] = []
+    for entries in labels.values():
+        if len(entries) < 2:
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_DUPLICATE_FIELD_LABEL,
+                line_number=entries[0][0],
+                labels=", ".join(label for _, label in entries[:3]),
+            )
+        )
+    return findings
+
+
+def _check_required_fields(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for field in _iter_fields(doc):
+        if not _is_truthy(field.get("required")):
+            continue
+        label = _extract_field_label(field)
+        hint = str(field.get("hint") or "")
+        help_text = str(field.get("help") or "")
+        combined = f"{label} {hint} {help_text}".lower()
+        if "required" in combined or "*" in f"{label}{hint}{help_text}":
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_REQUIRED_FIELD_NOT_INDICATED,
+                line_number=_field_line_number(doc, field, document_start_line),
+                snippet=label or _extract_field_variable(field) or "<unknown field>",
+            )
+        )
+    return findings
+
+
+def _check_validation_guidance(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for field in _iter_fields(doc):
+        if "code" in field:
+            continue
+        has_constraint = bool(
+            str(field.get("validation code") or "").strip()
+            or field.get("min")
+            or field.get("max")
+            or field.get("minlength")
+            or field.get("maxlength")
+            or field.get("required")
+        )
+        if not has_constraint:
+            continue
+        validation_messages = _collect_validation_messages(field)
+        has_guidance = bool(
+            str(field.get("hint") or "").strip()
+            or str(field.get("help") or "").strip()
+            or str(field.get("note") or "").strip()
+            or validation_messages
+        )
+        if has_guidance:
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_VALIDATION_WITHOUT_GUIDANCE,
+                line_number=_field_line_number(doc, field, document_start_line),
+                snippet=_extract_field_label(field)
+                or _extract_field_variable(field)
+                or "<unknown field>",
+            )
+        )
+    return findings
+
+
+def _check_generic_validation_messages(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for field in _iter_fields(doc):
+        for message, line_hint in _collect_validation_messages(field):
+            normalized = _normalize_human_text(message)
+            if normalized not in GENERIC_VALIDATION_MESSAGES:
+                continue
+            findings.append(
+                draft(
+                    MessageId.ACCESSIBILITY_GENERIC_VALIDATION_MESSAGE,
+                    line_number=_field_line_number(
+                        doc, field, document_start_line, line_hint
+                    ),
+                    snippet=message,
+                )
+            )
+    return findings
+
+
+def _check_ambiguous_button_text(
+    doc: dict[str, Any], document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    labels = _iter_choice_labels(doc.get("buttons"))
+    labels.append(str(doc.get("continue button label") or ""))
+    for field in _iter_fields(doc):
+        datatype = str(field.get("datatype") or "").strip().lower()
+        if datatype in {"button", "buttons"}:
+            labels.extend(_iter_choice_labels(field.get("choices")))
+    for label in labels:
+        normalized = _normalize_human_text(label)
+        if normalized not in AMBIGUOUS_BUTTON_TEXT:
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT,
+                line_number=document_start_line + doc.get("__line__", 1) - 1,
+                snippet=label,
             )
         )
     return findings
@@ -544,6 +853,236 @@ def _check_non_descriptive_link_text(
     return findings
 
 
+def _check_color_only_instructions(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    plain_text = _normalize_human_text(section.value)
+    if not any(color in plain_text.split() for color in COLOR_WORDS):
+        return []
+    color_reference_re = re.compile(
+        r"\b(red|green|blue|yellow|orange|purple|pink|gray|grey|black|white)\b",
+        re.IGNORECASE,
+    )
+    if not color_reference_re.search(section.value):
+        return []
+    if re.search(r"\b(color|colou?r|highlight|highlighted|shade|shaded)\b", section.value, re.IGNORECASE):
+        line_number = _absolute_line_number(
+            source_code,
+            document_start_line,
+            section.key_line,
+            color_reference_re.search(section.value).group(0),  # type: ignore[union-attr]
+        )
+        return [
+            draft(
+                MessageId.ACCESSIBILITY_COLOR_ONLY_INSTRUCTIONS,
+                line_number=line_number,
+                section_location=section.location,
+                snippet=_short_snippet(section.value),
+            )
+        ]
+    return []
+
+
+def _check_inline_color_styling(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    patterns = [
+        r"style\s*=\s*([\"']).*?\bcolor\s*:",
+        r"\bclass\s*=\s*([\"']).*?\b(text|bg)-(danger|warning|success|primary|secondary|info)\b",
+        r"<font\b[^>]*\bcolor\s*=",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, section.value, re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_INLINE_COLOR_STYLING,
+                line_number=_absolute_line_number(
+                    source_code,
+                    document_start_line,
+                    section.key_line,
+                    match.group(0),
+                ),
+                section_location=section.location,
+                snippet=_short_snippet(match.group(0)),
+            )
+        )
+        break
+    return findings
+
+
+def _check_ambiguous_link_destinations(
+    doc: dict[str, Any], source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    links_by_text: dict[str, list[tuple[str, TextSection, str]]] = {}
+    for section in _iter_text_sections(doc, source_code):
+        for link in _extract_links_from_text(section.value):
+            text = _normalize_human_text(link["text"])
+            if not text or not link["target"].strip():
+                continue
+            links_by_text.setdefault(text, []).append(
+                (link["target"].strip(), section, link["snippet"])
+            )
+
+    findings: list[FindingDraft] = []
+    for text, entries in links_by_text.items():
+        targets = {target for target, _, _ in entries}
+        if len(targets) < 2:
+            continue
+        _, section, snippet = entries[0]
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_AMBIGUOUS_LINK_DESTINATIONS,
+                line_number=_absolute_line_number(
+                    source_code, document_start_line, section.key_line, snippet
+                ),
+                snippet=_short_snippet(snippet),
+            )
+        )
+    return findings
+
+
+def _check_new_tab_links(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for link in _extract_links_from_text(section.value):
+        attrs = link["attrs"].lower()
+        if 'target="_blank"' not in attrs and "target='_blank'" not in attrs:
+            continue
+        combined = " ".join(
+            [link["text"], link["aria_label"], link["title"], section.value]
+        ).lower()
+        if any(marker in combined for marker in ("new tab", "new window", "opens in")):
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_NEW_TAB_WITHOUT_WARNING,
+                line_number=_absolute_line_number(
+                    source_code,
+                    document_start_line,
+                    section.key_line,
+                    link["snippet"],
+                ),
+                section_location=section.location,
+                snippet=_short_snippet(link["snippet"]),
+            )
+        )
+    return findings
+
+
+def _check_svg_names(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for match in re.finditer(r"<svg\b[^>]*>.*?</svg>", section.value, re.IGNORECASE | re.DOTALL):
+        snippet = match.group(0)
+        if re.search(r"\baria-label\s*=\s*([\"']).+?\1", snippet, re.IGNORECASE):
+            continue
+        if re.search(r"\baria-labelledby\s*=\s*([\"']).+?\1", snippet, re.IGNORECASE):
+            continue
+        if re.search(r"<title\b[^>]*>.*?</title>", snippet, re.IGNORECASE | re.DOTALL):
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_SVG_MISSING_ACCESSIBLE_NAME,
+                line_number=_absolute_line_number(
+                    source_code, document_start_line, section.key_line, "<svg"
+                ),
+                section_location=section.location,
+                snippet=_short_snippet(snippet),
+            )
+        )
+    return findings
+
+
+def _check_tables(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for match in re.finditer(
+        r"<table\b[^>]*>.*?</table>", section.value, re.IGNORECASE | re.DOTALL
+    ):
+        snippet = match.group(0)
+        has_headers = bool(re.search(r"<th\b", snippet, re.IGNORECASE))
+        has_caption = bool(re.search(r"<caption\b", snippet, re.IGNORECASE))
+        has_multiple_rows = len(re.findall(r"<tr\b", snippet, re.IGNORECASE)) > 1
+        line_number = _absolute_line_number(
+            source_code, document_start_line, section.key_line, "<table"
+        )
+        if not has_headers and has_multiple_rows:
+            findings.append(
+                draft(
+                    MessageId.ACCESSIBILITY_TABLE_MISSING_HEADERS,
+                    line_number=line_number,
+                    section_location=section.location,
+                    snippet=_short_snippet(snippet),
+                )
+            )
+        elif not has_headers and not has_caption:
+            findings.append(
+                draft(
+                    MessageId.ACCESSIBILITY_LAYOUT_TABLE_NEEDS_REVIEW,
+                    line_number=line_number,
+                    section_location=section.location,
+                    snippet=_short_snippet(snippet),
+                )
+            )
+    return findings
+
+
+def _check_positive_tabindex(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for match in re.finditer(
+        r"\btabindex\s*=\s*([\"']?)(\d+)\1", section.value, re.IGNORECASE
+    ):
+        if int(match.group(2)) <= 0:
+            continue
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_POSITIVE_TABINDEX,
+                line_number=_absolute_line_number(
+                    source_code,
+                    document_start_line,
+                    section.key_line,
+                    match.group(0),
+                ),
+                section_location=section.location,
+                snippet=_short_snippet(match.group(0)),
+            )
+        )
+    return findings
+
+
+def _check_clickable_non_controls(
+    section: TextSection, source_code: str, document_start_line: int
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for match in re.finditer(
+        r"<(div|span|p|li)\b[^>]*\bonclick\s*=", section.value, re.IGNORECASE
+    ):
+        tag_name = match.group(1).lower()
+        findings.append(
+            draft(
+                MessageId.ACCESSIBILITY_CLICKABLE_NON_CONTROL_HTML,
+                line_number=_absolute_line_number(
+                    source_code,
+                    document_start_line,
+                    section.key_line,
+                    match.group(0),
+                ),
+                section_location=section.location,
+                tag_name=tag_name,
+                snippet=_short_snippet(match.group(0)),
+            )
+        )
+    return findings
+
+
 def _find_top_level_key_line(source_code: str, key: str) -> Optional[int]:
     key_re = re.compile(rf"^{re.escape(key)}\s*:", re.MULTILINE)
     match = key_re.search(source_code)
@@ -609,13 +1148,97 @@ def _extract_field_variable(field: dict[str, Any]) -> str:
 
 def _extract_field_label(field: dict[str, Any]) -> str:
     explicit = str(field.get("label") or "").strip()
-    if explicit:
+    if explicit and not _is_no_label_marker(explicit):
         return explicit
     for key in field.keys():
         key_text = str(key).strip()
-        if key_text and key_text not in FIELD_NON_LABEL_KEYS:
+        if (
+            key_text
+            and key_text not in FIELD_NON_LABEL_KEYS
+            and not _is_no_label_marker(key_text)
+        ):
             return key_text
     return ""
+
+
+def _field_line_number(
+    doc: dict[str, Any],
+    field: dict[str, Any],
+    document_start_line: int,
+    line_hint: Optional[int] = None,
+) -> int:
+    relative_line = line_hint or field.get("__line__", doc.get("__line__", 1))
+    return document_start_line + relative_line - 1
+
+
+def _is_no_label_marker(value: str) -> bool:
+    normalized = value.strip().lower()
+    return normalized in {"no label", "n/a", "na", "none"}
+
+
+def _looks_like_emoji_or_punctuation_only(value: str) -> bool:
+    stripped = value.strip()
+    if not stripped:
+        return False
+    return not any(char.isalnum() for char in stripped)
+
+
+def _iter_choice_labels(choice_value: Any) -> list[str]:
+    return [label for label, _ in _iter_choice_labels_with_lines(choice_value)]
+
+
+def _field_collects_user_input(field: dict[str, Any]) -> bool:
+    if "code" in field:
+        return False
+    datatype = str(field.get("datatype") or "").strip().lower()
+    if datatype in {"button", "buttons", "note"}:
+        return False
+    if "field" in field:
+        return True
+    return any(str(key).strip() not in FIELD_NON_LABEL_KEYS for key in field.keys())
+
+
+def _iter_choice_labels_with_lines(choice_value: Any) -> list[tuple[str, Optional[int]]]:
+    labels: list[tuple[str, Optional[int]]] = []
+    if isinstance(choice_value, dict):
+        for key, value in choice_value.items():
+            if isinstance(value, dict):
+                labels.append((str(value.get("label") or key or ""), value.get("__line__")))
+            else:
+                labels.append((str(key or ""), None))
+        return labels
+    if not isinstance(choice_value, list):
+        return labels
+    for item in choice_value:
+        if isinstance(item, str):
+            labels.append((item, None))
+        elif isinstance(item, dict):
+            if "label" in item:
+                labels.append((str(item.get("label") or ""), item.get("__line__")))
+            elif len(item) == 1:
+                key = next(iter(item.keys()))
+                labels.append((str(key or ""), item.get("__line__")))
+    return labels
+
+
+def _collect_validation_messages(field: dict[str, Any]) -> list[tuple[str, Optional[int]]]:
+    messages: list[tuple[str, Optional[int]]] = []
+    validation_message = field.get("validation message")
+    if isinstance(validation_message, str) and validation_message.strip():
+        messages.append((validation_message.strip(), field.get("__line__")))
+    elif isinstance(validation_message, list):
+        for item in validation_message:
+            if isinstance(item, str) and item.strip():
+                messages.append((item.strip(), field.get("__line__")))
+            elif isinstance(item, dict):
+                for value in item.values():
+                    if isinstance(value, str) and value.strip():
+                        messages.append((value.strip(), item.get("__line__")))
+    elif isinstance(validation_message, dict):
+        for value in validation_message.values():
+            if isinstance(value, str) and value.strip():
+                messages.append((value.strip(), validation_message.get("__line__")))
+    return messages
 
 
 def _is_truthy(value: Any) -> bool:
@@ -858,6 +1481,7 @@ def _extract_links_from_text(text: str) -> list[dict[str, str]]:
                 "target": str(target),
                 "aria_label": "",
                 "title": "",
+                "attrs": "",
                 "snippet": f"[{link_text}]({target})",
             }
         )
@@ -877,7 +1501,15 @@ def _extract_links_from_text(text: str) -> list[dict[str, str]]:
                     aria_label_match.group(2) if aria_label_match else ""
                 ),
                 "title": str(title_match.group(2) if title_match else ""),
+                "attrs": str(attrs),
                 "snippet": snippet,
             }
         )
     return links
+
+
+def _short_snippet(value: str, *, limit: int = 120) -> str:
+    snippet = re.sub(r"\s+", " ", value).strip()
+    if len(snippet) <= limit:
+        return snippet
+    return f"{snippet[: limit - 1].rstrip()}…"
