@@ -1,7 +1,7 @@
 # Each doc, apply this to each block
 import ast
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import re
 import sys
@@ -11,7 +11,12 @@ from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
 )
-from dayamlchecker.messages import Finding, MessageId, draft, make_finding
+from dayamlchecker.messages import Finding, FindingClass, MessageId, draft, make_finding
+from dayamlchecker.style import (
+    ParsedInterviewDocument,
+    StyleLintOptions,
+    find_style_findings,
+)
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
 from mako.exceptions import (  # type: ignore[import-untyped]
     SyntaxException,
@@ -50,10 +55,24 @@ ACCESSIBILITY_LINT_MODE = "accessibility"
 @dataclass(frozen=True)
 class RuntimeOptions:
     accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
+    style_enabled: bool = False
+    style_include_llm: bool = False
+    style_openai_base_url: str | None = None
+    style_openai_api_key: str | None = None
+    style_openai_model: str | None = None
 
     def accessibility_options(self) -> AccessibilityLintOptions:
         return AccessibilityLintOptions(
             error_on_widgets=self.accessibility_error_on_widgets
+        )
+
+    def style_options(self) -> StyleLintOptions:
+        return StyleLintOptions(
+            enabled=self.style_enabled or self.style_include_llm,
+            include_llm=self.style_include_llm,
+            openai_base_url=self.style_openai_base_url,
+            openai_api_key=self.style_openai_api_key,
+            openai_model=self.style_openai_model,
         )
 
 
@@ -1561,6 +1580,8 @@ def find_errors_from_string(
     ]
     yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
+    parsed_docs: list[ParsedInterviewDocument] = []
+    has_yaml_parse_errors = False
     line_number = 1
     for source_code in document_match.split(full_content):
         lines_in_code = sum(l == "\n" for l in source_code)
@@ -1587,6 +1608,7 @@ def find_errors_from_string(
                     error=rendered_error,
                 )
             )
+            has_yaml_parse_errors = True
             line_number += lines_in_code
             continue
 
@@ -1709,9 +1731,161 @@ def find_errors_from_string(
         prior_conditional_fields.extend(
             _extract_conditional_fields_from_doc(doc, line_number)
         )
+        parsed_docs.append(
+            ParsedInterviewDocument(
+                doc=doc,
+                source_code=source_code,
+                document_start_line=line_number,
+                index=len(parsed_docs),
+            )
+        )
 
         line_number += lines_in_code
+    if not has_yaml_parse_errors:
+        all_errors.extend(
+            _find_interview_level_findings(parsed_docs, input_file=input_file)
+        )
+    style_options = runtime_options.style_options()
+    if style_options.enabled and not has_yaml_parse_errors:
+        all_errors.extend(
+            find_style_findings(
+                docs=parsed_docs,
+                input_file=input_file,
+                options=style_options,
+            )
+        )
     return all_errors
+
+
+_COMMON_COURTFORMSONLINE_METADATA_FIELDS = (
+    "title",
+    "short title",
+    "description",
+    "can_I_use_this_form",
+    "before_you_start",
+    "LIST_topics",
+    "jurisdiction",
+)
+
+
+def _find_interview_level_findings(
+    parsed_docs: list[ParsedInterviewDocument], *, input_file: str
+) -> list[Finding]:
+    findings: list[Finding] = []
+    findings.extend(_check_missing_question_ids(parsed_docs, input_file=input_file))
+    findings.extend(
+        _check_multiple_mandatory_blocks(parsed_docs, input_file=input_file)
+    )
+    findings.extend(_check_metadata_fields(parsed_docs, input_file=input_file))
+    return findings
+
+
+def _check_missing_question_ids(
+    parsed_docs: list[ParsedInterviewDocument], *, input_file: str
+) -> list[Finding]:
+    if not _looks_like_interview_file(parsed_docs):
+        return []
+    findings: list[Finding] = []
+    for parsed_doc in parsed_docs:
+        question = str(parsed_doc.doc.get("question") or "").strip()
+        if not question or str(parsed_doc.doc.get("id") or "").strip():
+            continue
+        findings.append(
+            make_finding(
+                MessageId.MISSING_QUESTION_ID,
+                file_name=input_file,
+                line_number=parsed_doc.line_for_key("question"),
+                snippet=_shorten(question),
+            )
+        )
+    return findings
+
+
+def _check_multiple_mandatory_blocks(
+    parsed_docs: list[ParsedInterviewDocument], *, input_file: str
+) -> list[Finding]:
+    mandatory_docs = [
+        parsed_doc
+        for parsed_doc in parsed_docs
+        if _is_truthy(parsed_doc.doc.get("mandatory"))
+    ]
+    if len(mandatory_docs) < 2:
+        return []
+    labels = []
+    for parsed_doc in mandatory_docs[:4]:
+        label = str(
+            parsed_doc.doc.get("id") or parsed_doc.doc.get("question") or ""
+        ).strip()
+        labels.append(_shorten(label or parsed_doc.screen_id))
+    return [
+        make_finding(
+            MessageId.MULTIPLE_MANDATORY_BLOCKS,
+            file_name=input_file,
+            line_number=mandatory_docs[1].line_for_key("mandatory"),
+            labels=", ".join(labels),
+        )
+    ]
+
+
+def _check_metadata_fields(
+    parsed_docs: list[ParsedInterviewDocument], *, input_file: str
+) -> list[Finding]:
+    metadata_doc: Optional[ParsedInterviewDocument] = None
+    metadata: dict[str, Any] = {}
+    for parsed_doc in parsed_docs:
+        block = parsed_doc.doc.get("metadata")
+        if not isinstance(block, dict):
+            continue
+        if metadata_doc is None:
+            metadata_doc = parsed_doc
+        metadata.update(block)
+    if metadata_doc is None:
+        return []
+    missing = [
+        field
+        for field in _COMMON_COURTFORMSONLINE_METADATA_FIELDS
+        if not metadata.get(field)
+    ]
+    if not missing:
+        return []
+    return [
+        make_finding(
+            MessageId.MISSING_METADATA_FIELDS,
+            file_name=input_file,
+            line_number=metadata_doc.line_for_key("metadata"),
+            fields=", ".join(missing),
+        )
+    ]
+
+
+def _looks_like_interview_file(parsed_docs: list[ParsedInterviewDocument]) -> bool:
+    if len(parsed_docs) > 1:
+        return True
+    for parsed_doc in parsed_docs:
+        if parsed_doc.doc.get("metadata") is not None:
+            return True
+        if parsed_doc.doc.get("include") is not None:
+            return True
+        if parsed_doc.doc.get("mandatory") is not None:
+            return True
+    return False
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "1", "on"}
+    return False
+
+
+def _shorten(value: Any, limit: int = 160) -> str:
+    rendered = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(rendered) <= limit:
+        return rendered
+    return rendered[: limit - 3] + "..."
 
 
 def find_errors(
@@ -1744,6 +1918,28 @@ def find_errors(
         lint_mode=lint_mode,
         runtime_options=runtime_options,
     )
+
+
+def find_style_findings_from_string(
+    full_content: str,
+    *,
+    input_file: str | None = None,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> list[Finding]:
+    resolved_options = runtime_options or RuntimeOptions()
+    if not resolved_options.style_enabled and not resolved_options.style_include_llm:
+        resolved_options = replace(resolved_options, style_enabled=True)
+    return [
+        finding
+        for finding in find_errors_from_string(
+            full_content,
+            input_file=input_file,
+            lint_mode=lint_mode,
+            runtime_options=resolved_options,
+        )
+        if finding.finding_class == FindingClass.STYLE
+    ]
 
 
 def _collect_yaml_files(
@@ -1847,6 +2043,37 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--style",
+        action="store_true",
+        help="Enable Assembly Line style lint checks.",
+    )
+    parser.add_argument(
+        "--style-llm",
+        action="store_true",
+        help=(
+            "Enable LLM-backed style findings. This also enables --style and "
+            "uses an OpenAI-compatible API key from flags or environment."
+        ),
+    )
+    parser.add_argument(
+        "--openai-base-url",
+        default=None,
+        help=(
+            "Base URL for an OpenAI-compatible API used by --style-llm "
+            "(default: OPENAI_BASE_URL environment variable or the standard OpenAI API)"
+        ),
+    )
+    parser.add_argument(
+        "--openai-api-key",
+        default=None,
+        help="API key for --style-llm (default: OPENAI_API_KEY environment variable)",
+    )
+    parser.add_argument(
+        "--openai-model",
+        default=None,
+        help="Model name for --style-llm (default: OPENAI_MODEL env var or gpt-4o-mini)",
+    )
+    parser.add_argument(
         "--url-check",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -1922,7 +2149,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             widget.strip().lower()
             for widget in args.accessibility_error_on_widgets
             if widget.strip()
-        )
+        ),
+        style_enabled=args.style or args.style_llm,
+        style_include_llm=args.style_llm,
+        style_openai_base_url=args.openai_base_url,
+        style_openai_api_key=args.openai_api_key,
+        style_openai_model=args.openai_model,
     )
 
     yaml_files = _collect_yaml_files(

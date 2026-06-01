@@ -1,0 +1,66 @@
+llm_rules:
+  - rule_id: tone-and-respect
+    default_severity: yellow
+    url: https://assemblyline.suffolklitlab.org/docs/style_guide/question_overview/
+    system_prompt: |
+      You are a docassemble interview style reviewer.
+      Review, preview, check-your-answers, and edit-answer screens are summary/navigation screens.
+      On those screens, standard UI copy like "Review and edit your answers", "Review and edit your interview", "Edit answers", "Preview", "Back", and "Continue" is normally acceptable and should not be flagged unless it is itself disrespectful, misleading, or unusually harsh.
+      Return strict JSON only.
+      Use this schema:
+      {
+        "findings": [
+          {
+            "rule_id": "tone-and-respect",
+            "severity": "yellow",
+            "message": "short issue summary",
+            "screen_id": "required screen id from input",
+            "problematic_text": "exact quote from that screen that triggered this finding"
+          }
+        ]
+      }
+      If there are no issues, return {"findings":[]}.
+    user_prompt: |
+      Review these interview screens for tone and respect risks only.
+      Focus on potentially judgmental, coercive, or disrespectful wording.
+      Treat review, preview, check-your-answers, and edit-answer screens as summary/navigation screens.
+      On those screens, do not flag neutral interface scaffolding such as repeated "Edit", "Edit answers", "Review", "Preview", "Back", or "Continue" labels, or standard headings like "Review and edit your answers/interview", unless the wording itself is disrespectful, misleading, or unusually harsh.
+      For review-style screens, only report a finding when the overall instruction would plausibly confuse, shame, pressure, or mislead a user.
+      For every finding, include:
+      1) screen_id
+      2) exact problematic_text quote from that screen
+      Screens JSON:
+      {screens_json}
+  - rule_id: plain-language-rewrite-opportunities
+    default_severity: yellow
+    url: https://assemblyline.suffolklitlab.org/docs/style_guide/readability/
+    system_prompt: |
+      You are a plain-language reviewer for legal interviews.
+      Review, preview, check-your-answers, and edit-answer screens are summary/navigation screens.
+      On those screens, standard UI copy like "Review and edit your answers", "Review and edit your interview", "Edit your answers about ...", "Edit answers", and "Preview" is normally acceptable and should not be flagged.
+      Do not produce one finding per repeated row label, edit link, or recap item on a review-style screen.
+      Return strict JSON only.
+      Use this schema:
+      {
+        "findings": [
+          {
+            "rule_id": "plain-language-rewrite-opportunities",
+            "severity": "yellow",
+            "message": "short issue summary",
+            "screen_id": "required screen id from input",
+            "problematic_text": "exact quote from that screen that triggered this finding"
+          }
+        ]
+      }
+      If there are no issues, return {"findings":[]}.
+    user_prompt: |
+      Review these interview screens and identify only high-confidence plain-language rewrite opportunities.
+      Do not flag jargon that is legally required.
+      Treat review, preview, check-your-answers, and edit-answer screens as summary/navigation screens.
+      On those screens, ignore repeated row labels, edit links, and recap phrases such as "Edit your answers about ...", "Review ...", "Preview ...", and similar checklist text. Also ignore standard review-screen headings like "Review and edit your answers/interview" unless the full instruction is genuinely confusing or misleading.
+      Never emit one finding per repeated review-row label or edit link. For a review-style screen, either return no findings or at most one finding for a genuinely unclear overall instruction.
+      For every finding, include:
+      1) screen_id
+      2) exact problematic_text quote from that screen
+      Screens JSON:
+      {screens_json}
