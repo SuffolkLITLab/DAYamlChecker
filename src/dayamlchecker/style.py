@@ -46,6 +46,31 @@ _COMPOUND_QUESTION_RE = re.compile(
     r"can|could|will|would|should|have|has|had)\b",
     re.IGNORECASE,
 )
+_CONTRACTION_RE = re.compile(
+    r"\b(?:can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|"
+    r"haven't|hasn't|hadn't|couldn't|shouldn't|wouldn't|mustn't|"
+    r"I'm|you're|we're|they're|it's|that's|there's|what's|who's|"
+    r"I'll|you'll|we'll|they'll|I'll|I'd|you'd|we'd|they'd)\b",
+    re.IGNORECASE,
+)
+_SLASH_ALTERNATIVE_RE = re.compile(r"\b[A-Za-z]+/[A-Za-z]+(?:/[A-Za-z]+)*\b")
+_ALLOWED_SLASH_ALTERNATIVES = frozenset(
+    {
+        "she/her/hers",
+        "she/her",
+        "he/him/his",
+        "he/him",
+        "they/them/theirs",
+        "they/them",
+        "ze/zir/zirs",
+        "ze/zir",
+        "n/a",
+    }
+)
+_FIELD_LABEL_INSTRUCTION_VERB_RE = re.compile(
+    r"^(?:please\s+)?(?:enter|write)\b|^(?:please\s+)?list\s+(?!of\b)",
+    re.IGNORECASE,
+)
 _PLACEHOLDER_PATTERNS = (
     re.compile(r"\bplaceholder\b", re.IGNORECASE),
     re.compile(r"\blorem ipsum\b", re.IGNORECASE),
@@ -199,10 +224,17 @@ def find_style_findings(
         _check_empty_screen_title,
         _check_placeholder_language,
         _check_plain_language_replacements,
+        _check_contractions,
+        _check_slash_alternatives,
         _check_variable_conventions,
         _check_long_sentences,
         _check_compound_questions,
         _check_overlong_labels,
+        _check_field_label_instruction_verbs,
+        _check_title_case_labels,
+        _check_other_choice_position,
+        _check_language_fields,
+        _check_pronoun_and_gender_fields,
         _check_too_many_fields,
         _check_wall_of_text,
         _check_question_level_help,
@@ -426,6 +458,54 @@ def _check_plain_language_replacements(
     return findings
 
 
+def _check_contractions(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for entry in _user_facing_text_entries(docs):
+        plain = _plain_text(entry.text)
+        match = _CONTRACTION_RE.search(plain)
+        if not match:
+            continue
+        if match.group(0).lower() == "don't" and re.search(
+            r"\bi\s+don't\s+know\b", plain, re.IGNORECASE
+        ):
+            continue
+        findings.append(
+            _style_draft(
+                MessageId.STYLE_CONTRACTION,
+                line_number=entry.line_number,
+                screen_id=entry.screen_id,
+                location=entry.location,
+                matched_text=match.group(0),
+            )
+        )
+    return findings
+
+
+def _check_slash_alternatives(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for entry in _user_facing_text_entries(docs):
+        plain = _plain_text(entry.text)
+        for match in _SLASH_ALTERNATIVE_RE.finditer(plain):
+            matched = match.group(0)
+            if matched.lower() in _ALLOWED_SLASH_ALTERNATIVES:
+                continue
+            if _looks_like_url_path_fragment(plain, match.start(), match.end()):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.STYLE_SLASH_ALTERNATIVE,
+                    line_number=entry.line_number,
+                    screen_id=entry.screen_id,
+                    location=entry.location,
+                    snippet=_shorten(matched),
+                )
+            )
+            break
+    return findings
+
+
 def _check_variable_conventions(
     docs: list[ParsedInterviewDocument],
 ) -> list[FindingDraft]:
@@ -518,6 +598,166 @@ def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingD
                 )
             )
             break
+    return findings
+
+
+def _check_field_label_instruction_verbs(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for parsed_doc in docs:
+        for field in _iter_fields(parsed_doc.doc):
+            label = _extract_field_label(field).strip()
+            if not label or not _FIELD_LABEL_INSTRUCTION_VERB_RE.search(label):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.STYLE_FIELD_LABEL_INSTRUCTION_VERB,
+                    line_number=parsed_doc.line_for_field(field),
+                    screen_id=parsed_doc.screen_id,
+                    snippet=_shorten(label),
+                )
+            )
+    return findings
+
+
+def _check_title_case_labels(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for parsed_doc in docs:
+        for field in _iter_fields(parsed_doc.doc):
+            if _field_is_choice_style(field):
+                continue
+            label = _extract_field_label(field)
+            if not _looks_like_title_case_label(label):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.STYLE_TITLE_CASE_LABEL,
+                    line_number=parsed_doc.line_for_field(field),
+                    screen_id=parsed_doc.screen_id,
+                    snippet=_shorten(label),
+                )
+            )
+    return findings
+
+
+def _check_other_choice_position(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for parsed_doc in docs:
+        for origin, choices, line_number in _iter_choice_sources(parsed_doc):
+            options = _choice_options(choices)
+            if len(options) < 2:
+                continue
+            for index, option in enumerate(options[:-1]):
+                if option["label"].strip().lower() != "other":
+                    continue
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_OTHER_CHOICE_NOT_LAST,
+                        line_number=line_number,
+                        screen_id=parsed_doc.screen_id,
+                        origin=origin,
+                    )
+                )
+                break
+    return findings
+
+
+def _check_language_fields(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for parsed_doc in docs:
+        for field in _iter_fields(parsed_doc.doc):
+            if not _is_language_field(field):
+                continue
+            label = _extract_field_label(field) or _extract_field_variable(field)
+            if _field_uses_dropdown(field):
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_LANGUAGE_DROPDOWN,
+                        line_number=parsed_doc.line_for_field(field),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(label),
+                    )
+                )
+            for option in _choice_options(field.get("choices")):
+                value = option["value"].strip()
+                if not value or value.lower() == "other":
+                    continue
+                if re.fullmatch(r"[a-z]{2,3}", value):
+                    continue
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_LANGUAGE_CHOICE_VALUE,
+                        line_number=parsed_doc.line_for_field(field),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(f'{option["label"]}: {value}'),
+                    )
+                )
+                break
+    return findings
+
+
+def _check_pronoun_and_gender_fields(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for entry in _user_facing_text_entries(docs):
+        plain = _plain_text(entry.text)
+        if not re.search(r"\bpreferred\s+pronouns\b", plain, re.IGNORECASE):
+            continue
+        findings.append(
+            _style_draft(
+                MessageId.STYLE_PREFERRED_PRONOUNS,
+                line_number=entry.line_number,
+                screen_id=entry.screen_id,
+                location=entry.location,
+                snippet=_shorten(plain),
+            )
+        )
+
+    for parsed_doc in docs:
+        for field in _iter_fields(parsed_doc.doc):
+            label = _extract_field_label(field)
+            variable = _extract_field_variable(field)
+            combined = f"{label} {variable}".lower()
+            if re.search(r"\bpronouns?\b", combined) and _is_truthy(
+                field.get("required")
+            ):
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_REQUIRED_PRONOUN_FIELD,
+                        line_number=parsed_doc.line_for_field(field),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(label or variable),
+                    )
+                )
+            if not re.search(r"\bgender\b", combined):
+                continue
+            labels = [
+                option["label"].strip().lower()
+                for option in _choice_options(field.get("choices"))
+                if option["label"].strip()
+            ]
+            if "other" in labels:
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_GENDER_OTHER_CHOICE,
+                        line_number=parsed_doc.line_for_field(field),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(label or variable),
+                    )
+                )
+            if set(labels) == {"female", "male"}:
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_GENDER_BINARY_ONLY,
+                        line_number=parsed_doc.line_for_field(field),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(label or variable),
+                    )
+                )
     return findings
 
 
@@ -1014,11 +1254,143 @@ def _extract_choice_display_text(choices: Any) -> list[str]:
                 label = _stringify(choice.get("label"))
                 if label:
                     extracted.append(label)
-                elif len(choice) == 1:
-                    extracted.append(_stringify(next(iter(choice.keys()))))
+                else:
+                    display_items = [
+                        key for key in choice.keys() if _stringify(key) != "__line__"
+                    ]
+                    if len(display_items) == 1:
+                        extracted.append(_stringify(display_items[0]))
     elif isinstance(choices, dict):
         extracted.extend(_stringify(key) for key in choices.keys())
     return [item for item in extracted if item]
+
+
+def _iter_choice_sources(
+    parsed_doc: ParsedInterviewDocument,
+) -> list[tuple[str, Any, int]]:
+    sources: list[tuple[str, Any, int]] = []
+    for key in ("choices", "dropdown", "buttons"):
+        if parsed_doc.doc.get(key) is not None:
+            sources.append((key, parsed_doc.doc.get(key), parsed_doc.line_for_key(key)))
+    for index, field in enumerate(_iter_fields(parsed_doc.doc)):
+        if field.get("choices") is not None:
+            sources.append(
+                (
+                    f"fields[{index}].choices",
+                    field.get("choices"),
+                    parsed_doc.line_for_field(field),
+                )
+            )
+    return sources
+
+
+def _choice_options(choices: Any) -> list[dict[str, str]]:
+    options: list[dict[str, str]] = []
+    if isinstance(choices, list):
+        for choice in choices:
+            if isinstance(choice, str):
+                label, value = _split_choice_string(choice)
+                options.append({"label": label, "value": value})
+            elif isinstance(choice, dict):
+                label = _stringify(choice.get("label")).strip()
+                value = _stringify(choice.get("value")).strip()
+                if label or value:
+                    options.append({"label": label, "value": value})
+                else:
+                    display_items = [
+                        (key, val)
+                        for key, val in choice.items()
+                        if _stringify(key) != "__line__"
+                    ]
+                    if len(display_items) != 1:
+                        continue
+                    key, val = display_items[0]
+                    options.append(
+                        {
+                            "label": _stringify(key).strip(),
+                            "value": _stringify(val).strip(),
+                        }
+                    )
+    elif isinstance(choices, dict):
+        for key, value in choices.items():
+            options.append(
+                {"label": _stringify(key).strip(), "value": _stringify(value).strip()}
+            )
+    return [option for option in options if option["label"] or option["value"]]
+
+
+def _split_choice_string(choice: str) -> tuple[str, str]:
+    if ": " not in choice:
+        return choice.strip(), ""
+    label, value = choice.split(": ", 1)
+    return label.strip(), value.strip()
+
+
+def _looks_like_title_case_label(value: str) -> bool:
+    if not value or "?" in value or "${" in value:
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", value)
+    candidates = [
+        word
+        for word in words
+        if len(word) > 2
+        and not word.isupper()
+        and word.lower() not in {"and", "for", "the", "with", "from"}
+    ]
+    if len(candidates) < 3:
+        return False
+    title_words = [
+        word
+        for word in candidates
+        if word[:1].isupper() and word[1:] == word[1:].lower()
+    ]
+    return len(title_words) / len(candidates) >= 0.75
+
+
+def _is_language_field(field: dict[str, Any]) -> bool:
+    combined = " ".join((_extract_field_label(field), _extract_field_variable(field)))
+    return bool(re.search(r"\blanguage\b", combined, re.IGNORECASE))
+
+
+def _field_uses_dropdown(field: dict[str, Any]) -> bool:
+    return (
+        any(
+            _stringify(field.get(key)).strip().lower() == "dropdown"
+            for key in ("datatype", "input type")
+        )
+        or field.get("dropdown") is not None
+    )
+
+
+def _field_is_choice_style(field: dict[str, Any]) -> bool:
+    datatype = _stringify(field.get("datatype")).strip().lower()
+    return datatype in {
+        "checkboxes",
+        "checkbox",
+        "yesno",
+        "noyes",
+        "yesnomaybe",
+        "noyesmaybe",
+        "radio",
+    }
+
+
+def _looks_like_url_path_fragment(text: str, start: int, end: int) -> bool:
+    prefix = text[max(0, start - 20) : start]
+    suffix = text[end : min(len(text), end + 20)]
+    if re.search(r"(?:https?://|www\.)\S*$", prefix, re.IGNORECASE):
+        return True
+    if prefix.endswith(".") or "/" in prefix[-2:]:
+        return True
+    return bool(re.match(r"\.[A-Za-z0-9]", suffix))
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "y", "1"}
+    return bool(value)
 
 
 def _variable_references(

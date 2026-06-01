@@ -545,3 +545,98 @@ def test_style_checks_report_review_choice_gaps_and_person_object_hint():
         if finding.message_id == MessageId.STYLE_PREFER_PERSON_OBJECTS
     ]
     assert person_object_findings[0].context["snippet"] == "user_first_name"
+
+
+def test_style_checks_report_plain_language_punctuation_and_label_gaps():
+    findings = find_errors_from_string(
+        "id: style_gaps\n"
+        "question: |\n"
+        "  Case Filing Details\n"
+        "subquestion: |\n"
+        "  Don't write plaintiff/defendant if only one applies.\n"
+        "fields:\n"
+        '  - label: "Enter your full name"\n'
+        "    field: user_name\n"
+        "  - label: Case Filing Details\n"
+        "    field: contact_preference\n"
+        "    choices:\n"
+        "      - Other: other\n"
+        "      - Email: email\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    message_ids = {finding.message_id for finding in findings}
+    assert MessageId.STYLE_CONTRACTION in message_ids
+    assert MessageId.STYLE_SLASH_ALTERNATIVE in message_ids
+    assert MessageId.STYLE_FIELD_LABEL_INSTRUCTION_VERB in message_ids
+    assert MessageId.STYLE_TITLE_CASE_LABEL in message_ids
+    assert MessageId.STYLE_OTHER_CHOICE_NOT_LAST in message_ids
+
+
+def test_style_checks_allow_common_pronoun_slashes_and_i_do_not_know_choice():
+    findings = find_errors_from_string(
+        "question: |\n"
+        "  Choose pronouns\n"
+        "fields:\n"
+        "  - Pronouns: user_pronouns\n"
+        "    choices:\n"
+        "      - she/her/hers: she/her/hers\n"
+        "      - I don't know: unknown\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id
+        not in {MessageId.STYLE_SLASH_ALTERNATIVE, MessageId.STYLE_CONTRACTION}
+        for finding in findings
+    )
+
+
+def test_style_checks_report_language_gender_and_pronoun_gaps():
+    findings = find_errors_from_string(
+        "question: |\n"
+        "  What are your preferred pronouns?\n"
+        "fields:\n"
+        "  - Language: user_language\n"
+        "    input type: dropdown\n"
+        "    choices:\n"
+        "      - English: English\n"
+        "      - Spanish: es\n"
+        "      - Other: other\n"
+        "  - Gender: user_gender\n"
+        "    choices:\n"
+        "      - Female: female\n"
+        "      - Male: male\n"
+        "      - Other: other\n"
+        "  - Pronouns: user_pronouns\n"
+        "    required: True\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    message_ids = {finding.message_id for finding in findings}
+    assert MessageId.STYLE_LANGUAGE_DROPDOWN in message_ids
+    assert MessageId.STYLE_LANGUAGE_CHOICE_VALUE in message_ids
+    assert MessageId.STYLE_PREFERRED_PRONOUNS in message_ids
+    assert MessageId.STYLE_GENDER_OTHER_CHOICE in message_ids
+    assert MessageId.STYLE_REQUIRED_PRONOUN_FIELD in message_ids
+
+
+def test_style_checks_report_binary_only_gender_choices():
+    findings = find_errors_from_string(
+        "question: |\n"
+        "  Gender\n"
+        "fields:\n"
+        "  - Gender: user_gender\n"
+        "    choices:\n"
+        "      - Female: female\n"
+        "      - Male: male\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert any(
+        finding.message_id == MessageId.STYLE_GENDER_BINARY_ONLY for finding in findings
+    )

@@ -140,6 +140,17 @@ class MessageId(StrEnum):
     )
     STYLE_PREFER_PERSON_OBJECTS = "style_prefer_person_objects"
     STYLE_QUESTION_LEVEL_HELP = "style_question_level_help"
+    STYLE_CONTRACTION = "style_contraction"
+    STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
+    STYLE_FIELD_LABEL_INSTRUCTION_VERB = "style_field_label_instruction_verb"
+    STYLE_TITLE_CASE_LABEL = "style_title_case_label"
+    STYLE_OTHER_CHOICE_NOT_LAST = "style_other_choice_not_last"
+    STYLE_LANGUAGE_DROPDOWN = "style_language_dropdown"
+    STYLE_LANGUAGE_CHOICE_VALUE = "style_language_choice_value"
+    STYLE_PREFERRED_PRONOUNS = "style_preferred_pronouns"
+    STYLE_GENDER_OTHER_CHOICE = "style_gender_other_choice"
+    STYLE_GENDER_BINARY_ONLY = "style_gender_binary_only"
+    STYLE_REQUIRED_PRONOUN_FIELD = "style_required_pronoun_field"
     STYLE_TONE_AND_RESPECT = "style_tone_and_respect"
     STYLE_PLAIN_LANGUAGE_REWRITE_OPPORTUNITY = (
         "style_plain_language_rewrite_opportunity"
@@ -892,6 +903,83 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "avoid `help:` as a question modifier; use `collapse_template()` in "
             "`subquestion` or another inline pattern instead: {snippet}"
         ),
+    ),
+    MessageId.STYLE_CONTRACTION: MessageDefinition(
+        code="WS727",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Avoid contractions in user-facing text",
+        template="write out the contraction {matched_text!r} in {location}",
+    ),
+    MessageId.STYLE_SLASH_ALTERNATIVE: MessageDefinition(
+        code="WS728",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Avoid slash-separated alternatives",
+        template="write out slash-separated alternatives in {location}: {snippet}",
+    ),
+    MessageId.STYLE_FIELD_LABEL_INSTRUCTION_VERB: MessageDefinition(
+        code="WS729",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Field label starts with an unnecessary instruction verb",
+        template="field label can usually omit instruction verbs like enter, write, or list: {snippet}",
+    ),
+    MessageId.STYLE_TITLE_CASE_LABEL: MessageDefinition(
+        code="IS730",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Prefer sentence case for headings and field labels",
+        template="heading or label appears to use title case; prefer sentence case: {snippet}",
+    ),
+    MessageId.STYLE_OTHER_CHOICE_NOT_LAST: MessageDefinition(
+        code="IS731",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Put Other at the end of choice lists",
+        template='choice list includes "Other" before the final option in {origin}',
+    ),
+    MessageId.STYLE_LANGUAGE_DROPDOWN: MessageDefinition(
+        code="WS732",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Language choices should usually use radio buttons",
+        template="language field appears to use a dropdown; use radio buttons for short language lists: {snippet}",
+    ),
+    MessageId.STYLE_LANGUAGE_CHOICE_VALUE: MessageDefinition(
+        code="WS733",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Language choices should store ISO language codes",
+        template="language choice should usually store a 2- or 3-letter ISO code: {snippet}",
+    ),
+    MessageId.STYLE_PREFERRED_PRONOUNS: MessageDefinition(
+        code="WS734",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary='Use "Pronouns", not "preferred pronouns"',
+        template='avoid "preferred pronouns" in {location}; use "Pronouns": {snippet}',
+    ),
+    MessageId.STYLE_GENDER_OTHER_CHOICE: MessageDefinition(
+        code="WS735",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary='Avoid "Other" as a gender choice',
+        template='gender choices should avoid "Other"; use an inclusive self-described option: {snippet}',
+    ),
+    MessageId.STYLE_GENDER_BINARY_ONLY: MessageDefinition(
+        code="WS736",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Gender choices appear to be binary only",
+        template="gender field appears to offer only Female and Male choices: {snippet}",
+    ),
+    MessageId.STYLE_REQUIRED_PRONOUN_FIELD: MessageDefinition(
+        code="WS737",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.STYLE,
+        summary="Pronoun fields should usually be optional",
+        template="pronoun field appears to be required; pronouns should usually be optional: {snippet}",
     ),
     MessageId.STYLE_TONE_AND_RESPECT: MessageDefinition(
         code="WS790",
