@@ -206,9 +206,7 @@ def find_accessibility_findings(
         findings.extend(
             _check_inline_color_styling(section, source_code, document_start_line)
         )
-        findings.extend(
-            _check_new_tab_links(section, source_code, document_start_line)
-        )
+        findings.extend(_check_new_tab_links(section, source_code, document_start_line))
         findings.extend(_check_svg_names(section, source_code, document_start_line))
         findings.extend(_check_tables(section, source_code, document_start_line))
         findings.extend(
@@ -372,8 +370,9 @@ def _check_field_labels(
             )
             continue
         normalized = _normalize_human_text(label)
-        if normalized in NON_DESCRIPTIVE_FIELD_LABELS or _looks_like_emoji_or_punctuation_only(
-            label
+        if (
+            normalized in NON_DESCRIPTIVE_FIELD_LABELS
+            or _looks_like_emoji_or_punctuation_only(label)
         ):
             findings.append(
                 draft(
@@ -404,8 +403,9 @@ def _check_choice_labels(
                 )
                 continue
             normalized = _normalize_human_text(label)
-            if normalized in NON_DESCRIPTIVE_FIELD_LABELS or _looks_like_emoji_or_punctuation_only(
-                label
+            if (
+                normalized in NON_DESCRIPTIVE_FIELD_LABELS
+                or _looks_like_emoji_or_punctuation_only(label)
             ):
                 findings.append(
                     draft(
@@ -865,22 +865,20 @@ def _check_color_only_instructions(
     )
     if not color_reference_re.search(section.value):
         return []
-    if re.search(r"\b(color|colou?r|highlight|highlighted|shade|shaded)\b", section.value, re.IGNORECASE):
-        line_number = _absolute_line_number(
-            source_code,
-            document_start_line,
-            section.key_line,
-            color_reference_re.search(section.value).group(0),  # type: ignore[union-attr]
+    line_number = _absolute_line_number(
+        source_code,
+        document_start_line,
+        section.key_line,
+        color_reference_re.search(section.value).group(0),  # type: ignore[union-attr]
+    )
+    return [
+        draft(
+            MessageId.ACCESSIBILITY_COLOR_ONLY_INSTRUCTIONS,
+            line_number=line_number,
+            section_location=section.location,
+            snippet=_short_snippet(section.value),
         )
-        return [
-            draft(
-                MessageId.ACCESSIBILITY_COLOR_ONLY_INSTRUCTIONS,
-                line_number=line_number,
-                section_location=section.location,
-                snippet=_short_snippet(section.value),
-            )
-        ]
-    return []
+    ]
 
 
 def _check_inline_color_styling(
@@ -977,7 +975,9 @@ def _check_svg_names(
     section: TextSection, source_code: str, document_start_line: int
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
-    for match in re.finditer(r"<svg\b[^>]*>.*?</svg>", section.value, re.IGNORECASE | re.DOTALL):
+    for match in re.finditer(
+        r"<svg\b[^>]*>.*?</svg>", section.value, re.IGNORECASE | re.DOTALL
+    ):
         snippet = match.group(0)
         if re.search(r"\baria-label\s*=\s*([\"']).+?\1", snippet, re.IGNORECASE):
             continue
@@ -1198,12 +1198,16 @@ def _field_collects_user_input(field: dict[str, Any]) -> bool:
     return any(str(key).strip() not in FIELD_NON_LABEL_KEYS for key in field.keys())
 
 
-def _iter_choice_labels_with_lines(choice_value: Any) -> list[tuple[str, Optional[int]]]:
+def _iter_choice_labels_with_lines(
+    choice_value: Any,
+) -> list[tuple[str, Optional[int]]]:
     labels: list[tuple[str, Optional[int]]] = []
     if isinstance(choice_value, dict):
         for key, value in choice_value.items():
             if isinstance(value, dict):
-                labels.append((str(value.get("label") or key or ""), value.get("__line__")))
+                labels.append(
+                    (str(value.get("label") or key or ""), value.get("__line__"))
+                )
             else:
                 labels.append((str(key or ""), None))
         return labels
@@ -1221,7 +1225,9 @@ def _iter_choice_labels_with_lines(choice_value: Any) -> list[tuple[str, Optiona
     return labels
 
 
-def _collect_validation_messages(field: dict[str, Any]) -> list[tuple[str, Optional[int]]]:
+def _collect_validation_messages(
+    field: dict[str, Any],
+) -> list[tuple[str, Optional[int]]]:
     messages: list[tuple[str, Optional[int]]] = []
     validation_message = field.get("validation message")
     if isinstance(validation_message, str) and validation_message.strip():

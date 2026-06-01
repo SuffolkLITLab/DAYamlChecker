@@ -672,7 +672,11 @@ def _check_exit_criteria_and_screen(
 
 
 def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
-    metadata_docs = [parsed_doc for parsed_doc in docs if isinstance(parsed_doc.doc.get("metadata"), dict)]
+    metadata_docs = [
+        parsed_doc
+        for parsed_doc in docs
+        if isinstance(parsed_doc.doc.get("metadata"), dict)
+    ]
     if not metadata_docs:
         return []
     theme_references: set[str] = set()
@@ -684,7 +688,9 @@ def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft
             theme_references.add(css_value)
         features = parsed_doc.doc.get("features")
         if isinstance(features, dict):
-            bootstrap_theme = _stringify(features.get("bootstrap theme")).strip().lower()
+            bootstrap_theme = (
+                _stringify(features.get("bootstrap theme")).strip().lower()
+            )
             if bootstrap_theme:
                 theme_references.add(bootstrap_theme)
     if any(
@@ -1198,8 +1204,7 @@ def _is_review_screen(parsed_doc: ParsedInterviewDocument) -> bool:
     if parsed_doc.doc.get("review") is not None:
         return True
     combined = " ".join(
-        _stringify(parsed_doc.doc.get(key))
-        for key in ("question", "id", "event")
+        _stringify(parsed_doc.doc.get(key)) for key in ("question", "id", "event")
     ).lower()
     return bool(
         re.search(

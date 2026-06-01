@@ -91,25 +91,17 @@ class MessageId(StrEnum):
         "accessibility_non_descriptive_choice_label"
     )
     ACCESSIBILITY_DUPLICATE_FIELD_LABEL = "accessibility_duplicate_field_label"
-    ACCESSIBILITY_COLOR_ONLY_INSTRUCTIONS = (
-        "accessibility_color_only_instructions"
-    )
+    ACCESSIBILITY_COLOR_ONLY_INSTRUCTIONS = "accessibility_color_only_instructions"
     ACCESSIBILITY_INLINE_COLOR_STYLING = "accessibility_inline_color_styling"
     ACCESSIBILITY_AMBIGUOUS_LINK_DESTINATIONS = (
         "accessibility_ambiguous_link_destinations"
     )
-    ACCESSIBILITY_NEW_TAB_WITHOUT_WARNING = (
-        "accessibility_new_tab_without_warning"
-    )
+    ACCESSIBILITY_NEW_TAB_WITHOUT_WARNING = "accessibility_new_tab_without_warning"
     ACCESSIBILITY_SVG_MISSING_ACCESSIBLE_NAME = (
         "accessibility_svg_missing_accessible_name"
     )
-    ACCESSIBILITY_TABLE_MISSING_HEADERS = (
-        "accessibility_table_missing_headers"
-    )
-    ACCESSIBILITY_LAYOUT_TABLE_NEEDS_REVIEW = (
-        "accessibility_layout_table_needs_review"
-    )
+    ACCESSIBILITY_TABLE_MISSING_HEADERS = "accessibility_table_missing_headers"
+    ACCESSIBILITY_LAYOUT_TABLE_NEEDS_REVIEW = "accessibility_layout_table_needs_review"
     ACCESSIBILITY_POSITIVE_TABINDEX = "accessibility_positive_tabindex"
     ACCESSIBILITY_CLICKABLE_NON_CONTROL_HTML = (
         "accessibility_clickable_non_control_html"
@@ -123,9 +115,7 @@ class MessageId(StrEnum):
     ACCESSIBILITY_GENERIC_VALIDATION_MESSAGE = (
         "accessibility_generic_validation_message"
     )
-    ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT = (
-        "accessibility_ambiguous_button_text"
-    )
+    ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT = "accessibility_ambiguous_button_text"
 
     STYLE_SUBQUESTION_H1 = "style_subquestion_h1"
     STYLE_CHOICES_WITHOUT_STABLE_VALUES = "style_choices_without_stable_values"
@@ -144,9 +134,7 @@ class MessageId(StrEnum):
     STYLE_COMPLEX_SCREEN_MISSING_HELP = "style_complex_screen_missing_help"
     STYLE_MISSING_EXIT_CRITERIA_SCREEN = "style_missing_exit_criteria_screen"
     STYLE_MISSING_CUSTOM_THEME = "style_missing_custom_theme"
-    STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS = (
-        "style_review_screen_missing_edit_links"
-    )
+    STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS = "style_review_screen_missing_edit_links"
     STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS = (
         "style_review_screen_missing_key_choice_edits"
     )

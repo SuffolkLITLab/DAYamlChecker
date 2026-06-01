@@ -242,8 +242,7 @@ def test_style_compound_question_ignores_single_choice_question():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_COMPOUND_QUESTION
-        for finding in findings
+        finding.message_id != MessageId.STYLE_COMPOUND_QUESTION for finding in findings
     )
 
 
@@ -257,8 +256,7 @@ def test_style_compound_question_flags_multiple_prompts():
     )
 
     assert any(
-        finding.message_id == MessageId.STYLE_COMPOUND_QUESTION
-        for finding in findings
+        finding.message_id == MessageId.STYLE_COMPOUND_QUESTION for finding in findings
     )
 
 
@@ -514,7 +512,7 @@ def test_style_checks_report_review_choice_gaps_and_person_object_hint():
         "  Review your answers\n"
         "review:\n"
         '  - label: "Name"\n'
-        '    Edit: user_name\n'
+        "    Edit: user_name\n"
         "---\n"
         "id: names\n"
         "question: |\n"

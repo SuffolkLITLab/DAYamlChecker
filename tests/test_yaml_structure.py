@@ -2022,7 +2022,16 @@ subquestion: |
         )
         codes = {err.code for err in errs}
         self.assertTrue(
-            {"WA516", "WA517", "WA518", "WA519", "WA520", "EA521", "EA523", "WA524"}.issubset(codes),
+            {
+                "WA516",
+                "WA517",
+                "WA518",
+                "WA519",
+                "WA520",
+                "EA521",
+                "EA523",
+                "WA524",
+            }.issubset(codes),
             f"Expected HTML accessibility parity findings, got: {errs}",
         )
 

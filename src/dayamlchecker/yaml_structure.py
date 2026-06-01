@@ -1773,7 +1773,9 @@ def _find_interview_level_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     findings.extend(_check_missing_question_ids(parsed_docs, input_file=input_file))
-    findings.extend(_check_multiple_mandatory_blocks(parsed_docs, input_file=input_file))
+    findings.extend(
+        _check_multiple_mandatory_blocks(parsed_docs, input_file=input_file)
+    )
     findings.extend(_check_metadata_fields(parsed_docs, input_file=input_file))
     return findings
 
@@ -1811,7 +1813,9 @@ def _check_multiple_mandatory_blocks(
         return []
     labels = []
     for parsed_doc in mandatory_docs[:4]:
-        label = str(parsed_doc.doc.get("id") or parsed_doc.doc.get("question") or "").strip()
+        label = str(
+            parsed_doc.doc.get("id") or parsed_doc.doc.get("question") or ""
+        ).strip()
         labels.append(_shorten(label or parsed_doc.screen_id))
     return [
         make_finding(
