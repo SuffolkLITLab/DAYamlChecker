@@ -19,6 +19,7 @@ class FindingClass(StrEnum):
 
 class MessageId(StrEnum):
     YAML_DUPLICATE_KEY = "yaml_duplicate_key"
+    YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
@@ -189,6 +190,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="YAML parsing error",
         template="{error}",
+    ),
+    MessageId.YAML_DUPLICATE_BLOCK_ID: MessageDefinition(
+        code="EG104",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Duplicate block id",
+        template='Duplicate block id "{block_id}" - first used at line {first_line}. Docassemble will silently use the later block, which is almost certainly a mistake',
     ),
     MessageId.YAML_STRING_REQUIRED: MessageDefinition(
         code="EG103",
