@@ -1580,6 +1580,7 @@ def find_errors_from_string(
     ]
     yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
+    seen_ids: dict[str, int] = {}
     parsed_docs: list[ParsedInterviewDocument] = []
     has_yaml_parse_errors = False
     line_number = 1
@@ -1703,6 +1704,23 @@ def find_errors_from_string(
                             + line_number,
                         )
                     )
+
+        block_id = _get_case_insensitive(doc, "id")
+        if isinstance(block_id, str) and block_id.strip():
+            block_id_clean = block_id.strip()
+            block_start = line_number + 1 if line_number > 1 else line_number
+            if block_id_clean in seen_ids:
+                all_errors.append(
+                    make_finding(
+                        MessageId.YAML_DUPLICATE_BLOCK_ID,
+                        file_name=input_file,
+                        line_number=block_start,
+                        block_id=block_id_clean,
+                        first_line=seen_ids[block_id_clean],
+                    )
+                )
+            else:
+                seen_ids[block_id_clean] = block_start
 
         unmatched_refs = _find_unmatched_interview_order_references(
             doc, prior_conditional_fields
