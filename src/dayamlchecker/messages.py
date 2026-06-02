@@ -1093,6 +1093,9 @@ class Finding:
     message_id: str
     file_name: str | None = None
     line_number: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
@@ -1134,6 +1137,9 @@ class Finding:
 class FindingDraft:
     message_id: str
     line_number: int = 1
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
@@ -1157,6 +1163,9 @@ class FindingDraft:
             message_id=self.message_id,
             file_name=file_name,
             line_number=self.line_number if line_number is None else line_number,
+            column=self.column,
+            end_line=self.end_line,
+            end_column=self.end_column,
             context=self.context,
         )
 
@@ -1170,12 +1179,18 @@ def make_finding(
     *,
     file_name: str | None = None,
     line_number: int | None = None,
+    column: int | None = None,
+    end_line: int | None = None,
+    end_column: int | None = None,
     **context: Any,
 ) -> Finding:
     return Finding(
         message_id=message_id,
         file_name=file_name,
         line_number=line_number,
+        column=column,
+        end_line=end_line,
+        end_column=end_column,
         context=context,
     )
 
@@ -1195,9 +1210,7 @@ def escape_property(value: str) -> str:
     )
 
 def print_github_annotation(d: Finding) -> None:
-    kind = d.severity
-    if kind == "info":
-        kind = "notice"
+    kind = "notice" if d.severity == Severity.INFO else d.severity.value
         
     props = []
 
@@ -1205,11 +1218,11 @@ def print_github_annotation(d: Finding) -> None:
         props.append(f"file={escape_property(str(d.file_name))}")
     if getattr(d, "line_number", None):
         props.append(f"line={d.line_number}")
-    if getattr(d, "column", None):
+    if d.column is not None:
         props.append(f"col={d.column}")
-    if getattr(d, "end_line", None):
+    if d.end_line is not None:
         props.append(f"endLine={d.end_line}")
-    if getattr(d, "end_column", None):
+    if d.end_column is not None:
         props.append(f"endColumn={d.end_column}")
     if getattr(d, "code", None):
         props.append(f"title={escape_property(d.code)}")
