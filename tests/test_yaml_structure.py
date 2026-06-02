@@ -2035,6 +2035,80 @@ subquestion: |
             f"Expected HTML accessibility parity findings, got: {errs}",
         )
 
+    def test_duplicate_block_id_errors(self):
+        """Error: two blocks with the same id should be flagged"""
+        invalid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Expected duplicate id error, got: {errs}",
+        )
+
+    def test_unique_block_ids_valid(self):
+        """Valid: blocks with different ids should pass"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: summary
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error, got: {errs}",
+        )
+
+    def test_duplicate_id_case_sensitive(self):
+        """Valid: id matching is case sensitive"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: Intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error for different cases, got: {errs}",
+        )
+
+    def test_no_ids_valid(self):
+        """Valid: blocks with no ids should pass clean"""
+        valid = """
+question: |
+  What is your name?
+field: user_name
+---
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error with no ids, got: {errs}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
