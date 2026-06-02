@@ -738,8 +738,8 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         code="WA526",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
-        summary="Validation constraints lack guidance",
-        template="field has validation constraints but no hint, help, or validation message: {snippet}",
+        summary="Inline custom validation lacks a validation message",
+        template="field uses inline custom validation without a clear validation message: {snippet}",
     ),
     MessageId.ACCESSIBILITY_GENERIC_VALIDATION_MESSAGE: MessageDefinition(
         code="WA527",

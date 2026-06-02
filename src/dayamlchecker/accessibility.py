@@ -17,8 +17,10 @@ FIELD_NON_LABEL_KEYS = {
     "datatype",
     "choices",
     "value",
+    "validate",
     "validation code",
     "validation message",
+    "validation messages",
     "show if",
     "hide if",
     "js show if",
@@ -311,7 +313,11 @@ def _check_yesno_shortcuts(
 def _check_multifield_no_label_usage(
     doc: dict[str, Any], document_start_line: int
 ) -> list[FindingDraft]:
-    fields = _iter_fields(doc)
+    fields = [
+        field
+        for field in _iter_fields(doc)
+        if _field_collects_user_input(field) or "no label" in field
+    ]
     if len(fields) <= 1:
         return []
 
@@ -482,24 +488,7 @@ def _check_validation_guidance(
     for field in _iter_fields(doc):
         if "code" in field:
             continue
-        has_constraint = bool(
-            str(field.get("validation code") or "").strip()
-            or field.get("min")
-            or field.get("max")
-            or field.get("minlength")
-            or field.get("maxlength")
-            or field.get("required")
-        )
-        if not has_constraint:
-            continue
-        validation_messages = _collect_validation_messages(field)
-        has_guidance = bool(
-            str(field.get("hint") or "").strip()
-            or str(field.get("help") or "").strip()
-            or str(field.get("note") or "").strip()
-            or validation_messages
-        )
-        if has_guidance:
+        if not _has_inline_custom_validation_without_message(field):
             continue
         findings.append(
             draft(
@@ -1244,7 +1233,23 @@ def _collect_validation_messages(
         for value in validation_message.values():
             if isinstance(value, str) and value.strip():
                 messages.append((value.strip(), validation_message.get("__line__")))
+    validation_messages = field.get("validation messages")
+    if isinstance(validation_messages, dict):
+        for value in validation_messages.values():
+            if isinstance(value, str) and value.strip():
+                messages.append((value.strip(), validation_messages.get("__line__")))
     return messages
+
+
+def _has_inline_custom_validation_without_message(field: dict[str, Any]) -> bool:
+    validate = field.get("validate")
+    if not isinstance(validate, str):
+        return False
+    if not validate.strip().startswith("lambda"):
+        return False
+    if "validation_error" in validate:
+        return False
+    return not _collect_validation_messages(field)
 
 
 def _is_truthy(value: Any) -> bool:
