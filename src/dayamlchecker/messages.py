@@ -1178,3 +1178,46 @@ def make_finding(
         line_number=line_number,
         context=context,
     )
+
+def escape_data(value: str) -> str:
+    return (
+        value
+        .replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+def escape_property(value: str) -> str:
+    return (
+        escape_data(value)
+        .replace(":", "%3A")
+        .replace(",", "%2C")
+    )
+
+def print_github_annotation(d: Finding) -> None:
+    kind = d.severity
+    if kind == "info":
+        kind = "notice"
+        
+    props = []
+
+    if getattr(d, "file_name", None):
+        props.append(f"file={escape_property(str(d.file_name))}")
+    if getattr(d, "line_number", None):
+        props.append(f"line={d.line_number}")
+    if getattr(d, "column", None):
+        props.append(f"col={d.column}")
+    if getattr(d, "end_line", None):
+        props.append(f"endLine={d.end_line}")
+    if getattr(d, "end_column", None):
+        props.append(f"endColumn={d.end_column}")
+    if getattr(d, "code", None):
+        props.append(f"title={escape_property(d.code)}")
+
+    prop_text = ",".join(props)
+    message = escape_data(d.message)
+
+    if prop_text:
+        print(f"::{kind} {prop_text}::{message}")
+    else:
+        print(f"::{kind}::{message}")

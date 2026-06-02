@@ -1972,10 +1972,10 @@ def process_file(
     input_file,
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
-) -> int:
+) -> list[Finding]:
     """
     Returns:
-        int: the number of errors found in the input_file
+        list[Finding]: the list of findings found in the input_file
     """
     for dumb_da_file in [
         "pgcodecache.yml",
@@ -1986,42 +1986,12 @@ def process_file(
         "examples.yml",
     ]:
         if input_file.endswith(dumb_da_file):
-            print()
-            print(f"ignoring {dumb_da_file}")
-            return 0
+            return []
 
     all_errors = find_errors(
         input_file, lint_mode=lint_mode, runtime_options=runtime_options
     )
-
-    if len(all_errors) == 0:
-        print(".", end="")
-        return 0
-    error_count = 0
-    warning_count = 0
-    info_count = 0
-    for err in all_errors:
-        if err.severity == "info":
-            info_count += 1
-        elif err.severity == "warning":
-            warning_count += 1
-        else:
-            error_count += 1
-    blocking_count = error_count + warning_count
-    print()
-    if info_count > 0:
-        print(
-            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):"
-        )
-    elif warning_count > 0:
-        print(
-            f"Found {len(all_errors)} issues ({error_count} errors, {warning_count} warnings):"
-        )
-    else:
-        print(f"Found {len(all_errors)} errors:")
-    for err in all_errors:
-        print(f"{err}")
-    return blocking_count
+    return all_errors
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -2159,6 +2129,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         default="warning",
         help="How to report URLs that could not be reached at all (default: warning)",
     )
+    parser.add_argument(
+        "--format",
+        choices=("text", "github"),
+        default="text",
+        help="Output format for findings (default: text)",
+    )
+    parser.add_argument(
+        "--max-warnings",
+        type=int,
+        default=None,
+        help="Maximum number of warnings allowed before failing with a non-zero exit code",
+    )
     args = parser.parse_args(argv)
 
     lint_mode = ACCESSIBILITY_LINT_MODE if args.wcag else DEFAULT_LINT_MODE
@@ -2182,15 +2164,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("No YAML files found.", file=sys.stderr)
         return 1
 
-    failed = False
+    from dayamlchecker.messages import print_github_annotation
+
+    all_findings = []
     for input_file in yaml_files:
-        error_count = process_file(
+        findings = process_file(
             str(input_file),
             lint_mode=lint_mode,
             runtime_options=runtime_options,
         )
-        if error_count > 0:
-            failed = True
+        all_findings.extend(findings)
 
     if args.url_check:
         url_check_root = (
@@ -2209,11 +2192,44 @@ def main(argv: Optional[list[str]] = None) -> int:
             document_severity=args.document_url_severity,
             unreachable_severity=args.unreachable_url_severity,
         )
-        print_url_check_report(url_check_result)
-        if url_check_result.has_errors():
-            failed = True
+        all_findings.extend(url_check_result.issues)
 
-    return 1 if failed else 0
+    had_error = False
+    warning_count = sum(1 for f in all_findings if f.severity == "warning")
+    
+    if args.format == "github":
+        for finding in all_findings:
+            if finding.severity == "error":
+                had_error = True
+            print_github_annotation(finding)
+    else:
+        error_count = sum(1 for f in all_findings if f.severity == "error")
+        info_count = sum(1 for f in all_findings if f.severity == "info")
+        
+        if len(all_findings) == 0:
+            print("No issues found.")
+        else:
+            if info_count > 0:
+                print(f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):")
+            elif warning_count > 0:
+                print(f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings):")
+            else:
+                print(f"Found {len(all_findings)} errors:")
+            for err in all_findings:
+                print(f"{err}")
+                
+        if error_count > 0:
+            had_error = True
+
+    if args.max_warnings is not None and warning_count > args.max_warnings:
+        msg = f"Too many warnings: {warning_count} (max allowed is {args.max_warnings})"
+        if args.format == "github":
+            print(f"::error::{msg}")
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        had_error = True
+
+    return 1 if had_error else 0
 
 
 if __name__ == "__main__":
