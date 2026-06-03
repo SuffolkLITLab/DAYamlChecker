@@ -2088,7 +2088,9 @@ fields:
             f"Did not expect named validate function to trigger WA526, got: {errs}",
         )
 
-    def test_accessibility_validation_guidance_accepts_validation_messages_modifier(self):
+    def test_accessibility_validation_guidance_accepts_validation_messages_modifier(
+        self,
+    ):
         yaml_text = """
 id: inline_validation_with_message
 question: |
@@ -2304,7 +2306,7 @@ attachments:
             any(e.message_id == "attachment_conditional_variable" for e in errs),
             f"Expected attachment content conditional variable error for attachments, got: {errs}",
         )
-        
+
     def test_duplicate_block_id_errors(self):
         """Error: two blocks with the same id should be flagged"""
         invalid = """

@@ -1657,11 +1657,8 @@ def find_errors_from_string(
     ]
     yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
-<<<<<<< HEAD
-    skip_undefined = False
-=======
     seen_ids: dict[str, int] = {}
->>>>>>> origin/main
+    skip_undefined = False
     parsed_docs: list[ParsedInterviewDocument] = []
     has_yaml_parse_errors = False
     line_number = 1
