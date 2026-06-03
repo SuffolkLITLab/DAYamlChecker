@@ -1202,24 +1202,18 @@ def make_finding(
         context=context,
     )
 
+
 def escape_data(value: str) -> str:
-    return (
-        value
-        .replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-    )
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
 
 def escape_property(value: str) -> str:
-    return (
-        escape_data(value)
-        .replace(":", "%3A")
-        .replace(",", "%2C")
-    )
+    return escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
 
 def print_github_annotation(d: Finding) -> None:
     kind = "notice" if d.severity == Severity.INFO else d.severity.value
-        
+
     props = []
 
     if getattr(d, "file_name", None):

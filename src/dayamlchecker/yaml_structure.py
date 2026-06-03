@@ -2296,7 +2296,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     had_error = False
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
-    
+
     if args.format == "github":
         for finding in all_findings:
             if finding.severity == "error":
@@ -2305,19 +2305,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         error_count = sum(1 for f in all_findings if f.severity == "error")
         info_count = sum(1 for f in all_findings if f.severity == "info")
-        
+
         if len(all_findings) == 0:
             print("No issues found.")
         else:
             if info_count > 0:
-                print(f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):")
+                print(
+                    f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings, {info_count} infos):"
+                )
             elif warning_count > 0:
-                print(f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings):")
+                print(
+                    f"Found {len(all_findings)} issues ({error_count} errors, {warning_count} warnings):"
+                )
             else:
                 print(f"Found {len(all_findings)} errors:")
             for err in all_findings:
                 print(f"{err}")
-                
+
         if error_count > 0:
             had_error = True
 
