@@ -1518,22 +1518,32 @@ def _find_unmatched_attachment_content_references(
     attachments = _get_case_insensitive(doc, "attachments")
 
     if isinstance(attachment, dict):
-        content = attachment.get("content")
-        if isinstance(content, str):
-            content_blocks.append(content)
+        skip = attachment.get("skip undefined")
+        if not (skip is True or (isinstance(skip, str) and skip.lower() == "true")):
+            content = attachment.get("content")
+            if isinstance(content, str):
+                content_blocks.append(content)
     elif isinstance(attachment, list):
         for item in attachment:
             if isinstance(item, dict):
-                content = item.get("content")
-                if isinstance(content, str):
-                    content_blocks.append(content)
+                skip = item.get("skip undefined")
+                if not (
+                    skip is True or (isinstance(skip, str) and skip.lower() == "true")
+                ):
+                    content = item.get("content")
+                    if isinstance(content, str):
+                        content_blocks.append(content)
 
     if isinstance(attachments, list):
         for item in attachments:
             if isinstance(item, dict):
-                content = item.get("content")
-                if isinstance(content, str):
-                    content_blocks.append(content)
+                skip = item.get("skip undefined")
+                if not (
+                    skip is True or (isinstance(skip, str) and skip.lower() == "true")
+                ):
+                    content = item.get("content")
+                    if isinstance(content, str):
+                        content_blocks.append(content)
 
     if not content_blocks:
         return []

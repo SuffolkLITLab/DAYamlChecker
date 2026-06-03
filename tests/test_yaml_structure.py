@@ -2381,6 +2381,32 @@ question: |
             f"Did not expect duplicate id error with no ids, got: {errs}",
         )
 
+    def test_attachment_level_skip_undefined_suppresses_error(self):
+        """Valid: skip undefined: True on the attachment itself suppresses the error"""
+        valid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  skip undefined: True
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Did not expect attachment content error with attachment-level skip undefined, got: {errs}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
