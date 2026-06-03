@@ -19,6 +19,7 @@ class FindingClass(StrEnum):
 
 class MessageId(StrEnum):
     YAML_DUPLICATE_KEY = "yaml_duplicate_key"
+    YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
@@ -190,6 +191,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="YAML parsing error",
         template="{error}",
+    ),
+    MessageId.YAML_DUPLICATE_BLOCK_ID: MessageDefinition(
+        code="EG104",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Duplicate block id",
+        template='Duplicate block id "{block_id}" - first used at line {first_line}. Docassemble will silently use the later block, which is almost certainly a mistake',
     ),
     MessageId.YAML_STRING_REQUIRED: MessageDefinition(
         code="EG103",
@@ -738,8 +746,8 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         code="WA526",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
-        summary="Validation constraints lack guidance",
-        template="field has validation constraints but no hint, help, or validation message: {snippet}",
+        summary="Inline custom validation lacks a validation message",
+        template="field uses inline custom validation without a clear validation message: {snippet}",
     ),
     MessageId.ACCESSIBILITY_GENERIC_VALIDATION_MESSAGE: MessageDefinition(
         code="WA527",
@@ -1093,6 +1101,9 @@ class Finding:
     message_id: str
     file_name: str | None = None
     line_number: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
@@ -1134,6 +1145,9 @@ class Finding:
 class FindingDraft:
     message_id: str
     line_number: int = 1
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
@@ -1157,6 +1171,9 @@ class FindingDraft:
             message_id=self.message_id,
             file_name=file_name,
             line_number=self.line_number if line_number is None else line_number,
+            column=self.column,
+            end_line=self.end_line,
+            end_column=self.end_column,
             context=self.context,
         )
 
@@ -1170,11 +1187,58 @@ def make_finding(
     *,
     file_name: str | None = None,
     line_number: int | None = None,
+    column: int | None = None,
+    end_line: int | None = None,
+    end_column: int | None = None,
     **context: Any,
 ) -> Finding:
     return Finding(
         message_id=message_id,
         file_name=file_name,
         line_number=line_number,
+        column=column,
+        end_line=end_line,
+        end_column=end_column,
         context=context,
     )
+
+def escape_data(value: str) -> str:
+    return (
+        value
+        .replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+def escape_property(value: str) -> str:
+    return (
+        escape_data(value)
+        .replace(":", "%3A")
+        .replace(",", "%2C")
+    )
+
+def print_github_annotation(d: Finding) -> None:
+    kind = "notice" if d.severity == Severity.INFO else d.severity.value
+        
+    props = []
+
+    if getattr(d, "file_name", None):
+        props.append(f"file={escape_property(str(d.file_name))}")
+    if getattr(d, "line_number", None):
+        props.append(f"line={d.line_number}")
+    if d.column is not None:
+        props.append(f"col={d.column}")
+    if d.end_line is not None:
+        props.append(f"endLine={d.end_line}")
+    if d.end_column is not None:
+        props.append(f"endColumn={d.end_column}")
+    if getattr(d, "code", None):
+        props.append(f"title={escape_property(d.code)}")
+
+    prop_text = ",".join(props)
+    message = escape_data(d.message)
+
+    if prop_text:
+        print(f"::{kind} {prop_text}::{message}")
+    else:
+        print(f"::{kind}::{message}")

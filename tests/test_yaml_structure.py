@@ -596,6 +596,35 @@ fields:
             f"Did not expect no-label accessibility error for dynamic code field, got: {errs}",
         )
 
+    def test_accessibility_note_field_does_not_need_label(self):
+        yaml_content = """id: report_type_and_period
+question: |
+  Which report do you need to file?
+subquestion: |
+  Choose the 60-day form or the annual form.
+fields:
+  - Which form is this?: report_type
+    datatype: radio
+    choices:
+      - 60-day report: sixty_day
+      - Annual report: annual
+  - note: |
+      What dates does this filing cover?
+  - Start date: reportperiod_beginning
+    datatype: date
+  - End date: reportperiod_end
+    datatype: date
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any("single-field screens" in e.err_str.lower() for e in errs),
+            f"Did not expect no-label accessibility error for note field, got: {errs}",
+        )
+
     def test_accessibility_no_label_uses_variable_from_no_label_key(self):
         yaml_content = """question: |
   Reorder fields
@@ -2000,6 +2029,120 @@ fields:
             f"Expected new accessibility parity findings, got: {errs}",
         )
 
+    def test_accessibility_validation_guidance_reports_inline_validate_lambda(self):
+        yaml_text = """
+id: custom_validation
+question: |
+  Tell us more
+fields:
+  - Details: case_notes
+    validate: |
+      lambda y: len(y or "") >= 10
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            _has_code(errs, "WA526"),
+            f"Expected inline validate lambda without separate guidance to be reported, got: {errs}",
+        )
+
+    def test_accessibility_validation_guidance_accepts_inline_validation_error(self):
+        yaml_text = """
+id: inline_validation_error
+question: |
+  Tell us more
+fields:
+  - Details: case_notes
+    validate: |
+      lambda y: len(y or "") >= 10 or validation_error("Enter at least 10 characters.")
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            _has_code(errs, "WA526"),
+            f"Did not expect inline validate lambda with validation_error() to trigger WA526, got: {errs}",
+        )
+
+    def test_accessibility_validation_guidance_ignores_named_validate_function(self):
+        yaml_text = """
+id: named_validation
+question: |
+  Tell us more
+fields:
+  - Details: case_notes
+    validate: case_notes_are_valid
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            _has_code(errs, "WA526"),
+            f"Did not expect named validate function to trigger WA526, got: {errs}",
+        )
+
+    def test_accessibility_validation_guidance_accepts_validation_messages_modifier(self):
+        yaml_text = """
+id: inline_validation_with_message
+question: |
+  Tell us more
+fields:
+  - Details: case_notes
+    validate: |
+      lambda y: len(y or "") >= 10
+    validation messages:
+      validate: Enter at least 10 characters.
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            _has_code(errs, "WA526"),
+            f"Did not expect inline validate lambda with validation messages to trigger WA526, got: {errs}",
+        )
+
+    def test_accessibility_validation_guidance_ignores_docassemble_builtin_constraints(
+        self,
+    ):
+        yaml_text = """
+id: builtin_validation
+question: |
+  Tell us more
+fields:
+  - Required name: required_name
+    required: True
+  - Short code: short_code
+    maxlength: 10
+  - Long code: long_code
+    minlength: 3
+  - Age: age
+    datatype: number
+    min: 18
+    max: 120
+  - Email: email_address
+    datatype: email
+  - Birth date: birth_date
+    datatype: date
+"""
+        errs = find_errors_from_string(
+            yaml_text,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            _has_code(errs, "WA526"),
+            f"Did not expect built-in Docassemble constraints to trigger WA526, got: {errs}",
+        )
+
     def test_accessibility_html_rules_are_reported(self):
         yaml_text = """
 id: content
@@ -2160,6 +2303,80 @@ attachments:
         self.assertTrue(
             any(e.message_id == "attachment_conditional_variable" for e in errs),
             f"Expected attachment content conditional variable error for attachments, got: {errs}",
+        )
+        
+    def test_duplicate_block_id_errors(self):
+        """Error: two blocks with the same id should be flagged"""
+        invalid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Expected duplicate id error, got: {errs}",
+        )
+
+    def test_unique_block_ids_valid(self):
+        """Valid: blocks with different ids should pass"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: summary
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error, got: {errs}",
+        )
+
+    def test_duplicate_id_case_sensitive(self):
+        """Valid: id matching is case sensitive"""
+        valid = """
+id: intro
+question: |
+  What is your name?
+field: user_name
+---
+id: Intro
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error for different cases, got: {errs}",
+        )
+
+    def test_no_ids_valid(self):
+        """Valid: blocks with no ids should pass clean"""
+        valid = """
+question: |
+  What is your name?
+field: user_name
+---
+mandatory: True
+question: |
+  Hello
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "yaml_duplicate_block_id" for e in errs),
+            f"Did not expect duplicate id error with no ids, got: {errs}",
         )
 
 
