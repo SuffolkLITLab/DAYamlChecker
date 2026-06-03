@@ -69,6 +69,7 @@ class MessageId(StrEnum):
     MISSING_QUESTION_ID = "missing_question_id"
     MULTIPLE_MANDATORY_BLOCKS = "multiple_mandatory_blocks"
     MISSING_METADATA_FIELDS = "missing_metadata_fields"
+    ATTACHMENT_CONDITIONAL_VARIABLE = "attachment_conditional_variable"
 
     ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE = "accessibility_combobox_not_accessible"
     ACCESSIBILITY_NO_LABEL_MULTI_FIELD = "accessibility_no_label_multi_field"
@@ -535,6 +536,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "metadata block is missing common CourtFormsOnline publishing fields: "
             "{fields}"
         ),
+    ),
+    MessageId.ATTACHMENT_CONDITIONAL_VARIABLE: MessageDefinition(
+        code="EG416",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Attachment content references a conditionally asked variable",
+        template='attachment content references "{field_var}", but that field is only asked when certain conditions are met (show if/hide if). If those conditions are not met, the interview may get stuck',
     ),
     MessageId.ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE: MessageDefinition(
         code="EA501",

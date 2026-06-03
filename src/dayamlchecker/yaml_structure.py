@@ -3,6 +3,7 @@ import ast
 import argparse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from pyexpat import features
 import re
 import sys
 
@@ -1477,6 +1478,80 @@ def _has_matching_guard(active_guards: list[str], expected_guards: list[str]) ->
     return False
 
 
+def _extract_mako_guards_by_line(content: str) -> dict[int, list[str]]:
+    """Extract Mako % if conditions active at each line of a content string"""
+    guards_by_line: dict[int, list[str]] = {}
+    guard_stack: list[str] = []
+
+    for i, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("% if ") or stripped.startswith("%if "):
+            cond = re.sub(r"^%\s*if\s+", "", stripped).rstrip(":")
+            guard_stack.append(cond)
+        elif stripped.startswith("% elif ") or stripped.startswith("%elif "):
+            if guard_stack:
+                guard_stack.pop()
+            cond = re.sub(r"^%\s*elif\s+", "", stripped).rstrip(":")
+            guard_stack.append(cond)
+        elif stripped in ("% endif", "%endif", "% endfor", "%endfor"):
+            if guard_stack:
+                guard_stack.pop()
+
+        if guard_stack:
+            guards_by_line[i] = list(guard_stack)
+
+    return guards_by_line
+
+
+def _find_unmatched_attachment_content_references(
+    doc: dict[str, Any], conditional_fields: list[dict[str, Any]]
+) -> list[tuple[str, int]]:
+    """Check attachment/attachments content blocks for unconditional references to variables that are only conditionally asked"""
+    if not conditional_fields:
+        return []
+
+    content_blocks: list[str] = []
+
+    attachment = _get_case_insensitive(doc, "attachment")
+    attachments = _get_case_insensitive(doc, "attachments")
+
+    if isinstance(attachment, dict):
+        content = attachment.get("content")
+        if isinstance(content, str):
+            content_blocks.append(content)
+    elif isinstance(attachment, list):
+        for item in attachment:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, str):
+                    content_blocks.append(content)
+
+    if isinstance(attachments, list):
+        for item in attachments:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, str):
+                    content_blocks.append(content)
+
+    if not content_blocks:
+        return []
+
+    unmatched: list[tuple[str, int]] = []
+    for content in content_blocks:
+        mako_guards_by_line = _extract_mako_guards_by_line(content)
+        for conditional in conditional_fields:
+            field_var = conditional["field_var"]
+            expected_guards = conditional["guards"]
+            ref_lines = _find_variable_reference_lines(content, field_var)
+            for ref_line in ref_lines:
+                active_guards = mako_guards_by_line.get(ref_line, [])
+                if _has_matching_guard(active_guards, expected_guards):
+                    continue
+                unmatched.append((field_var, ref_line))
+
+    return unmatched
+
+
 def _find_unmatched_interview_order_references(
     doc: dict[str, Any], conditional_fields: list[dict[str, Any]]
 ) -> list[tuple[str, int]]:
@@ -1580,6 +1655,7 @@ def find_errors_from_string(
     ]
     yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
+    skip_undefined = False
     parsed_docs: list[ParsedInterviewDocument] = []
     has_yaml_parse_errors = False
     line_number = 1
@@ -1716,6 +1792,28 @@ def find_errors_from_string(
                     field_name=field_var,
                 )
             )
+
+        features = _get_case_insensitive(doc, "features")
+        if isinstance(features, dict):
+            skip_val = features.get("skip undefined")
+            if skip_val is True or (
+                isinstance(skip_val, str) and skip_val.lower() == "true"
+            ):
+                skip_undefined = True
+
+        if not skip_undefined:
+            unmatched_content_refs = _find_unmatched_attachment_content_references(
+                doc, prior_conditional_fields
+            )
+            for field_var, ref_line in unmatched_content_refs:
+                all_errors.append(
+                    make_finding(
+                        MessageId.ATTACHMENT_CONDITIONAL_VARIABLE,
+                        file_name=input_file,
+                        line_number=doc["__line__"] + line_number + ref_line,
+                        field_var=field_var,
+                    )
+                )
 
         nesting_depth = _max_screen_visibility_nesting_depth(doc)
         if nesting_depth > 2:
