@@ -2088,7 +2088,9 @@ fields:
             f"Did not expect named validate function to trigger WA526, got: {errs}",
         )
 
-    def test_accessibility_validation_guidance_accepts_validation_messages_modifier(self):
+    def test_accessibility_validation_guidance_accepts_validation_messages_modifier(
+        self,
+    ):
         yaml_text = """
 id: inline_validation_with_message
 question: |
@@ -2178,6 +2180,133 @@ subquestion: |
             f"Expected HTML accessibility parity findings, got: {errs}",
         )
 
+    def test_attachment_content_references_conditional_variable_errors(self):
+        """Error: attachment content references a variable that is only conditionally asked"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Expected attachment content conditional variable error, got: {errs}",
+        )
+
+    def test_attachment_content_unconditional_variable_valid(self):
+        """Valid: attachment content references a variable that is always asked"""
+        valid = """
+question: |
+  What is your employer name?
+fields:
+  - Employer name: employer_name
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Did not expect attachment content error, got: {errs}",
+        )
+
+    def test_attachment_content_mako_guarded_variable_valid(self):
+        """Valid: attachment content references conditional variable inside matching Mako guard"""
+        valid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    % if is_employed:
+    Your employer is ${ employer_name }.
+    % endif
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Did not expect attachment content error with Mako guard, got: {errs}",
+        )
+
+    def test_attachment_content_skip_undefined_suppresses_error(self):
+        """Valid: skip undefined: True suppresses attachment content conditional variable error"""
+        valid = """
+features:
+  skip undefined: True
+---
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Did not expect attachment content error with skip undefined, got: {errs}",
+        )
+
+    def test_attachments_plural_references_conditional_variable_errors(self):
+        """Error: attachments plural block also catches conditional variable references"""
+        invalid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachments:
+  - name: Test doc
+    filename: test
+    content: |
+      Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        self.assertTrue(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Expected attachment content conditional variable error for attachments, got: {errs}",
+        )
+
     def test_duplicate_block_id_errors(self):
         """Error: two blocks with the same id should be flagged"""
         invalid = """
@@ -2250,6 +2379,32 @@ question: |
         self.assertFalse(
             any(e.message_id == "yaml_duplicate_block_id" for e in errs),
             f"Did not expect duplicate id error with no ids, got: {errs}",
+        )
+
+    def test_attachment_level_skip_undefined_suppresses_error(self):
+        """Valid: skip undefined: True on the attachment itself suppresses the error"""
+        valid = """
+question: |
+  Are you employed?
+fields:
+  - Are you employed?: is_employed
+    datatype: yesnoradio
+  - Employer name: employer_name
+    show if: is_employed
+---
+mandatory: True
+question: Your document is ready.
+attachment:
+  name: Test doc
+  filename: test
+  skip undefined: True
+  content: |
+    Your employer is ${ employer_name }.
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            any(e.message_id == "attachment_conditional_variable" for e in errs),
+            f"Did not expect attachment content error with attachment-level skip undefined, got: {errs}",
         )
 
 
