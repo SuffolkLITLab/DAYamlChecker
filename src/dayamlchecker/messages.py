@@ -57,6 +57,7 @@ class MessageId(StrEnum):
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
     OBJECTS_BLOCK_TYPE = "objects_block_type"
+    OBJECTS_BLOCK_DICTIONARY = "objects_block_dictionary"
     FIELDS_CODE_TYPE = "fields_code_type"
     FIELDS_DICT_KEYS = "fields_dict_keys"
     FIELDS_TYPE = "fields_type"
@@ -434,6 +435,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="objects block must be a list or dict",
         template="objects block must be a list or dict, got {value_repr}",
+    ),
+    MessageId.OBJECTS_BLOCK_DICTIONARY: MessageDefinition(
+        code="EG417",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="objects block should be a list instead of a dict",
+        template="objects block should be a list instead of a dict",
     ),
     MessageId.FIELDS_CODE_TYPE: MessageDefinition(
         code="EG404",

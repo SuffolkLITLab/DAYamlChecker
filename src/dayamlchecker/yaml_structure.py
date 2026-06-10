@@ -469,6 +469,8 @@ class ObjectsAttrType:
         self.errors = []
         if not (isinstance(x, list) or isinstance(x, dict)):
             self.errors = [draft(MessageId.OBJECTS_BLOCK_TYPE, value_repr=repr(x))]
+        elif isinstance(x, dict):
+            self.errors = [draft(MessageId.OBJECTS_BLOCK_DICTIONARY)]
         # for entry in x:
         #   ...
         # if not isinstance(x, Union[list[dict[DAPythonVar, DAType]], dict[DAPythonVar, DAType]]):
