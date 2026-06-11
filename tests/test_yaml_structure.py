@@ -1565,6 +1565,45 @@ continue button field: interrogatory_questions
             f"Expected one mako field errors, got: {field_errors}",
         )
 
+    def test_mako_text_warns_about_malformed_markdown_links(self):
+        invalid = """
+question: |
+  Read [the instructions] (https://example.com/instructions).
+subquestion: |
+  Or visit (the help page)[https://example.com/help].
+fields:
+  - label: "[Your account] (https://example.com/account)"
+    field: account
+  - "(More details)[https://example.com/details]": details
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        warnings = [err for err in errs if err.code == "WG113"]
+        self.assertEqual(
+            len(warnings),
+            4,
+            f"Expected malformed Markdown link warnings in Mako text, got: {errs}",
+        )
+        self.assertTrue(all(err.severity.value == "warning" for err in warnings))
+
+    def test_malformed_markdown_link_warning_is_limited_to_mako_text(self):
+        valid = """
+question: |
+  Read [the instructions](https://example.com/instructions).
+subquestion: |
+  Or visit [the help page](https://example.com/help).
+fields:
+  - label: "[Your account](https://example.com/account)"
+    field: account
+---
+code: |
+  example = "[not rendered] (https://example.com/code)"
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+        self.assertFalse(
+            _has_code(errs, "WG113"),
+            f"Did not expect malformed Markdown link warnings, got: {errs}",
+        )
+
     def test_interview_order_reference_without_matching_guard_errors(self):
         """Error when interview-order style code references a conditionally shown field without guard"""
         invalid = """
