@@ -2337,8 +2337,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 )
             else:
                 print(f"Found {len(all_findings)} errors:")
-            for err in all_findings:
-                print(f"{err}")
+            print("\n\n".join(str(finding) for finding in all_findings))
 
         if error_count > 0:
             had_error = True
