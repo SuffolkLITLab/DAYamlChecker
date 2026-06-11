@@ -25,6 +25,7 @@ class MessageId(StrEnum):
 
     MAKO_SYNTAX_ERROR = "mako_syntax_error"
     MAKO_COMPILE_ERROR = "mako_compile_error"
+    MAKO_MALFORMED_MARKDOWN_LINK = "mako_malformed_markdown_link"
     FIELD_VALUE_MAKO_SYNTAX_ERROR = "field_value_mako_syntax_error"
     FIELD_VALUE_MAKO_COMPILE_ERROR = "field_value_mako_compile_error"
 
@@ -220,6 +221,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Mako compile error",
         template="{error}",
+    ),
+    MessageId.MAKO_MALFORMED_MARKDOWN_LINK: MessageDefinition(
+        code="WG113",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Possible malformed Markdown link",
+        template=(
+            "possible malformed Markdown link in Mako-rendered text: {snippet}. "
+            "Use [link text](https://example.com)"
+        ),
     ),
     MessageId.FIELD_VALUE_MAKO_SYNTAX_ERROR: MessageDefinition(
         code="EG111",
