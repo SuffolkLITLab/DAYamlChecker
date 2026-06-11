@@ -914,7 +914,7 @@ big_dict: dict[str, dict[str, Any]] = {
 types_of_blocks: dict[str, dict[str, Any]] = {
     "include": {
         "exclusive": True,
-        "allowed_attrs": ["include"],
+        "allowed_attrs": ["include", "id", "comment"],
     },
     "features": {  # don't get an error, but code and question attributes aren't recognized
         "exclusive": True,
