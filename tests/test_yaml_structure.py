@@ -1986,6 +1986,7 @@ field: review_now
         yaml_text = """
 metadata:
   title: Example interview
+  description: An interview intended for publication
 """
         errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
         self.assertTrue(
@@ -1994,9 +1995,43 @@ metadata:
         )
         metadata_findings = [err for err in errs if err.code == "IG416"]
         self.assertTrue(metadata_findings)
-        self.assertIn("description", metadata_findings[0].err_str)
         self.assertIn("can_I_use_this_form", metadata_findings[0].err_str)
+        self.assertNotIn("description", metadata_findings[0].err_str)
         self.assertNotIn("landing_page_url", metadata_findings[0].err_str)
+
+    def test_metadata_fields_are_not_checked_without_description(self):
+        for description_line in ("", "  description: ''\n"):
+            with self.subTest(description_line=description_line):
+                yaml_text = f"""
+metadata:
+  title: Administrative interview
+{description_line}"""
+                errs = find_errors_from_string(
+                    yaml_text, input_file="administrative.yml"
+                )
+                self.assertFalse(
+                    _has_code(errs, "IG416"),
+                    f"Did not expect metadata-fields finding, got: {errs}",
+                )
+
+    def test_metadata_fields_are_not_checked_for_test_yaml_filenames(self):
+        yaml_text = """
+metadata:
+  title: Example interview
+  description: An interview intended for publication
+"""
+        for input_file in (
+            "test_example.yml",
+            "example_test.yaml",
+            "/tmp/questions/TEST_example.YML",
+            "/tmp/questions/example_TEST.yaml",
+        ):
+            with self.subTest(input_file=input_file):
+                errs = find_errors_from_string(yaml_text, input_file=input_file)
+                self.assertFalse(
+                    _has_code(errs, "IG416"),
+                    f"Did not expect metadata-fields finding for {input_file}, got: {errs}",
+                )
 
     def test_accessibility_field_shortcut_and_validation_rules_are_reported(self):
         yaml_text = """
