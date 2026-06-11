@@ -1,6 +1,6 @@
 [project]
 name = "dayamlchecker"
-version = "1.3.0"
+version = "1.4.0"
 description = "An LSP for Docassemble YAML interviews"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,6 +19,7 @@ license = "MIT"
 license-files = ["LICEN[CS]E*"]
 authors = [
   { name="Bryce Willey", email="bryce.steven.willey@gmail.com" },
+  { name="Quinten Steenhuis", email="qsteenhuis@suffolk.edu" },
 ]
 
 [tool.setuptools]
