@@ -1151,13 +1151,8 @@ class Finding:
             Severity.WARNING: "WARN",
             Severity.INFO: "INFO",
         }[self.severity]
-        indented_message = "\n".join(
-            f"  {line}" for line in self.message.splitlines()
-        )
-        return (
-            f"{severity_label:<5} [{self.code}] {location}\n"
-            f"{indented_message}"
-        )
+        indented_message = "\n".join(f"  {line}" for line in self.message.splitlines())
+        return f"{severity_label:<5} [{self.code}] {location}\n" f"{indented_message}"
 
 
 @dataclass(frozen=True, slots=True)
