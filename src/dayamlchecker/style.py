@@ -217,10 +217,12 @@ def find_style_findings(
     deterministic: list[Finding] = []
 
     for check in (
-        _check_subquestion_h1,
-        _check_choices_without_stable_values,
-        _check_language_en_flag,
+        _check_choices_without_invariant_values,
         _check_hardcoded_strings_in_code,
+        _check_ternary_conditional_text,
+        _check_conditional_sentence_fragments,
+        _check_subquestion_h1,
+        _check_language_en_flag,
         _check_empty_screen_title,
         _check_placeholder_language,
         _check_plain_language_replacements,
@@ -278,6 +280,163 @@ def find_style_findings(
     return _dedupe_findings(deterministic)
 
 
+# Translatability checks
+def _check_choices_without_invariant_values(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+
+    def has_noninvariant_choices(choices: Any) -> bool:
+        if not isinstance(choices, list):
+            return False
+        for item in choices:
+            if isinstance(item, str) and ": " not in item:
+                return True
+            if not isinstance(item, dict):
+                continue
+            if len(item) == 1 and "label" not in item and "value" not in item:
+                continue
+            if "label" in item and "value" not in item:
+                return True
+        return False
+
+    for parsed_doc in docs:
+        for key in ("choices", "dropdown", "buttons"):
+            value = parsed_doc.doc.get(key)
+            if not has_noninvariant_choices(value):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
+                    line_number=parsed_doc.line_for_key(key),
+                    screen_id=parsed_doc.screen_id,
+                    origin=key,
+                    snippet=_shorten(value),
+                )
+            )
+        for field in _iter_fields(parsed_doc.doc):
+            choices = field.get("choices")
+            if not has_noninvariant_choices(choices):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
+                    line_number=parsed_doc.line_for_field(field),
+                    screen_id=parsed_doc.screen_id,
+                    origin="field choices",
+                    snippet=_shorten(choices),
+                )
+            )
+    return findings
+
+
+def _check_hardcoded_strings_in_code(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for parsed_doc in docs:
+        code = _stringify(parsed_doc.doc.get("code"))
+        if not code:
+            continue
+        for content in _iter_user_facing_code_strings(code):
+            normalized = content.strip()
+            if _looks_user_facing_code_string(normalized):
+                findings.append(
+                    _style_draft(
+                        MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE,
+                        line_number=parsed_doc.line_for_key("code"),
+                        screen_id=parsed_doc.screen_id,
+                        snippet=_shorten(normalized),
+                    )
+                )
+                break
+    return findings
+
+
+def _check_ternary_conditional_text(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for entry in _user_facing_text_entries(docs):
+        for expression in _MAKO_EXPR_RE.findall(entry.text):
+            source = expression[2:-1].strip()
+            try:
+                parsed = ast.parse(source, mode="eval")
+            except SyntaxError:
+                continue
+            if not any(isinstance(node, ast.IfExp) for node in ast.walk(parsed)):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.TRANSLATABILITY_TERNARY_CONDITIONAL_TEXT,
+                    line_number=entry.line_number,
+                    screen_id=entry.screen_id,
+                    location=entry.location,
+                    snippet=_shorten(expression),
+                )
+            )
+            break
+    return findings
+
+
+def _check_conditional_sentence_fragments(
+    docs: list[ParsedInterviewDocument],
+) -> list[FindingDraft]:
+    findings: list[FindingDraft] = []
+    for entry in _user_facing_text_entries(docs):
+        fragment = _find_conditional_sentence_fragment(entry.text)
+        if fragment is None:
+            continue
+        findings.append(
+            _style_draft(
+                MessageId.TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT,
+                line_number=entry.line_number,
+                screen_id=entry.screen_id,
+                location=entry.location,
+                snippet=_shorten(fragment),
+            )
+        )
+    return findings
+
+
+def _find_conditional_sentence_fragment(text: str) -> str | None:
+    lines = text.splitlines()
+    stack: list[int] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if re.match(r"^%\s*if\b", stripped):
+            stack.append(index)
+            continue
+        if not re.match(r"^%\s*endif\b", stripped) or not stack:
+            continue
+        start = stack.pop()
+        if stack:
+            continue
+        before = lines[start - 1].strip() if start > 0 else ""
+        after = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if _is_sentence_fragment_context(before, after):
+            return "\n".join(lines[start : index + 1])
+    return None
+
+
+def _is_sentence_fragment_context(before: str, after: str) -> bool:
+    before_is_markdown_boundary = bool(
+        re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", before)
+    )
+    if (
+        before
+        and not before_is_markdown_boundary
+        and not re.search(r"[.!?:]\s*$", _plain_text(before))
+    ):
+        return True
+    after_with_expressions = _MAKO_EXPR_RE.sub("value", after)
+    return bool(
+        after
+        and not re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", after)
+        and re.match(r"^[a-z0-9]", _plain_text(after_with_expressions).lstrip())
+    )
+
+
 def _check_subquestion_h1(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
@@ -296,55 +455,6 @@ def _check_subquestion_h1(docs: list[ParsedInterviewDocument]) -> list[FindingDr
     return findings
 
 
-def _check_choices_without_stable_values(
-    docs: list[ParsedInterviewDocument],
-) -> list[FindingDraft]:
-    findings: list[FindingDraft] = []
-
-    def has_unstable_choices(choices: Any) -> bool:
-        if not isinstance(choices, list):
-            return False
-        for item in choices:
-            if isinstance(item, str) and ": " not in item:
-                return True
-            if not isinstance(item, dict):
-                continue
-            if len(item) == 1 and "label" not in item and "value" not in item:
-                continue
-            if "label" in item and "value" not in item:
-                return True
-        return False
-
-    for parsed_doc in docs:
-        for key in ("choices", "dropdown", "buttons"):
-            value = parsed_doc.doc.get(key)
-            if not has_unstable_choices(value):
-                continue
-            findings.append(
-                _style_draft(
-                    MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES,
-                    line_number=parsed_doc.line_for_key(key),
-                    screen_id=parsed_doc.screen_id,
-                    origin=key,
-                    snippet=_shorten(value),
-                )
-            )
-        for field in _iter_fields(parsed_doc.doc):
-            choices = field.get("choices")
-            if not has_unstable_choices(choices):
-                continue
-            findings.append(
-                _style_draft(
-                    MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES,
-                    line_number=parsed_doc.line_for_field(field),
-                    screen_id=parsed_doc.screen_id,
-                    origin="field choices",
-                    snippet=_shorten(choices),
-                )
-            )
-    return findings
-
-
 def _check_language_en_flag(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
@@ -357,29 +467,6 @@ def _check_language_en_flag(docs: list[ParsedInterviewDocument]) -> list[Finding
                 screen_id=parsed_doc.screen_id,
             )
         )
-    return findings
-
-
-def _check_hardcoded_strings_in_code(
-    docs: list[ParsedInterviewDocument],
-) -> list[FindingDraft]:
-    findings: list[FindingDraft] = []
-    for parsed_doc in docs:
-        code = _stringify(parsed_doc.doc.get("code"))
-        if not code:
-            continue
-        for content in _iter_user_facing_code_strings(code):
-            normalized = content.strip()
-            if _looks_user_facing_code_string(normalized):
-                findings.append(
-                    _style_draft(
-                        MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE,
-                        line_number=parsed_doc.line_for_key("code"),
-                        screen_id=parsed_doc.screen_id,
-                        snippet=_shorten(normalized),
-                    )
-                )
-                break
     return findings
 
 

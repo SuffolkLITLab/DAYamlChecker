@@ -19,7 +19,10 @@ def test_style_checks_are_opt_in_by_default():
 
     findings = find_errors_from_string(yaml_text, input_file="<string_input>")
 
-    assert all(finding.finding_class != FindingClass.STYLE for finding in findings)
+    assert all(
+        finding.finding_class not in {FindingClass.STYLE, FindingClass.TRANSLATABILITY}
+        for finding in findings
+    )
 
 
 def test_style_checks_report_deterministic_findings():
@@ -45,7 +48,7 @@ def test_style_checks_report_deterministic_findings():
     assert MessageId.STYLE_COMPOUND_QUESTION in message_ids
 
 
-def test_style_choices_without_stable_values_are_errors():
+def test_translatability_choices_without_invariant_values_are_warnings():
     findings = find_errors_from_string(
         "question: |\n"
         "  Choose a county.\n"
@@ -68,13 +71,18 @@ def test_style_choices_without_stable_values_are_errors():
     choice_findings = [
         finding
         for finding in findings
-        if finding.message_id == MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES
+        if finding.message_id
+        == MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES
     ]
     assert len(choice_findings) == 2
-    assert all(finding.severity == Severity.ERROR for finding in choice_findings)
+    assert all(finding.severity == Severity.WARNING for finding in choice_findings)
+    assert all(
+        finding.finding_class == FindingClass.TRANSLATABILITY
+        for finding in choice_findings
+    )
 
 
-def test_style_choices_with_stable_values_are_allowed():
+def test_style_choices_with_invariant_values_are_allowed():
     findings = find_errors_from_string(
         "question: |\n"
         "  Choose a county.\n"
@@ -96,7 +104,107 @@ def test_style_choices_with_stable_values_are_allowed():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES
+        finding.message_id != MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES
+        for finding in findings
+    )
+
+
+def test_translatability_warns_about_ternary_conditional_text():
+    findings = find_errors_from_string(
+        "id: household_order\n"
+        "question: Household order\n"
+        "subquestion: |\n"
+        '  I am the ${ "third" if third else "second" } person.\n',
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    ternary_findings = [
+        finding
+        for finding in findings
+        if finding.message_id == MessageId.TRANSLATABILITY_TERNARY_CONDITIONAL_TEXT
+    ]
+    assert len(ternary_findings) == 1
+    assert ternary_findings[0].severity == Severity.WARNING
+    assert ternary_findings[0].finding_class == FindingClass.TRANSLATABILITY
+    assert ternary_findings[0].line_number == 3
+    assert ternary_findings[0].context["location"] == "subquestion"
+    assert ternary_findings[0].context["snippet"] == (
+        '${ "third" if third else "second" }'
+    )
+
+
+def test_translatability_allows_non_ternary_user_facing_interpolation():
+    findings = find_errors_from_string(
+        "question: Hello, ${ user.name }.\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id != MessageId.TRANSLATABILITY_TERNARY_CONDITIONAL_TEXT
+        for finding in findings
+    )
+
+
+def test_translatability_warns_about_conditional_sentence_fragments():
+    findings = find_errors_from_string(
+        "question: |\n"
+        "  Do you agree that\n"
+        "  % if client_is_user:\n"
+        "  you\n"
+        "  % else:\n"
+        "  ${ client }\n"
+        "  % endif\n"
+        "  got too much money?\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    fragment_findings = [
+        finding
+        for finding in findings
+        if finding.message_id == MessageId.TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT
+    ]
+    assert len(fragment_findings) == 1
+    assert fragment_findings[0].finding_class == FindingClass.TRANSLATABILITY
+    assert fragment_findings[0].severity == Severity.WARNING
+    assert fragment_findings[0].context["location"] == "question"
+
+
+def test_translatability_allows_conditional_full_sentences():
+    findings = find_errors_from_string(
+        "question: |\n"
+        "  % if client_is_user:\n"
+        "  Do you agree that you got too much money?\n"
+        "  % else:\n"
+        "  Do you agree that ${ client } got too much money?\n"
+        "  % endif\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id != MessageId.TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT
+        for finding in findings
+    )
+
+
+def test_translatability_allows_full_sentence_condition_after_heading():
+    findings = find_errors_from_string(
+        "subquestion: |\n"
+        "  ## Payment status\n"
+        "  % if client_is_user:\n"
+        "  You got too much money.\n"
+        "  % else:\n"
+        "  ${ client } got too much money.\n"
+        "  % endif\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id != MessageId.TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT
         for finding in findings
     )
 
@@ -119,14 +227,20 @@ def test_style_rule_severity_decisions_are_stable():
         for finding in findings
         if finding.message_id
         in {
-            MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES,
+            MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
             MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT,
-            MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE,
+            MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE,
         }
     }
-    assert severities[MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES] == Severity.ERROR
+    assert (
+        severities[MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES]
+        == Severity.WARNING
+    )
     assert severities[MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT] == Severity.INFO
-    assert severities[MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE] == Severity.WARNING
+    assert (
+        severities[MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE]
+        == Severity.WARNING
+    )
 
 
 def test_style_llm_missing_api_key_reports_configuration_error(monkeypatch):
@@ -146,7 +260,7 @@ def test_style_llm_missing_api_key_reports_configuration_error(monkeypatch):
     )
 
 
-def test_style_checks_report_hardcoded_user_text_in_code():
+def test_translatability_checks_report_hardcoded_user_text_in_code():
     findings = find_errors_from_string(
         'code: |\n  user_message = "Please complete the form before you continue."\n',
         input_file="<string_input>",
@@ -154,7 +268,8 @@ def test_style_checks_report_hardcoded_user_text_in_code():
     )
 
     assert any(
-        finding.message_id == MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id == MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
+        and finding.finding_class == FindingClass.TRANSLATABILITY
         for finding in findings
     )
 
@@ -171,7 +286,7 @@ def test_style_checks_ignore_multiline_code_without_hardcoded_text():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id != MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
         for finding in findings
     )
 
@@ -184,7 +299,7 @@ def test_style_checks_ignore_lowercase_config_strings_in_code():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id != MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
         for finding in findings
     )
 
@@ -201,7 +316,7 @@ def test_style_checks_ignore_docstrings_and_data_lists_in_code():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id != MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
         for finding in findings
     )
 
@@ -216,7 +331,7 @@ def test_style_checks_ignore_short_f_string_fragments_in_code():
     )
 
     assert all(
-        finding.message_id != MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id != MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
         for finding in findings
     )
 
@@ -229,7 +344,7 @@ def test_style_checks_flag_validation_error_messages_in_code():
     )
 
     assert any(
-        finding.message_id == MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE
+        finding.message_id == MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE
         for finding in findings
     )
 
@@ -403,6 +518,21 @@ def test_module_style_helper_returns_structured_style_findings():
     assert findings
     assert all(finding.finding_class == FindingClass.STYLE for finding in findings)
     assert all(finding.context.get("screen_id") == "intro" for finding in findings)
+
+
+def test_module_style_helper_includes_translatability_findings():
+    findings = dayamlchecker.find_style_findings_from_string(
+        "id: county\n"
+        "question: Choose a county\n"
+        "field: county\n"
+        "choices:\n"
+        "  - Suffolk\n",
+        input_file="<string_input>",
+    )
+
+    assert any(
+        finding.finding_class == FindingClass.TRANSLATABILITY for finding in findings
+    )
 
 
 def test_main_can_run_style_checks_from_cli():
