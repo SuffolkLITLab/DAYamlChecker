@@ -341,6 +341,41 @@ mandatory: True
             f"Expected comment+mandatory no-type validation error, got: {errs}",
         )
 
+    def test_include_block_allows_id(self):
+        yaml_content = """id: shared_setup
+include:
+  - shared.yml
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+        self.assertEqual(
+            len(errs), 0, f"Expected include block with id to be valid, got: {errs}"
+        )
+
+    def test_include_block_allows_comment(self):
+        yaml_content = """comment: Shared interview setup
+include:
+  - shared.yml
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+        self.assertEqual(
+            len(errs),
+            0,
+            f"Expected include block with comment to be valid, got: {errs}",
+        )
+
+    def test_include_block_allows_id_and_comment(self):
+        yaml_content = """id: shared_setup
+comment: Shared interview setup
+include:
+  - shared.yml
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+        self.assertEqual(
+            len(errs),
+            0,
+            f"Expected include block with id and comment to be valid, got: {errs}",
+        )
+
     def test_accessibility_mode_still_reports_yaml_parse_errors(self):
         yaml_content = """question: |
   Bad yaml
