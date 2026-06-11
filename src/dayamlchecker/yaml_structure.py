@@ -1960,6 +1960,10 @@ def _check_multiple_mandatory_blocks(
 def _check_metadata_fields(
     parsed_docs: list[ParsedInterviewDocument], *, input_file: str
 ) -> list[Finding]:
+    file_stem = Path(input_file).stem.lower()
+    if file_stem.startswith("test_") or file_stem.endswith("_test"):
+        return []
+
     metadata_doc: Optional[ParsedInterviewDocument] = None
     metadata: dict[str, Any] = {}
     for parsed_doc in parsed_docs:
@@ -1970,6 +1974,8 @@ def _check_metadata_fields(
             metadata_doc = parsed_doc
         metadata.update(block)
     if metadata_doc is None:
+        return []
+    if not metadata.get("description"):
         return []
     missing = [
         field
