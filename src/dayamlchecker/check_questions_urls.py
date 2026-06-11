@@ -9,6 +9,7 @@ import pathlib
 import re
 import sys
 import tokenize
+import warnings
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -393,7 +394,14 @@ def extract_text_from_pdf(file_path: pathlib.Path) -> str:
 def extract_text_from_docx(file_path: pathlib.Path) -> str:
     """Extract all text from a DOCX file."""
     try:
-        result = docx2python(file_path)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"none numbering format not implemented, substituting '--'",
+                category=UserWarning,
+                module=r"docx2python\.bullets_and_numbering",
+            )
+            result = docx2python(file_path)
         return result.text
     except Exception as e:
         print(

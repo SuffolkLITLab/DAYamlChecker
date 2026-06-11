@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 from typing import cast
 
@@ -7,6 +8,7 @@ from requests import Session
 import dayamlchecker.check_questions_urls as check_questions_urls
 from dayamlchecker.check_questions_urls import (
     check_urls,
+    extract_text_from_docx,
     extract_text_from_pdf,
     extract_urls_from_file,
     parse_url_token,
@@ -243,6 +245,49 @@ def test_extract_text_from_pdf_keeps_wrapped_urls_in_raw_text(
         "Visit https://www.courts.michigan.gov/49752a/siteassets/forms/scao-\n"
         "approved/dhs1201d.pdf for the full form."
     )
+
+
+def test_extract_text_from_docx_suppresses_unsupported_none_numbering_warning(
+    tmp_path: Path, monkeypatch
+) -> None:
+    file_path = tmp_path / "template.docx"
+    file_path.write_bytes(b"placeholder")
+
+    class FakeResult:
+        text = "Visit https://example.com"
+
+    def fake_docx2python(_: Path) -> FakeResult:
+        warnings.warn_explicit(
+            "none numbering format not implemented, substituting '--'",
+            UserWarning,
+            filename="bullets_and_numbering.py",
+            lineno=291,
+            module="docx2python.bullets_and_numbering",
+        )
+        return FakeResult()
+
+    monkeypatch.setattr(check_questions_urls, "docx2python", fake_docx2python)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert extract_text_from_docx(file_path) == "Visit https://example.com"
+
+
+def test_extract_text_from_docx_does_not_suppress_other_warnings(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    file_path = tmp_path / "template.docx"
+    file_path.write_bytes(b"placeholder")
+
+    def fake_docx2python(_: Path) -> None:
+        warnings.warn("unexpected DOCX warning", UserWarning, stacklevel=2)
+
+    monkeypatch.setattr(check_questions_urls, "docx2python", fake_docx2python)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert extract_text_from_docx(file_path) == ""
+    assert "unexpected DOCX warning" in capsys.readouterr().err
 
 
 def test_extract_wrapped_pdf_url_repairs_finds_joined_candidate() -> None:

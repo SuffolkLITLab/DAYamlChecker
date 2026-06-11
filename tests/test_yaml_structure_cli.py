@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 import dayamlchecker.yaml_structure as yaml_structure
 from dayamlchecker.check_questions_urls import URLCheckResult, URLIssue
+from dayamlchecker.messages import MessageId, make_finding, print_github_annotation
 from dayamlchecker.yaml_structure import _collect_yaml_files, main
 
 
@@ -14,6 +15,64 @@ def _write_valid_question(path: Path) -> None:
     path.write_text(
         "question: |\n  What is your name?\nfield: user_name\n",
         encoding="utf-8",
+    )
+
+
+def test_human_finding_format_uses_aligned_severity_and_indented_message():
+    findings = (
+        make_finding(
+            MessageId.ACCESSIBILITY_YESNO_SHORTCUT,
+            file_name="docassemble/AssemblyLine/data/questions/al_question_test.yml",
+            line_number=125,
+            shortcut="yesno",
+        ),
+        make_finding(
+            MessageId.ACCESSIBILITY_INLINE_COLOR_STYLING,
+            file_name="docassemble/AssemblyLine/data/questions/al_document.yml",
+            line_number=185,
+            section_location="subquestion",
+            snippet='class="spinner-border text-primary',
+        ),
+        make_finding(
+            MessageId.MISSING_METADATA_FIELDS,
+            file_name="docassemble/AssemblyLine/data/questions/al_question_test.yml",
+            line_number=20,
+            fields="short title, description, can_I_use_this_form",
+        ),
+    )
+
+    assert "\n\n".join(str(finding) for finding in findings) == (
+        "ERROR [EA510] "
+        "docassemble/AssemblyLine/data/questions/al_question_test.yml:125\n"
+        "  screen uses `yesno` question shorthand; prefer `fields` with an explicit "
+        "datatype\n\n"
+        "WARN  [WA517] "
+        "docassemble/AssemblyLine/data/questions/al_document.yml:185\n"
+        "  text in subquestion uses inline or semantic color styling; verify contrast "
+        'and non-color cues: class="spinner-border text-primary\n\n'
+        "INFO  [IG416] "
+        "docassemble/AssemblyLine/data/questions/al_question_test.yml:20\n"
+        "  metadata block is missing common CourtFormsOnline publishing fields: "
+        "short title, description, can_I_use_this_form"
+    )
+
+
+def test_github_finding_format_is_unchanged(capsys):
+    finding = make_finding(
+        MessageId.ACCESSIBILITY_YESNO_SHORTCUT,
+        file_name="docassemble/AssemblyLine/data/questions/al_question_test.yml",
+        line_number=125,
+        shortcut="yesno",
+    )
+
+    print_github_annotation(finding)
+
+    assert capsys.readouterr().out == (
+        "::error "
+        "file=docassemble/AssemblyLine/data/questions/al_question_test.yml,"
+        "line=125,title=EA510::"
+        "screen uses `yesno` question shorthand; prefer `fields` with an explicit "
+        "datatype\n"
     )
 
 
