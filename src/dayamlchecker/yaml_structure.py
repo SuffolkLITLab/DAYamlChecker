@@ -99,6 +99,27 @@ _CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
+_MALFORMED_MARKDOWN_LINK_RE = re.compile(
+    r"""
+    \[[^\]\n]+\]\s+\(\s*https?://[^)\s]+\s*\)
+    |
+    \([^)\n]+\)\s*\[\s*https?://[^\]\s]+\s*\]
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _malformed_markdown_link_errors(value: Any) -> list[Any]:
+    if not isinstance(value, str):
+        return []
+    return [
+        draft(
+            MessageId.MAKO_MALFORMED_MARKDOWN_LINK,
+            line_number=value.count("\n", 0, match.start()) + 1,
+            snippet=match.group(0),
+        )
+        for match in _MALFORMED_MARKDOWN_LINK_RE.finditer(value)
+    ]
 
 
 class YAMLStr:
@@ -114,27 +135,27 @@ class MakoText:
     """A string that will be run through a Mako template from DA. Needs to have valid Mako template"""
 
     def __init__(self, x):
-        self.errors = []
+        self.errors = _malformed_markdown_link_errors(x)
         try:
             self.template = MakoTemplate(
                 x, strict_undefined=True, input_encoding="utf-8"
             )
         except SyntaxException as ex:
-            self.errors = [
+            self.errors.append(
                 draft(
                     MessageId.MAKO_SYNTAX_ERROR,
                     line_number=ex.lineno or 1,
                     error=str(ex),
                 )
-            ]
+            )
         except CompileException as ex:
-            self.errors = [
+            self.errors.append(
                 draft(
                     MessageId.MAKO_COMPILE_ERROR,
                     line_number=ex.lineno or 1,
                     error=str(ex),
                 )
-            ]
+            )
 
 
 class MakoMarkdownText(MakoText):
@@ -676,6 +697,17 @@ class DAFields:
 
             for field_key in field_item:
                 if isinstance(field_key, str) and field_key != "__line__":
+                    if field_key not in self.modifier_keys:
+                        for err in _malformed_markdown_link_errors(field_key):
+                            self.errors.append(
+                                draft(
+                                    err.message_id,
+                                    line_number=self._line_for(
+                                        field_item, err.line_number or 1
+                                    ),
+                                    **dict(err.context),
+                                )
+                            )
                     if (
                         field_key not in self.modifier_keys
                         and field_key.lower() in self.modifier_keys
@@ -691,11 +723,16 @@ class DAFields:
                     if field_key in self.mako_keys:
                         the_mako = MakoText(str(field_item[field_key]))
                         for err in the_mako.errors:
-                            field_message_id = (
-                                MessageId.FIELD_VALUE_MAKO_SYNTAX_ERROR
-                                if err.message_id == MessageId.MAKO_SYNTAX_ERROR
-                                else MessageId.FIELD_VALUE_MAKO_COMPILE_ERROR
-                            )
+                            if err.message_id == MessageId.MAKO_SYNTAX_ERROR:
+                                field_message_id = (
+                                    MessageId.FIELD_VALUE_MAKO_SYNTAX_ERROR
+                                )
+                            elif err.message_id == MessageId.MAKO_COMPILE_ERROR:
+                                field_message_id = (
+                                    MessageId.FIELD_VALUE_MAKO_COMPILE_ERROR
+                                )
+                            else:
+                                field_message_id = err.message_id
                             self.errors.append(
                                 draft(
                                     field_message_id,
