@@ -15,6 +15,7 @@ class FindingClass(StrEnum):
     GENERAL = "general"
     ACCESSIBILITY = "accessibility"
     STYLE = "style"
+    TRANSLATABILITY = "translatability"
 
 
 class MessageId(StrEnum):
@@ -120,10 +121,22 @@ class MessageId(StrEnum):
     )
     ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT = "accessibility_ambiguous_button_text"
 
+    # Translatability
+    TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES = (
+        "translatability_choices_without_stable_values"
+    )
+    TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE = (
+        "translatability_hardcoded_user_text_in_code"
+    )
+    TRANSLATABILITY_TERNARY_CONDITIONAL_TEXT = (
+        "translatability_ternary_conditional_text"
+    )
+    TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT = (
+        "translatability_conditional_sentence_fragment"
+    )
+
     STYLE_SUBQUESTION_H1 = "style_subquestion_h1"
-    STYLE_CHOICES_WITHOUT_STABLE_VALUES = "style_choices_without_stable_values"
     STYLE_REMOVE_LANGUAGE_EN = "style_remove_language_en"
-    STYLE_HARDCODED_USER_TEXT_IN_CODE = "style_hardcoded_user_text_in_code"
     STYLE_MISSING_SCREEN_TITLE = "style_missing_screen_title"
     STYLE_PLACEHOLDER_LANGUAGE = "style_placeholder_language"
     STYLE_PLAIN_LANGUAGE_REPLACEMENT = "style_plain_language_replacement"
@@ -771,6 +784,48 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Button text may be too vague",
         template="button text may be too vague out of context: {snippet}",
     ),
+    # Translatability
+    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES: MessageDefinition(
+        code="WT701",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="Choices are missing invariant values",
+        template=(
+            "{origin} includes labels without explicit invariant values; translated "
+            "labels should not be stored as answers: {snippet}"
+        ),
+    ),
+    MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE: MessageDefinition(
+        code="WT702",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="User-facing text appears inside a code block",
+        template=(
+            "move user-facing text out of `code:` blocks and into a translatable "
+            "template: {snippet}"
+        ),
+    ),
+    MessageId.TRANSLATABILITY_TERNARY_CONDITIONAL_TEXT: MessageDefinition(
+        code="WT703",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="Ternary conditional text may not be translatable",
+        template=(
+            "ternary conditional text in {location} may not be extracted for "
+            "translation; use a Mako conditional block around each full sentence: "
+            "{snippet}"
+        ),
+    ),
+    MessageId.TRANSLATABILITY_CONDITIONAL_SENTENCE_FRAGMENT: MessageDefinition(
+        code="WT704",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="Conditional text changes only part of a sentence",
+        template=(
+            "Mako conditional in {location} appears to change only part of a "
+            "sentence; put each full sentence inside a conditional branch: {snippet}"
+        ),
+    ),
     MessageId.STYLE_SUBQUESTION_H1: MessageDefinition(
         code="ES701",
         severity=Severity.ERROR,
@@ -778,26 +833,12 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Subquestion contains an H1 heading",
         template="subquestion contains an H1 heading; use H2+ inside body text: {snippet}",
     ),
-    MessageId.STYLE_CHOICES_WITHOUT_STABLE_VALUES: MessageDefinition(
-        code="ES702",
-        severity=Severity.ERROR,
-        finding_class=FindingClass.STYLE,
-        summary="Choices are missing stable values",
-        template="{origin} includes labels without explicit stable values: {snippet}",
-    ),
     MessageId.STYLE_REMOVE_LANGUAGE_EN: MessageDefinition(
         code="ES703",
         severity=Severity.ERROR,
         finding_class=FindingClass.STYLE,
         summary="Explicit language: en is unnecessary",
         template="remove `language: en`; English is the default in docassemble interviews",
-    ),
-    MessageId.STYLE_HARDCODED_USER_TEXT_IN_CODE: MessageDefinition(
-        code="WS704",
-        severity=Severity.WARNING,
-        finding_class=FindingClass.STYLE,
-        summary="User-facing text appears inside a code block",
-        template="move user-facing text out of `code:` blocks: {snippet}",
     ),
     MessageId.STYLE_MISSING_SCREEN_TITLE: MessageDefinition(
         code="WS710",

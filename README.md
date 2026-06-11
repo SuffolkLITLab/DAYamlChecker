@@ -23,7 +23,14 @@ Some accessibility checks are behind runtime options while the rules are still b
 
 ## Style checks
 
-Assembly Line style checks are opt-in. Enable them with `--style` to run deterministic style findings ported from ALLinter without duplicating the checker’s existing YAML, accessibility, or URL coverage.
+Assembly Line style checks are opt-in. Enable them with `--style` to run
+deterministic style and translatability findings ported from ALLinter without
+duplicating the checker’s existing YAML, accessibility, or URL coverage.
+
+Translatability findings have their own `translatability` finding class and
+use `WT` warning codes. They include translated choice labels that lack
+invariant stored values, user-facing strings embedded in code, and conditional
+expressions or Mako blocks that change only part of a sentence.
 
 ```bash
 python3 -m dayamlchecker --style --no-url-check path/to/interview.yml

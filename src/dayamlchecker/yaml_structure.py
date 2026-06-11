@@ -2074,7 +2074,7 @@ def find_style_findings_from_string(
             lint_mode=lint_mode,
             runtime_options=resolved_options,
         )
-        if finding.finding_class == FindingClass.STYLE
+        if finding.finding_class in {FindingClass.STYLE, FindingClass.TRANSLATABILITY}
     ]
 
 
