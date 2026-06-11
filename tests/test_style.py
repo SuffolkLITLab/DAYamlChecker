@@ -71,7 +71,8 @@ def test_translatability_choices_without_invariant_values_are_warnings():
     choice_findings = [
         finding
         for finding in findings
-        if finding.message_id == MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES
+        if finding.message_id
+        == MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES
     ]
     assert len(choice_findings) == 2
     assert all(finding.severity == Severity.WARNING for finding in choice_findings)
@@ -81,7 +82,7 @@ def test_translatability_choices_without_invariant_values_are_warnings():
     )
 
 
-def test_style_choices_with_stable_values_are_allowed():
+def test_style_choices_with_invariant_values_are_allowed():
     findings = find_errors_from_string(
         "question: |\n"
         "  Choose a county.\n"
@@ -103,7 +104,7 @@ def test_style_choices_with_stable_values_are_allowed():
     )
 
     assert all(
-        finding.message_id != MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES
+        finding.message_id != MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES
         for finding in findings
     )
 
@@ -226,13 +227,13 @@ def test_style_rule_severity_decisions_are_stable():
         for finding in findings
         if finding.message_id
         in {
-            MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES,
+            MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
             MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT,
             MessageId.TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE,
         }
     }
     assert (
-        severities[MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES]
+        severities[MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES]
         == Severity.WARNING
     )
     assert severities[MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT] == Severity.INFO

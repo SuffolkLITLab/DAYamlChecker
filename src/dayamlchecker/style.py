@@ -217,7 +217,7 @@ def find_style_findings(
     deterministic: list[Finding] = []
 
     for check in (
-        _check_choices_without_stable_values,
+        _check_choices_without_invariant_values,
         _check_hardcoded_strings_in_code,
         _check_ternary_conditional_text,
         _check_conditional_sentence_fragments,
@@ -281,12 +281,12 @@ def find_style_findings(
 
 
 # Translatability checks
-def _check_choices_without_stable_values(
+def _check_choices_without_invariant_values(
     docs: list[ParsedInterviewDocument],
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
 
-    def has_unstable_choices(choices: Any) -> bool:
+    def has_noninvariant_choices(choices: Any) -> bool:
         if not isinstance(choices, list):
             return False
         for item in choices:
@@ -303,11 +303,11 @@ def _check_choices_without_stable_values(
     for parsed_doc in docs:
         for key in ("choices", "dropdown", "buttons"):
             value = parsed_doc.doc.get(key)
-            if not has_unstable_choices(value):
+            if not has_noninvariant_choices(value):
                 continue
             findings.append(
                 _style_draft(
-                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES,
+                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
                     line_number=parsed_doc.line_for_key(key),
                     screen_id=parsed_doc.screen_id,
                     origin=key,
@@ -316,11 +316,11 @@ def _check_choices_without_stable_values(
             )
         for field in _iter_fields(parsed_doc.doc):
             choices = field.get("choices")
-            if not has_unstable_choices(choices):
+            if not has_noninvariant_choices(choices):
                 continue
             findings.append(
                 _style_draft(
-                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES,
+                    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES,
                     line_number=parsed_doc.line_for_field(field),
                     screen_id=parsed_doc.screen_id,
                     origin="field choices",

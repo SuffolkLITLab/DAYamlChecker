@@ -123,8 +123,8 @@ class MessageId(StrEnum):
     ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT = "accessibility_ambiguous_button_text"
 
     # Translatability
-    TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES = (
-        "translatability_choices_without_stable_values"
+    TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES = (
+        "translatability_choices_without_invariant_values"
     )
     TRANSLATABILITY_HARDCODED_USER_TEXT_IN_CODE = (
         "translatability_hardcoded_user_text_in_code"
@@ -796,7 +796,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template="button text may be too vague out of context: {snippet}",
     ),
     # Translatability
-    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_STABLE_VALUES: MessageDefinition(
+    MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES: MessageDefinition(
         code="WT701",
         severity=Severity.WARNING,
         finding_class=FindingClass.TRANSLATABILITY,
