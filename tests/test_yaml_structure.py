@@ -502,6 +502,36 @@ combobox: selected_option
             f"Expected generic Spanish link-text accessibility error, got: {errs}",
         )
 
+    def test_accessibility_this_website_link_text_fails(self):
+        yaml_content = """question: |
+  Check out [this website](https://example.com/forms).
+  More info is at [the website](https://example.com/info).
+  Go to the [website](https://example.com).
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        generic_errs = [e for e in errs if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()]
+        self.assertEqual(len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}")
+        self.assertTrue(all(e.severity.value == "error" for e in generic_errs))
+
+    def test_accessibility_sitio_web_link_text_fails(self):
+        yaml_content = """question: |
+  Visite [este sitio web](https://example.com/forms).
+  Mas info en [el sitio web](https://example.com/info).
+  Ir al [sitio web](https://example.com).
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        generic_errs = [e for e in errs if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()]
+        self.assertEqual(len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}")
+        self.assertTrue(all(e.severity.value == "error" for e in generic_errs))
+
     def test_accessibility_empty_markdown_link_fails(self):
         yaml_content = """question: |
   [](https://example.com/blank)
@@ -1637,6 +1667,22 @@ code: |
         self.assertFalse(
             _has_code(errs, "WG113"),
             f"Did not expect malformed Markdown link warnings, got: {errs}",
+        )
+
+    def test_mako_text_warns_about_broken_markdown_link_patterns(self):
+        invalid = """
+question: |
+  Read [[the instructions]](https://example.com/instructions) or [[here]](url).
+  Also [this one]](url) is broken.
+  And what about [this] (relative_url) or [that]  (another_url)?
+  Just a raw example: ]]( or ] (.
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+        warnings = [err for err in errs if err.code == "WG113"]
+        self.assertEqual(
+            len(warnings),
+            5,
+            f"Expected 5 malformed Markdown link warnings, got: {warnings}",
         )
 
     def test_interview_order_reference_without_matching_guard_errors(self):
