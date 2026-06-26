@@ -104,6 +104,10 @@ _MALFORMED_MARKDOWN_LINK_RE = re.compile(
     \[[^\]\n]+\]\s+\(\s*https?://[^)\s]+\s*\)
     |
     \([^)\n]+\)\s*\[\s*https?://[^\]\s]+\s*\]
+    |
+    \[+[^\]\n]+\]\]\([^)\n]*\)
+    |
+    \[+[^\]\n]+\]\s+\([^)\n]*\)
     """,
     re.IGNORECASE | re.VERBOSE,
 )
