@@ -71,7 +71,11 @@ def _finding_matches_suppression(finding: Finding, codes: frozenset[str]) -> boo
         return False
     if codes & _SUPPRESS_ALL_CODES:
         return True
-    return finding.code.upper() in codes or str(finding.message_id).upper() in codes
+    return (
+        finding.code.upper() in codes
+        or str(finding.message_id).upper() in codes
+        or str(finding.finding_class).upper() in codes
+    )
 
 
 def _document_line_ranges(full_content: str) -> list[tuple[int, int]]:
@@ -2315,6 +2319,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="YAML files or directories to validate (directories are searched recursively)",
     )
     parser.add_argument(
+        "--suppress",
+        action="append",
+        default=[],
+        help="Suppress a finding by ID or class. Can be a comma-separated list or passed multiple times.",
+    )
+    parser.add_argument(
         "--check-all",
         action="store_true",
         help=(
@@ -2505,6 +2515,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         all_findings.extend(url_check_result.issues)
 
     all_findings = _apply_dayc_suppressions_from_files(all_findings)
+    if args.suppress:
+        cli_suppressed_codes = _parse_suppression_codes(",".join(args.suppress))
+        all_findings = [
+            f for f in all_findings
+            if not _finding_matches_suppression(f, cli_suppressed_codes)
+        ]
+
     had_error = False
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 
