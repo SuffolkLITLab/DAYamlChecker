@@ -9,6 +9,30 @@ pip install .
 python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path "*/.venv/*" -not -path "*/build/*"` # i.e. a space separated list of files
 ```
 
+## Suppressing checks
+
+You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `general`). 
+
+**Inline and block comments in YAML:**
+To suppress a finding on a specific line, use a `# no-dayc: ` comment:
+```yaml
+question: Second  # no-dayc: EG101
+```
+To suppress findings for an entire document or block, use `# no-dayc-block: ` before the block:
+```yaml
+---
+# no-dayc-block: style, WG123
+code: |
+  answer = 1
+```
+You can use `ALL` or `*` to suppress all findings on a line/block (`# no-dayc: ALL`). Multiple codes can be separated by spaces or commas.
+
+**Command-line argument:**
+To globally suppress findings across all files being checked, pass a comma-separated list of IDs or classes to the `--suppress` parameter:
+```bash
+python3 -m dayamlchecker --suppress accessibility,EG101 path/to/interview.yml
+```
+
 ## WCAG checks
 
 The checker includes WCAG-style checks for clear static accessibility failures in interview source. These checks run by default; use `--no-wcag` to disable them.
