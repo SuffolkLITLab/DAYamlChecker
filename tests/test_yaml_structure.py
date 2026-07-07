@@ -2215,6 +2215,24 @@ code: |
             f"Expected only second WG123 to remain: {errs}",
         )
 
+    def test_inline_suppression_hides_matching_class(self):
+        yaml_content = """question: First
+question: Second  # no-dayc: general
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertFalse(_has_code(errs, "EG101"), f"Expected EG101 suppressed by class: {errs}")
+
+    def test_block_suppression_hides_matching_class_in_document(self):
+        yaml_content = """---
+# no-dayc-block: general
+question: First
+question: Second
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertFalse(_has_code(errs, "EG101"), f"Expected EG101 suppressed by class: {errs}")
+
+
+
 
 class TestALLinterParityRules(unittest.TestCase):
     def test_missing_question_id_is_reported(self):

@@ -18,7 +18,7 @@ To suppress a finding on a specific line, use a `# no-dayc: ` comment:
 ```yaml
 question: Second  # no-dayc: EG101
 ```
-To suppress findings for an entire document or block, use `# no-dayc-block: ` before the block:
+To suppress findings for an entire document or block, use `# no-dayc-block: ` inside the block (e.g., after the `---` document marker):
 ```yaml
 ---
 # no-dayc-block: style, WG123

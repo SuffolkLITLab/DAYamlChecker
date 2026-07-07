@@ -133,10 +133,12 @@ def _finding_is_suppressed(
         dict[int, frozenset[str]], list[tuple[int, int, frozenset[str]]]
     ],
 ) -> bool:
-    if finding.line_number is None:
-        return False
-
     inline_by_line, block_ranges = suppressions
+
+    if finding.line_number is None:
+        return any(
+            _finding_matches_suppression(finding, codes) for _, _, codes in block_ranges
+        )
 
     inline_codes = inline_by_line.get(finding.line_number)
     if inline_codes and _finding_matches_suppression(finding, inline_codes):
@@ -180,9 +182,9 @@ def _apply_dayc_suppressions_from_files(findings: list[Finding]) -> list[Finding
         if file_name not in suppressions_by_file:
             try:
                 suppressions_by_file[file_name] = _parse_dayc_suppressions(
-                    Path(file_name).read_text()
+                    Path(file_name).read_text(encoding="utf-8")
                 )
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 suppressions_by_file[file_name] = None
 
         suppressions = suppressions_by_file[file_name]
