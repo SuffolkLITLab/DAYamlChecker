@@ -1,6 +1,7 @@
-from dayamlchecker._code_def_warning import PYTHON_CODE_FUNCTION_DEF
 from dayamlchecker.messages import FindingClass, Severity
 from dayamlchecker.yaml_structure import find_errors_from_string
+
+PYTHON_CODE_FUNCTION_DEF = "python_code_function_def"
 
 
 def test_code_block_function_def_warns():
@@ -32,6 +33,4 @@ def test_code_block_without_function_def_does_not_warn():
         input_file="<string_input>",
     )
 
-    assert all(
-        finding.message_id != PYTHON_CODE_FUNCTION_DEF for finding in findings
-    )
+    assert all(finding.message_id != PYTHON_CODE_FUNCTION_DEF for finding in findings)
