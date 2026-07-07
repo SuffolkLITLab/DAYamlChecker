@@ -1303,6 +1303,8 @@ def _has_nonempty_visibility_condition(value: Any) -> bool:
     if isinstance(value, (dict, list, tuple, set)):
         return bool(value)
     return True
+
+
 def _iter_choice_labels_with_lines(
     choice_value: Any,
 ) -> list[tuple[str, Optional[int]]]:
