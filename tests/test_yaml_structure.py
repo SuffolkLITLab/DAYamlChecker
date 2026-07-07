@@ -756,6 +756,72 @@ fields:
             f"Expected no-label accessibility error to include variable name, got: {errs}",
         )
 
+    def test_accessibility_duplicate_field_label_fails_for_always_visible_fields(self):
+        yaml_content = """question: |
+  Enter contact information
+fields:
+  - Name: first_name
+  - Name: second_name
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        self.assertTrue(
+            any(e.code == "WA515" for e in errs),
+            f"Expected duplicate field label warning, got: {errs}",
+        )
+
+    def test_accessibility_duplicate_field_label_suppressed_for_conditional_other_context(
+        self,
+    ):
+        yaml_content = """question: |
+  What else should we know?
+fields:
+  - Help types: help_types
+    datatype: checkboxes
+    choices:
+      - Housing
+      - Other
+  - Other: help_other
+    show if: help_types["Other"]
+  - Document types: document_types
+    datatype: checkboxes
+    choices:
+      - ID
+      - Other
+  - Other: document_other
+    show if: document_types["Other"]
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any(e.code == "WA515" for e in errs),
+            f"Did not expect duplicate field label warning for contextual Other fields, got: {errs}",
+        )
+
+    def test_accessibility_duplicate_field_label_suppressed_for_hidden_field(self):
+        yaml_content = """question: |
+  Enter mailing information
+fields:
+  - Address: mailing_address
+  - Address: physical_address
+    hide if: use_mailing_address
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            any(e.code == "WA515" for e in errs),
+            f"Did not expect duplicate field label warning for hidden duplicate, got: {errs}",
+        )
+
     def test_accessibility_tagged_pdf_info_for_docx_without_setting(self):
         yaml_content = """attachments:
   - name: Letter
