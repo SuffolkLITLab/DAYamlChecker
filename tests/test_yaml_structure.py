@@ -2171,6 +2171,50 @@ field: user_name
             f"Expected mandatory null error, got: {errs}",
         )
 
+    def test_inline_suppression_hides_matching_code(self):
+        yaml_content = """question: First
+question: Second  # no-dayc: EG101
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertFalse(_has_code(errs, "EG101"), f"Expected EG101 suppressed: {errs}")
+
+    def test_inline_suppression_does_not_hide_other_codes(self):
+        yaml_content = """question: First
+question: Second  # no-dayc: WG999
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertTrue(_has_code(errs, "EG101"), f"Expected EG101 to remain: {errs}")
+
+    def test_block_suppression_hides_matching_code_in_document(self):
+        yaml_content = """---
+# no-dayc-block: WG123
+code: |
+  answer = 1
+  def helper():
+    return answer
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertFalse(_has_code(errs, "WG123"), f"Expected WG123 suppressed: {errs}")
+
+    def test_block_suppression_does_not_leak_to_next_document(self):
+        yaml_content = """# no-dayc-block: WG123
+code: |
+  answer = 1
+  def helper():
+    return answer
+---
+code: |
+  answer = 1
+  def helper():
+    return answer
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+        self.assertEqual(
+            sum(err.code == "WG123" for err in errs),
+            1,
+            f"Expected only second WG123 to remain: {errs}",
+        )
+
 
 class TestALLinterParityRules(unittest.TestCase):
     def test_missing_question_id_is_reported(self):

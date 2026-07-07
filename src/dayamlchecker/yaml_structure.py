@@ -51,6 +51,145 @@ __all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
 
 DEFAULT_LINT_MODE = "default"
 ACCESSIBILITY_LINT_MODE = "accessibility"
+_SUPPRESSION_RE = re.compile(
+    r"#\s*no-dayc(?P<scope>-block)?\s*:\s*(?P<codes>[^#]+)",
+    re.IGNORECASE,
+)
+_SUPPRESS_ALL_CODES = frozenset({"*", "ALL"})
+
+
+def _parse_suppression_codes(raw_codes: str) -> frozenset[str]:
+    return frozenset(
+        code.strip().upper()
+        for code in re.split(r"[\s,]+", raw_codes)
+        if code.strip()
+    )
+
+
+def _finding_matches_suppression(finding: Finding, codes: frozenset[str]) -> bool:
+    if not codes:
+        return False
+    if codes & _SUPPRESS_ALL_CODES:
+        return True
+    return finding.code.upper() in codes or str(finding.message_id).upper() in codes
+
+
+def _document_line_ranges(full_content: str) -> list[tuple[int, int]]:
+    lines = full_content.splitlines()
+    ranges: list[tuple[int, int]] = []
+    start_line = 1
+
+    for line_number, line in enumerate(lines, start=1):
+        if document_match.match(line):
+            if start_line <= line_number - 1:
+                ranges.append((start_line, line_number - 1))
+            start_line = line_number + 1
+
+    if start_line <= len(lines):
+        ranges.append((start_line, len(lines)))
+
+    return ranges
+
+
+def _parse_dayc_suppressions(
+    full_content: str,
+) -> tuple[dict[int, frozenset[str]], list[tuple[int, int, frozenset[str]]]]:
+    inline_by_line: dict[int, frozenset[str]] = {}
+    block_directives: list[tuple[int, frozenset[str]]] = []
+
+    for line_number, line in enumerate(full_content.splitlines(), start=1):
+        match = _SUPPRESSION_RE.search(line)
+        if not match:
+            continue
+
+        codes = _parse_suppression_codes(match.group("codes"))
+        if not codes:
+            continue
+
+        if match.group("scope"):
+            block_directives.append((line_number, codes))
+        else:
+            inline_by_line[line_number] = inline_by_line.get(
+                line_number, frozenset()
+            ) | codes
+
+    block_ranges: list[tuple[int, int, frozenset[str]]] = []
+    document_ranges = _document_line_ranges(full_content)
+
+    for directive_line, codes in block_directives:
+        for start_line, end_line in document_ranges:
+            if start_line <= directive_line <= end_line:
+                block_ranges.append((start_line, end_line, codes))
+                break
+
+    return inline_by_line, block_ranges
+
+
+def _finding_is_suppressed(
+    finding: Finding,
+    suppressions: tuple[
+        dict[int, frozenset[str]], list[tuple[int, int, frozenset[str]]]
+    ],
+) -> bool:
+    if finding.line_number is None:
+        return False
+
+    inline_by_line, block_ranges = suppressions
+
+    inline_codes = inline_by_line.get(finding.line_number)
+    if inline_codes and _finding_matches_suppression(finding, inline_codes):
+        return True
+
+    return any(
+        start_line <= finding.line_number <= end_line
+        and _finding_matches_suppression(finding, codes)
+        for start_line, end_line, codes in block_ranges
+    )
+
+
+def _apply_dayc_suppressions(
+    findings: list[Finding], full_content: str
+) -> list[Finding]:
+    suppressions = _parse_dayc_suppressions(full_content)
+    return [
+        finding
+        for finding in findings
+        if not _finding_is_suppressed(finding, suppressions)
+    ]
+
+
+def _apply_dayc_suppressions_from_files(findings: list[Finding]) -> list[Finding]:
+    suppressions_by_file: dict[
+        str,
+        tuple[
+            dict[int, frozenset[str]],
+            list[tuple[int, int, frozenset[str]]],
+        ]
+        | None,
+    ] = {}
+    filtered: list[Finding] = []
+
+    for finding in findings:
+        file_name = finding.file_name
+        if not file_name or file_name.startswith("<"):
+            filtered.append(finding)
+            continue
+
+        if file_name not in suppressions_by_file:
+            try:
+                suppressions_by_file[file_name] = _parse_dayc_suppressions(
+                    Path(file_name).read_text()
+                )
+            except OSError:
+                suppressions_by_file[file_name] = None
+
+        suppressions = suppressions_by_file[file_name]
+        if suppressions is not None and _finding_is_suppressed(finding, suppressions):
+            continue
+
+        filtered.append(finding)
+
+    return filtered
 
 
 @dataclass(frozen=True)
@@ -1937,7 +2076,7 @@ def find_errors_from_string(
                 options=style_options,
             )
         )
-    return all_errors
+    return _apply_dayc_suppressions(all_errors, full_content)
 
 
 _COMMON_COURTFORMSONLINE_METADATA_FIELDS = (
@@ -2365,6 +2504,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         all_findings.extend(url_check_result.issues)
 
+    all_findings = _apply_dayc_suppressions_from_files(all_findings)
     had_error = False
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 
