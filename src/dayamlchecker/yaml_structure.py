@@ -60,9 +60,7 @@ _SUPPRESS_ALL_CODES = frozenset({"*", "ALL"})
 
 def _parse_suppression_codes(raw_codes: str) -> frozenset[str]:
     return frozenset(
-        code.strip().upper()
-        for code in re.split(r"[\s,]+", raw_codes)
-        if code.strip()
+        code.strip().upper() for code in re.split(r"[\s,]+", raw_codes) if code.strip()
     )
 
 
@@ -113,9 +111,9 @@ def _parse_dayc_suppressions(
         if match.group("scope"):
             block_directives.append((line_number, codes))
         else:
-            inline_by_line[line_number] = inline_by_line.get(
-                line_number, frozenset()
-            ) | codes
+            inline_by_line[line_number] = (
+                inline_by_line.get(line_number, frozenset()) | codes
+            )
 
     block_ranges: list[tuple[int, int, frozenset[str]]] = []
     document_ranges = _document_line_ranges(full_content)
@@ -2518,7 +2516,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.suppress:
         cli_suppressed_codes = _parse_suppression_codes(",".join(args.suppress))
         all_findings = [
-            f for f in all_findings
+            f
+            for f in all_findings
             if not _finding_matches_suppression(f, cli_suppressed_codes)
         ]
 
