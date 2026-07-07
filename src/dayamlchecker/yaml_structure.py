@@ -185,7 +185,7 @@ class PythonText:
             ]
             return
         try:
-            ast.parse(x)
+            tree = ast.parse(x)
         except SyntaxError as ex:
             # ex.lineno gives line number within the code block
             lineno = ex.lineno or 1
@@ -193,6 +193,18 @@ class PythonText:
             self.errors = [
                 draft(MessageId.PYTHON_SYNTAX_ERROR, line_number=lineno, error=msg)
             ]
+            return
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.errors.append(
+                    draft(
+                        MessageId.PYTHON_CODE_FUNCTION_DEF,
+                        line_number=getattr(node, "lineno", 1) or 1,
+                        function_name=node.name,
+                    )
+                )
+                break
 
 
 class ValidationCode(PythonText):

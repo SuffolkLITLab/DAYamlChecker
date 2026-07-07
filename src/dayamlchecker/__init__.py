@@ -1,4 +1,7 @@
-from dayamlchecker.messages import Finding, FindingClass
+from dayamlchecker.messages import (
+    Finding,
+    FindingClass,
+)
 from dayamlchecker.yaml_structure import (
     RuntimeOptions,
     find_errors,

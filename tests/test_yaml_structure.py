@@ -19,6 +19,35 @@ field: name
         errs = find_errors_from_string(valid, input_file="<string_valid>")
         self.assertEqual(len(errs), 0, f"Expected no errors, got: {errs}")
 
+    def test_code_block_function_def_warns(self):
+        yaml_content = """code: |
+  answer = 1
+  def helper():
+    return answer
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_invalid>")
+
+        warning = next(
+            err for err in errs if err.message_id == "python_code_function_def"
+        )
+        self.assertEqual(warning.code, "WG123")
+        self.assertEqual(warning.line_number, 4)
+        self.assertEqual(warning.context["function_name"], "helper")
+        self.assertIn("Python module", warning.message)
+
+    def test_code_block_without_function_def_does_not_warn(self):
+        yaml_content = """code: |
+  answer = 1
+  if answer:
+    result = answer
+"""
+        errs = find_errors_from_string(yaml_content, input_file="<string_valid>")
+
+        self.assertFalse(
+            any(err.message_id == "python_code_function_def" for err in errs),
+            f"Did not expect function-def warning, got: {errs}",
+        )
+
     def test_question_and_template_exclusive_error(self):
         invalid = """
 question: |
@@ -513,8 +542,14 @@ combobox: selected_option
             input_file="<string_invalid>",
             lint_mode="accessibility",
         )
-        generic_errs = [e for e in errs if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()]
-        self.assertEqual(len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}")
+        generic_errs = [
+            e
+            for e in errs
+            if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()
+        ]
+        self.assertEqual(
+            len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}"
+        )
         self.assertTrue(all(e.severity.value == "error" for e in generic_errs))
 
     def test_accessibility_sitio_web_link_text_fails(self):
@@ -528,8 +563,14 @@ combobox: selected_option
             input_file="<string_invalid>",
             lint_mode="accessibility",
         )
-        generic_errs = [e for e in errs if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()]
-        self.assertEqual(len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}")
+        generic_errs = [
+            e
+            for e in errs
+            if "link text" in e.err_str.lower() and "too generic" in e.err_str.lower()
+        ]
+        self.assertEqual(
+            len(generic_errs), 3, f"Expected 3 generic link-text errors, got: {errs}"
+        )
         self.assertTrue(all(e.severity.value == "error" for e in generic_errs))
 
     def test_accessibility_empty_markdown_link_fails(self):
