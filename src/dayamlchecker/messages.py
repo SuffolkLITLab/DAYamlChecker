@@ -32,6 +32,7 @@ class MessageId(StrEnum):
 
     PYTHON_CODE_TYPE = "python_code_type"
     PYTHON_SYNTAX_ERROR = "python_syntax_error"
+    PYTHON_CODE_FUNCTION_DEF = "python_code_function_def"
     VALIDATION_CODE_MISSING_VALIDATION_ERROR = (
         "validation_code_missing_validation_error"
     )
@@ -272,6 +273,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Python syntax error",
         template="Python syntax error: {error}",
+    ),
+    MessageId.PYTHON_CODE_FUNCTION_DEF: MessageDefinition(
+        code="WG123",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Code block defines a Python function",
+        template=(
+            "code block defines function `{function_name}`; move reusable "
+            "helper functions to a Python module instead, or use inline code for small snippets that are only used once"
+        ),
     ),
     MessageId.VALIDATION_CODE_MISSING_VALIDATION_ERROR: MessageDefinition(
         code="WG101",
