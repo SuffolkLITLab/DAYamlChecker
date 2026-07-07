@@ -38,6 +38,12 @@ FIELD_NON_LABEL_KEYS = {
     "field",
     "__line__",
 }
+FIELD_VISIBILITY_KEYS = (
+    "show if",
+    "hide if",
+    "js show if",
+    "js hide if",
+)
 GENERIC_LINK_TEXT = {
     "click here",
     "here",
@@ -522,7 +528,7 @@ def _check_choice_labels(
 def _check_duplicate_field_labels(
     doc: dict[str, Any], document_start_line: int
 ) -> list[FindingDraft]:
-    labels: dict[str, list[tuple[int, str]]] = {}
+    labels: dict[str, list[tuple[int, str, bool]]] = {}
     for field in _iter_fields(doc):
         if not _field_collects_user_input(field):
             continue
@@ -534,18 +540,20 @@ def _check_duplicate_field_labels(
             (
                 _field_line_number(doc, field, document_start_line),
                 label,
+                _field_has_visibility_logic(field),
             )
         )
 
     findings: list[FindingDraft] = []
     for entries in labels.values():
-        if len(entries) < 2:
+        always_visible_entries = [entry for entry in entries if not entry[2]]
+        if len(always_visible_entries) < 2:
             continue
         findings.append(
             draft(
                 MessageId.ACCESSIBILITY_DUPLICATE_FIELD_LABEL,
-                line_number=entries[0][0],
-                labels=", ".join(label for _, label in entries[:3]),
+                line_number=always_visible_entries[0][0],
+                labels=", ".join(label for _, label, _ in always_visible_entries[:3]),
             )
         )
     return findings
@@ -1280,6 +1288,21 @@ def _field_collects_user_input(field: dict[str, Any]) -> bool:
     return any(str(key).strip() not in FIELD_NON_LABEL_KEYS for key in field.keys())
 
 
+def _field_has_visibility_logic(field: dict[str, Any]) -> bool:
+    return any(
+        _has_nonempty_visibility_condition(field.get(key))
+        for key in FIELD_VISIBILITY_KEYS
+    )
+
+
+def _has_nonempty_visibility_condition(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return True
 def _iter_choice_labels_with_lines(
     choice_value: Any,
 ) -> list[tuple[str, Optional[int]]]:
