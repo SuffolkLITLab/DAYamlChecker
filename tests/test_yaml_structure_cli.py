@@ -428,3 +428,27 @@ def test_main_passes_custom_url_checker_flags(monkeypatch):
         assert captured["yaml_severity"] == "error"
         assert captured["document_severity"] == "ignore"
         assert captured["unreachable_severity"] == "error"
+
+
+def test_main_cli_suppress_suppresses_findings(monkeypatch, tmp_path):
+    interview = tmp_path / "interview.yml"
+    interview.write_text("question: First\nquestion: Second\n")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dayamlchecker", "--suppress", "EG101", str(interview)],
+    )
+    assert yaml_structure.main() == 0
+
+
+def test_main_cli_suppress_does_not_suppress_unmatched_findings(monkeypatch, tmp_path):
+    interview = tmp_path / "interview.yml"
+    interview.write_text("question: First\nquestion: Second\n")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dayamlchecker", "--suppress", "WG999", str(interview)],
+    )
+    assert yaml_structure.main() == 1
