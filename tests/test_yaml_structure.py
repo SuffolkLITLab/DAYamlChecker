@@ -227,6 +227,36 @@ fields:
             f"Expected empty field target error, got: {errs}",
         )
 
+    def test_generic_object_block_cannot_always_run(self):
+        for directive in ("mandatory", "initial"):
+            with self.subTest(directive=directive):
+                invalid = f"""generic object: Individual
+question: What is the name of ${{ x }}?
+fields:
+  - Name: x.name.first
+{directive}: True
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                generic_error = next((err for err in errs if err.code == "EG313"), None)
+                self.assertIsNotNone(
+                    generic_error,
+                    f"Expected generic/{directive} error, got: {errs}",
+                )
+                self.assertIn(directive, generic_error.message)
+
+    def test_optional_generic_object_block_is_valid(self):
+        valid = """generic object: Individual
+question: What is the name of ${ x }?
+fields:
+  - Name: x.name.first
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG313"),
+            f"Did not expect generalized block error, got: {errs}",
+        )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar

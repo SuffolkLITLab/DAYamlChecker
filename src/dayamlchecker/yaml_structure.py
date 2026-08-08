@@ -2053,6 +2053,22 @@ def find_errors_from_string(
                     )
                 )
 
+        if "generic object" in doc_keys_lower:
+            for directive in ("mandatory", "initial"):
+                directive_value = _get_case_insensitive(doc, directive)
+                if directive_value is True or (
+                    isinstance(directive_value, str)
+                    and directive_value.strip().lower() == "true"
+                ):
+                    all_errors.append(
+                        make_finding(
+                            MessageId.GENERALIZED_BLOCK_ALWAYS_RUNS,
+                            line_number=line_number,
+                            file_name=input_file,
+                            directive=directive,
+                        )
+                    )
+
         weird_keys = []
         for attr in doc.keys():
             if attr == "__line__":

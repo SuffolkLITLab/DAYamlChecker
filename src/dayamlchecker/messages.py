@@ -59,6 +59,7 @@ class MessageId(StrEnum):
     EVENT_WITH_INPUT = "event_with_input"
     EMPTY_CHOICE_LIST = "empty_choice_list"
     EMPTY_VARIABLE_TARGET = "empty_variable_target"
+    GENERALIZED_BLOCK_ALWAYS_RUNS = "generalized_block_always_runs"
 
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
@@ -479,6 +480,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Variable target is empty",
         template="{target_key} must name a variable and cannot be empty",
+    ),
+    MessageId.GENERALIZED_BLOCK_ALWAYS_RUNS: MessageDefinition(
+        code="EG313",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Generalized block runs without object context",
+        template=(
+            "a generic object block cannot use {directive}: True because "
+            "docassemble has not bound the generic object yet"
+        ),
     ),
     MessageId.PYTHON_VAR_TYPE: MessageDefinition(
         code="EG401",
