@@ -58,6 +58,7 @@ class MessageId(StrEnum):
     NESTED_VISIBILITY_LOGIC = "nested_visibility_logic"
     EVENT_WITH_INPUT = "event_with_input"
     EMPTY_CHOICE_LIST = "empty_choice_list"
+    EMPTY_VARIABLE_TARGET = "empty_variable_target"
 
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
@@ -68,6 +69,7 @@ class MessageId(StrEnum):
     FIELDS_TYPE = "fields_type"
     FIELDS_EMPTY = "fields_empty"
     FIELDS_NO_INPUT = "fields_no_input"
+    FIELD_EMPTY_VARIABLE_TARGET = "field_empty_variable_target"
     FIELD_MODIFIER_VARIABLE_TYPE = "field_modifier_variable_type"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT = "field_modifier_unknown_variable_dict"
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
@@ -471,6 +473,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Choice list is empty",
         template="{choice_key} must contain at least one choice or button",
     ),
+    MessageId.EMPTY_VARIABLE_TARGET: MessageDefinition(
+        code="EG312",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Variable target is empty",
+        template="{target_key} must name a variable and cannot be empty",
+    ),
     MessageId.PYTHON_VAR_TYPE: MessageDefinition(
         code="EG401",
         severity=Severity.ERROR,
@@ -542,6 +551,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "fields must contain at least one variable-producing field; this list "
             "contains only display content or field modifiers"
         ),
+    ),
+    MessageId.FIELD_EMPTY_VARIABLE_TARGET: MessageDefinition(
+        code="EG421",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Field variable target is empty",
+        template='field "{field_label}" must name a variable and cannot be empty',
     ),
     MessageId.FIELD_MODIFIER_VARIABLE_TYPE: MessageDefinition(
         code="EG407",

@@ -250,6 +250,22 @@ _QUESTION_INPUT_KEYS = frozenset(
         "noyesmaybe",
     }
 )
+_VARIABLE_TARGET_KEYS = frozenset(
+    {
+        "continue button field",
+        "def",
+        "event",
+        "field",
+        "generic object",
+        "noyes",
+        "noyesmaybe",
+        "sets",
+        "signature",
+        "variable name",
+        "yesno",
+        "yesnomaybe",
+    }
+)
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -882,6 +898,20 @@ class DAFields:
         for field_item in fields_list:
             if not isinstance(field_item, dict):
                 continue
+
+            for field_key, field_value in field_item.items():
+                if (
+                    field_key not in self.modifier_keys
+                    and isinstance(field_value, str)
+                    and not field_value.strip()
+                ):
+                    self.errors.append(
+                        draft(
+                            MessageId.FIELD_EMPTY_VARIABLE_TARGET,
+                            line_number=self._line_for(field_item),
+                            field_label=str(field_key),
+                        )
+                    )
 
             for field_key in field_item:
                 if isinstance(field_key, str) and field_key != "__line__":
@@ -2010,6 +2040,18 @@ def find_errors_from_string(
                             choice_key=choice_key,
                         )
                     )
+
+        for target_key in sorted(_VARIABLE_TARGET_KEYS.intersection(doc_keys_lower)):
+            target_value = _get_case_insensitive(doc, target_key)
+            if isinstance(target_value, str) and not target_value.strip():
+                all_errors.append(
+                    make_finding(
+                        MessageId.EMPTY_VARIABLE_TARGET,
+                        line_number=line_number,
+                        file_name=input_file,
+                        target_key=target_key,
+                    )
+                )
 
         weird_keys = []
         for attr in doc.keys():

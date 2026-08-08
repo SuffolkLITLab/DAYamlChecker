@@ -189,6 +189,44 @@ field: selection
                     f"Did not expect empty {choice_key} error, got: {errs}",
                 )
 
+    def test_empty_variable_targets_are_invalid(self):
+        target_keys = (
+            "continue button field",
+            "event",
+            "field",
+            "generic object",
+            "noyes",
+            "noyesmaybe",
+            "sets",
+            "signature",
+            "yesno",
+            "yesnomaybe",
+        )
+        for target_key in target_keys:
+            with self.subTest(target_key=target_key):
+                invalid = f"""question: A question
+{target_key}: "  "
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                target_error = next((err for err in errs if err.code == "EG312"), None)
+                self.assertIsNotNone(
+                    target_error,
+                    f"Expected empty target error for {target_key}, got: {errs}",
+                )
+                self.assertIn(target_key, target_error.message)
+
+    def test_field_item_variable_target_cannot_be_empty(self):
+        invalid = """question: What is your name?
+fields:
+  - Name: "  "
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG421"),
+            f"Expected empty field target error, got: {errs}",
+        )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar
