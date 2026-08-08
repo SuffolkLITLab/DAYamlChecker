@@ -746,7 +746,10 @@ class DAFields:
     def _field_item_defines_input(self, field_item):
         if not isinstance(field_item, dict):
             return False
-        if "code" in field_item:
+        if (
+            "code" in field_item
+            and len(set(field_item.keys()) - {"code", "__line__"}) == 0
+        ):
             # Dynamic fields code may return one or more input definitions at runtime.
             return True
         return self._extract_field_name(field_item) is not None

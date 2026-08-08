@@ -111,6 +111,19 @@ fields:
             f"Did not expect no-input fields error, got: {errs}",
         )
 
+    def test_code_modifier_without_input_is_invalid(self):
+        invalid = """question: Information
+fields:
+  - code: update_value
+    label: Updated value
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG420"),
+            f"Expected no-input fields error, got: {errs}",
+        )
+
     def test_event_question_cannot_set_variables(self):
         setters = {
             "fields": "fields:\n  - Name: user_name",
