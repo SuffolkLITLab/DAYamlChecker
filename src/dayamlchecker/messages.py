@@ -64,6 +64,7 @@ class MessageId(StrEnum):
     FIELDS_CODE_TYPE = "fields_code_type"
     FIELDS_DICT_KEYS = "fields_dict_keys"
     FIELDS_TYPE = "fields_type"
+    FIELDS_EMPTY = "fields_empty"
     FIELD_MODIFIER_VARIABLE_TYPE = "field_modifier_variable_type"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT = "field_modifier_unknown_variable_dict"
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
@@ -501,6 +502,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="fields must be a list or dict",
         template="fields must be a list or dict, got {value_repr}",
+    ),
+    MessageId.FIELDS_EMPTY: MessageDefinition(
+        code="EG418",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="fields list is empty",
+        template=(
+            "fields must contain at least one field; remove fields if this screen "
+            "does not collect input"
+        ),
     ),
     MessageId.FIELD_MODIFIER_VARIABLE_TYPE: MessageDefinition(
         code="EG407",

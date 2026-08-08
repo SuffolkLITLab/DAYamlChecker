@@ -61,6 +61,31 @@ template: |
             f"Expected exclusivity error, got: {errs}",
         )
 
+    def test_empty_fields_list_error(self):
+        invalid = """id: no_fax_exit
+question: The recipient does not have a working fax machine.
+subquestion: Please send these documents by email instead of fax.
+fields: []
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG418"),
+            f"Expected empty fields error, got: {errs}",
+        )
+
+    def test_nonempty_fields_list_is_valid(self):
+        valid = """question: What is your name?
+fields:
+  - Name: user_name
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG418"),
+            f"Did not expect empty fields error, got: {errs}",
+        )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar

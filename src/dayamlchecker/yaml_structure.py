@@ -704,6 +704,9 @@ class DAFields:
         if not isinstance(x, list):
             self.errors = [draft(MessageId.FIELDS_TYPE, value_repr=repr(x))]
             return
+        if not x:
+            self.errors = [draft(MessageId.FIELDS_EMPTY)]
+            return
         self._validate_field_modifiers(x)
 
     def _line_for(self, field_item, code_line=1):
