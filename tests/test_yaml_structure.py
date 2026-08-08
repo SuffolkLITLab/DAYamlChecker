@@ -61,6 +61,215 @@ template: |
             f"Expected exclusivity error, got: {errs}",
         )
 
+    def test_empty_fields_list_error(self):
+        invalid = """id: no_fax_exit
+question: The recipient does not have a working fax machine.
+subquestion: Please send these documents by email instead of fax.
+fields: []
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG418"),
+            f"Expected empty fields error, got: {errs}",
+        )
+
+    def test_nonempty_fields_list_is_valid(self):
+        valid = """question: What is your name?
+fields:
+  - Name: user_name
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG418"),
+            f"Did not expect empty fields error, got: {errs}",
+        )
+
+    def test_fields_list_with_only_display_content_is_invalid(self):
+        invalid = """question: Information
+fields:
+  - note: Read this first.
+  - html: <p>More information</p>
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG420"),
+            f"Expected no-input fields error, got: {errs}",
+        )
+
+    def test_dynamic_fields_code_may_produce_inputs(self):
+        valid = """question: Information
+fields:
+  - code: dynamic_fields
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG420"),
+            f"Did not expect no-input fields error, got: {errs}",
+        )
+
+    def test_code_modifier_without_input_is_invalid(self):
+        invalid = """question: Information
+fields:
+  - code: update_value
+    label: Updated value
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG420"),
+            f"Expected no-input fields error, got: {errs}",
+        )
+
+    def test_event_question_cannot_set_variables(self):
+        setters = {
+            "fields": "fields:\n  - Name: user_name",
+            "field": "field: favorite_color",
+            "signature": "signature: user_signature",
+            "yesno": "yesno: user_agrees",
+            "noyes": "noyes: user_disagrees",
+            "yesnomaybe": "yesnomaybe: user_agrees",
+            "noyesmaybe": "noyesmaybe: user_disagrees",
+        }
+
+        for setter, yaml_value in setters.items():
+            with self.subTest(setter=setter):
+                invalid = f"""question: Special screen
+event: special_screen
+{yaml_value}
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                event_error = next((err for err in errs if err.code == "EG310"), None)
+                self.assertIsNotNone(
+                    event_error,
+                    f"Expected event/setter error for {setter}, got: {errs}",
+                )
+                self.assertIn(setter, event_error.message)
+
+    def test_event_question_with_special_buttons_is_valid(self):
+        valid = """question: All done
+event: final_screen
+buttons:
+  - Exit: exit
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG310"),
+            f"Did not expect event/setter error, got: {errs}",
+        )
+
+    def test_event_question_with_matching_continue_field_is_valid(self):
+        valid = """question: More information
+event: more_information
+continue button field: more_information
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG310"),
+            f"Did not expect event/setter error, got: {errs}",
+        )
+
+    def test_empty_static_choice_lists_are_invalid(self):
+        for choice_key in ("buttons", "choices"):
+            with self.subTest(choice_key=choice_key):
+                invalid = f"""question: Pick one
+{choice_key}: []
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                choice_error = next((err for err in errs if err.code == "EG311"), None)
+                self.assertIsNotNone(
+                    choice_error,
+                    f"Expected empty {choice_key} error, got: {errs}",
+                )
+                self.assertIn(choice_key, choice_error.message)
+
+    def test_nonempty_static_choice_lists_are_valid(self):
+        for choice_key in ("buttons", "choices"):
+            with self.subTest(choice_key=choice_key):
+                valid = f"""question: Pick one
+field: selection
+{choice_key}:
+  - One
+"""
+                errs = find_errors_from_string(valid, input_file="<string_valid>")
+                self.assertFalse(
+                    _has_code(errs, "EG311"),
+                    f"Did not expect empty {choice_key} error, got: {errs}",
+                )
+
+    def test_empty_variable_targets_are_invalid(self):
+        target_keys = (
+            "continue button field",
+            "event",
+            "field",
+            "generic object",
+            "noyes",
+            "noyesmaybe",
+            "sets",
+            "signature",
+            "yesno",
+            "yesnomaybe",
+        )
+        for target_key in target_keys:
+            with self.subTest(target_key=target_key):
+                invalid = f"""question: A question
+{target_key}: "  "
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                target_error = next((err for err in errs if err.code == "EG312"), None)
+                self.assertIsNotNone(
+                    target_error,
+                    f"Expected empty target error for {target_key}, got: {errs}",
+                )
+                self.assertIn(target_key, target_error.message)
+
+    def test_field_item_variable_target_cannot_be_empty(self):
+        invalid = """question: What is your name?
+fields:
+  - Name: "  "
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG421"),
+            f"Expected empty field target error, got: {errs}",
+        )
+
+    def test_generic_object_block_cannot_always_run(self):
+        for directive in ("mandatory", "initial"):
+            with self.subTest(directive=directive):
+                invalid = f"""generic object: Individual
+question: What is the name of ${{ x }}?
+fields:
+  - Name: x.name.first
+{directive}: True
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                generic_error = next((err for err in errs if err.code == "EG313"), None)
+                self.assertIsNotNone(
+                    generic_error,
+                    f"Expected generic/{directive} error, got: {errs}",
+                )
+                self.assertIn(directive, generic_error.message)
+
+    def test_optional_generic_object_block_is_valid(self):
+        valid = """generic object: Individual
+question: What is the name of ${ x }?
+fields:
+  - Name: x.name.first
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG313"),
+            f"Did not expect generalized block error, got: {errs}",
+        )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar
