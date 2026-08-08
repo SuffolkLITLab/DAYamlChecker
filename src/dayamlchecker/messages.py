@@ -67,6 +67,7 @@ class MessageId(StrEnum):
     FIELDS_DICT_KEYS = "fields_dict_keys"
     FIELDS_TYPE = "fields_type"
     FIELDS_EMPTY = "fields_empty"
+    FIELDS_NO_INPUT = "fields_no_input"
     FIELD_MODIFIER_VARIABLE_TYPE = "field_modifier_variable_type"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT = "field_modifier_unknown_variable_dict"
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
@@ -530,6 +531,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template=(
             "fields must contain at least one field; remove fields if this screen "
             "does not collect input"
+        ),
+    ),
+    MessageId.FIELDS_NO_INPUT: MessageDefinition(
+        code="EG420",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="fields list does not define any inputs",
+        template=(
+            "fields must contain at least one variable-producing field; this list "
+            "contains only display content or field modifiers"
         ),
     ),
     MessageId.FIELD_MODIFIER_VARIABLE_TYPE: MessageDefinition(

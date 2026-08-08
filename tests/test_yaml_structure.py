@@ -86,6 +86,31 @@ fields:
             f"Did not expect empty fields error, got: {errs}",
         )
 
+    def test_fields_list_with_only_display_content_is_invalid(self):
+        invalid = """question: Information
+fields:
+  - note: Read this first.
+  - html: <p>More information</p>
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            _has_code(errs, "EG420"),
+            f"Expected no-input fields error, got: {errs}",
+        )
+
+    def test_dynamic_fields_code_may_produce_inputs(self):
+        valid = """question: Information
+fields:
+  - code: dynamic_fields
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG420"),
+            f"Did not expect no-input fields error, got: {errs}",
+        )
+
     def test_event_question_cannot_set_variables(self):
         setters = {
             "fields": "fields:\n  - Name: user_name",

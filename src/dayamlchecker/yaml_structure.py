@@ -681,6 +681,10 @@ class DAFields:
         "validate",
         "validation code",
         "validation messages",
+        "note",
+        "html",
+        "raw html",
+        "heading",
         "show if",
         "hide if",
         "js show if",
@@ -718,7 +722,18 @@ class DAFields:
         if not x:
             self.errors = [draft(MessageId.FIELDS_EMPTY)]
             return
+        if not any(self._field_item_defines_input(item) for item in x):
+            self.errors = [draft(MessageId.FIELDS_NO_INPUT)]
+            return
         self._validate_field_modifiers(x)
+
+    def _field_item_defines_input(self, field_item):
+        if not isinstance(field_item, dict):
+            return False
+        if "code" in field_item:
+            # Dynamic fields code may return one or more input definitions at runtime.
+            return True
+        return self._extract_field_name(field_item) is not None
 
     def _line_for(self, field_item, code_line=1):
         field_line = 1
