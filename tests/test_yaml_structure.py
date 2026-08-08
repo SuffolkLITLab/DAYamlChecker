@@ -86,6 +86,56 @@ fields:
             f"Did not expect empty fields error, got: {errs}",
         )
 
+    def test_event_question_cannot_set_variables(self):
+        setters = {
+            "fields": "fields:\n  - Name: user_name",
+            "field": "field: favorite_color",
+            "signature": "signature: user_signature",
+            "yesno": "yesno: user_agrees",
+            "noyes": "noyes: user_disagrees",
+            "yesnomaybe": "yesnomaybe: user_agrees",
+            "noyesmaybe": "noyesmaybe: user_disagrees",
+        }
+
+        for setter, yaml_value in setters.items():
+            with self.subTest(setter=setter):
+                invalid = f"""question: Special screen
+event: special_screen
+{yaml_value}
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                event_error = next((err for err in errs if err.code == "EG310"), None)
+                self.assertIsNotNone(
+                    event_error,
+                    f"Expected event/setter error for {setter}, got: {errs}",
+                )
+                self.assertIn(setter, event_error.message)
+
+    def test_event_question_with_special_buttons_is_valid(self):
+        valid = """question: All done
+event: final_screen
+buttons:
+  - Exit: exit
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG310"),
+            f"Did not expect event/setter error, got: {errs}",
+        )
+
+    def test_event_question_with_matching_continue_field_is_valid(self):
+        valid = """question: More information
+event: more_information
+continue button field: more_information
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            _has_code(errs, "EG310"),
+            f"Did not expect event/setter error, got: {errs}",
+        )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar

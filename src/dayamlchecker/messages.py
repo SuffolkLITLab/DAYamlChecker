@@ -56,6 +56,7 @@ class MessageId(StrEnum):
     TOO_MANY_TYPES = "too_many_types"
     INTERVIEW_ORDER_UNMATCHED_GUARD = "interview_order_unmatched_guard"
     NESTED_VISIBILITY_LOGIC = "nested_visibility_logic"
+    EVENT_WITH_INPUT = "event_with_input"
 
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
@@ -449,6 +450,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template=(
             "show if/hide if visibility logic is nested {nesting_depth} levels on "
             "this screen (more than 2)"
+        ),
+    ),
+    MessageId.EVENT_WITH_INPUT: MessageDefinition(
+        code="EG310",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Event question also gathers input",
+        template=(
+            "event questions cannot also gather input; remove event or the "
+            "input key(s): {input_keys}"
         ),
     ),
     MessageId.PYTHON_VAR_TYPE: MessageDefinition(

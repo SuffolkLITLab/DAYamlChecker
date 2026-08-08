@@ -239,6 +239,17 @@ _HIDE_STYLE_MODIFIERS = {
     "js disable if",
 }
 _CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
+_QUESTION_INPUT_KEYS = frozenset(
+    {
+        "fields",
+        "field",
+        "signature",
+        "yesno",
+        "noyes",
+        "yesnomaybe",
+        "noyesmaybe",
+    }
+)
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -1957,6 +1968,18 @@ def find_errors_from_string(
                         line_number=line_number,
                         file_name=input_file,
                         block_types=", ".join(posb_types),
+                    )
+                )
+
+        if "question" in doc_keys_lower and "event" in doc_keys_lower:
+            input_keys = sorted(_QUESTION_INPUT_KEYS.intersection(doc_keys_lower))
+            if input_keys:
+                all_errors.append(
+                    make_finding(
+                        MessageId.EVENT_WITH_INPUT,
+                        line_number=line_number,
+                        file_name=input_file,
+                        input_keys=", ".join(input_keys),
                     )
                 )
 
