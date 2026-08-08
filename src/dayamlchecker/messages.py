@@ -56,6 +56,10 @@ class MessageId(StrEnum):
     TOO_MANY_TYPES = "too_many_types"
     INTERVIEW_ORDER_UNMATCHED_GUARD = "interview_order_unmatched_guard"
     NESTED_VISIBILITY_LOGIC = "nested_visibility_logic"
+    EVENT_WITH_INPUT = "event_with_input"
+    EMPTY_CHOICE_LIST = "empty_choice_list"
+    EMPTY_VARIABLE_TARGET = "empty_variable_target"
+    GENERALIZED_BLOCK_ALWAYS_RUNS = "generalized_block_always_runs"
 
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
@@ -64,6 +68,9 @@ class MessageId(StrEnum):
     FIELDS_CODE_TYPE = "fields_code_type"
     FIELDS_DICT_KEYS = "fields_dict_keys"
     FIELDS_TYPE = "fields_type"
+    FIELDS_EMPTY = "fields_empty"
+    FIELDS_NO_INPUT = "fields_no_input"
+    FIELD_EMPTY_VARIABLE_TARGET = "field_empty_variable_target"
     FIELD_MODIFIER_VARIABLE_TYPE = "field_modifier_variable_type"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT = "field_modifier_unknown_variable_dict"
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
@@ -450,6 +457,40 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "this screen (more than 2)"
         ),
     ),
+    MessageId.EVENT_WITH_INPUT: MessageDefinition(
+        code="EG310",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Event question also gathers input",
+        template=(
+            "event questions cannot also gather input; remove event or the "
+            "input key(s): {input_keys}"
+        ),
+    ),
+    MessageId.EMPTY_CHOICE_LIST: MessageDefinition(
+        code="EG311",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Choice list is empty",
+        template="{choice_key} must contain at least one choice or button",
+    ),
+    MessageId.EMPTY_VARIABLE_TARGET: MessageDefinition(
+        code="EG312",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Variable target is empty",
+        template="{target_key} must name a variable and cannot be empty",
+    ),
+    MessageId.GENERALIZED_BLOCK_ALWAYS_RUNS: MessageDefinition(
+        code="EG313",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Generalized block runs without object context",
+        template=(
+            "a generic object block cannot use {directive}: True because "
+            "docassemble has not bound the generic object yet"
+        ),
+    ),
     MessageId.PYTHON_VAR_TYPE: MessageDefinition(
         code="EG401",
         severity=Severity.ERROR,
@@ -501,6 +542,33 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="fields must be a list or dict",
         template="fields must be a list or dict, got {value_repr}",
+    ),
+    MessageId.FIELDS_EMPTY: MessageDefinition(
+        code="EG418",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="fields list is empty",
+        template=(
+            "fields must contain at least one field; remove fields if this screen "
+            "does not collect input"
+        ),
+    ),
+    MessageId.FIELDS_NO_INPUT: MessageDefinition(
+        code="EG420",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="fields list does not define any inputs",
+        template=(
+            "fields must contain at least one variable-producing field; this list "
+            "contains only display content or field modifiers"
+        ),
+    ),
+    MessageId.FIELD_EMPTY_VARIABLE_TARGET: MessageDefinition(
+        code="EG421",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Field variable target is empty",
+        template='field "{field_label}" must name a variable and cannot be empty',
     ),
     MessageId.FIELD_MODIFIER_VARIABLE_TYPE: MessageDefinition(
         code="EG407",

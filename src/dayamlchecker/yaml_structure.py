@@ -239,6 +239,33 @@ _HIDE_STYLE_MODIFIERS = {
     "js disable if",
 }
 _CONDITIONAL_MODIFIERS = _SHOW_STYLE_MODIFIERS | _HIDE_STYLE_MODIFIERS
+_QUESTION_INPUT_KEYS = frozenset(
+    {
+        "fields",
+        "field",
+        "signature",
+        "yesno",
+        "noyes",
+        "yesnomaybe",
+        "noyesmaybe",
+    }
+)
+_VARIABLE_TARGET_KEYS = frozenset(
+    {
+        "continue button field",
+        "def",
+        "event",
+        "field",
+        "generic object",
+        "noyes",
+        "noyesmaybe",
+        "sets",
+        "signature",
+        "variable name",
+        "yesno",
+        "yesnomaybe",
+    }
+)
 
 # Ensure that if there's a space in the str, it's between quotes.
 space_in_str = re.compile("^[^ ]*['\"].* .*['\"][^ ]*$")
@@ -670,6 +697,10 @@ class DAFields:
         "validate",
         "validation code",
         "validation messages",
+        "note",
+        "html",
+        "raw html",
+        "heading",
         "show if",
         "hide if",
         "js show if",
@@ -704,7 +735,24 @@ class DAFields:
         if not isinstance(x, list):
             self.errors = [draft(MessageId.FIELDS_TYPE, value_repr=repr(x))]
             return
+        if not x:
+            self.errors = [draft(MessageId.FIELDS_EMPTY)]
+            return
+        if not any(self._field_item_defines_input(item) for item in x):
+            self.errors = [draft(MessageId.FIELDS_NO_INPUT)]
+            return
         self._validate_field_modifiers(x)
+
+    def _field_item_defines_input(self, field_item):
+        if not isinstance(field_item, dict):
+            return False
+        if (
+            "code" in field_item
+            and len(set(field_item.keys()) - {"code", "__line__"}) == 0
+        ):
+            # Dynamic fields code may return one or more input definitions at runtime.
+            return True
+        return self._extract_field_name(field_item) is not None
 
     def _line_for(self, field_item, code_line=1):
         field_line = 1
@@ -853,6 +901,20 @@ class DAFields:
         for field_item in fields_list:
             if not isinstance(field_item, dict):
                 continue
+
+            for field_key, field_value in field_item.items():
+                if (
+                    field_key not in self.modifier_keys
+                    and isinstance(field_value, str)
+                    and not field_value.strip()
+                ):
+                    self.errors.append(
+                        draft(
+                            MessageId.FIELD_EMPTY_VARIABLE_TARGET,
+                            line_number=self._line_for(field_item),
+                            field_label=str(field_key),
+                        )
+                    )
 
             for field_key in field_item:
                 if isinstance(field_key, str) and field_key != "__line__":
@@ -1956,6 +2018,59 @@ def find_errors_from_string(
                         block_types=", ".join(posb_types),
                     )
                 )
+
+        if "question" in doc_keys_lower and "event" in doc_keys_lower:
+            input_keys = sorted(_QUESTION_INPUT_KEYS.intersection(doc_keys_lower))
+            if input_keys:
+                all_errors.append(
+                    make_finding(
+                        MessageId.EVENT_WITH_INPUT,
+                        line_number=line_number,
+                        file_name=input_file,
+                        input_keys=", ".join(input_keys),
+                    )
+                )
+
+        if "question" in doc_keys_lower:
+            for choice_key in ("buttons", "choices"):
+                choice_value = _get_case_insensitive(doc, choice_key)
+                if isinstance(choice_value, list) and not choice_value:
+                    all_errors.append(
+                        make_finding(
+                            MessageId.EMPTY_CHOICE_LIST,
+                            line_number=line_number,
+                            file_name=input_file,
+                            choice_key=choice_key,
+                        )
+                    )
+
+        for target_key in sorted(_VARIABLE_TARGET_KEYS.intersection(doc_keys_lower)):
+            target_value = _get_case_insensitive(doc, target_key)
+            if isinstance(target_value, str) and not target_value.strip():
+                all_errors.append(
+                    make_finding(
+                        MessageId.EMPTY_VARIABLE_TARGET,
+                        line_number=line_number,
+                        file_name=input_file,
+                        target_key=target_key,
+                    )
+                )
+
+        if "generic object" in doc_keys_lower:
+            for directive in ("mandatory", "initial"):
+                directive_value = _get_case_insensitive(doc, directive)
+                if directive_value is True or (
+                    isinstance(directive_value, str)
+                    and directive_value.strip().lower() == "true"
+                ):
+                    all_errors.append(
+                        make_finding(
+                            MessageId.GENERALIZED_BLOCK_ALWAYS_RUNS,
+                            line_number=line_number,
+                            file_name=input_file,
+                            directive=directive,
+                        )
+                    )
 
         weird_keys = []
         for attr in doc.keys():
