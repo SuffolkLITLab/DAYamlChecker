@@ -57,6 +57,7 @@ class MessageId(StrEnum):
     INTERVIEW_ORDER_UNMATCHED_GUARD = "interview_order_unmatched_guard"
     NESTED_VISIBILITY_LOGIC = "nested_visibility_logic"
     EVENT_WITH_INPUT = "event_with_input"
+    EMPTY_CHOICE_LIST = "empty_choice_list"
 
     PYTHON_VAR_TYPE = "python_var_type"
     PYTHON_VAR_WHITESPACE = "python_var_whitespace"
@@ -461,6 +462,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "event questions cannot also gather input; remove event or the "
             "input key(s): {input_keys}"
         ),
+    ),
+    MessageId.EMPTY_CHOICE_LIST: MessageDefinition(
+        code="EG311",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Choice list is empty",
+        template="{choice_key} must contain at least one choice or button",
     ),
     MessageId.PYTHON_VAR_TYPE: MessageDefinition(
         code="EG401",

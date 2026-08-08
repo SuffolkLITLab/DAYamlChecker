@@ -136,6 +136,34 @@ continue button field: more_information
             f"Did not expect event/setter error, got: {errs}",
         )
 
+    def test_empty_static_choice_lists_are_invalid(self):
+        for choice_key in ("buttons", "choices"):
+            with self.subTest(choice_key=choice_key):
+                invalid = f"""question: Pick one
+{choice_key}: []
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                choice_error = next((err for err in errs if err.code == "EG311"), None)
+                self.assertIsNotNone(
+                    choice_error,
+                    f"Expected empty {choice_key} error, got: {errs}",
+                )
+                self.assertIn(choice_key, choice_error.message)
+
+    def test_nonempty_static_choice_lists_are_valid(self):
+        for choice_key in ("buttons", "choices"):
+            with self.subTest(choice_key=choice_key):
+                valid = f"""question: Pick one
+field: selection
+{choice_key}:
+  - One
+"""
+                errs = find_errors_from_string(valid, input_file="<string_valid>")
+                self.assertFalse(
+                    _has_code(errs, "EG311"),
+                    f"Did not expect empty {choice_key} error, got: {errs}",
+                )
+
     def test_unknown_block_type_error_is_clearer(self):
         invalid = """
 foo: bar

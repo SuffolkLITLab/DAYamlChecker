@@ -1983,6 +1983,19 @@ def find_errors_from_string(
                     )
                 )
 
+        if "question" in doc_keys_lower:
+            for choice_key in ("buttons", "choices"):
+                choice_value = _get_case_insensitive(doc, choice_key)
+                if isinstance(choice_value, list) and not choice_value:
+                    all_errors.append(
+                        make_finding(
+                            MessageId.EMPTY_CHOICE_LIST,
+                            line_number=line_number,
+                            file_name=input_file,
+                            choice_key=choice_key,
+                        )
+                    )
+
         weird_keys = []
         for attr in doc.keys():
             if attr == "__line__":
