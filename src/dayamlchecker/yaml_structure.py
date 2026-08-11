@@ -2,6 +2,7 @@
 import ast
 import argparse
 from dataclasses import dataclass, field, replace
+import os
 from pathlib import Path
 from pyexpat import features
 import re
@@ -48,7 +49,12 @@ from dayamlchecker.check_questions_urls import (
 #   https://docassemble.org/docs/interviews.html#jinja2
 
 
-__all__ = ["find_errors_from_string", "find_errors", "_collect_yaml_files"]
+__all__ = [
+    "find_errors_from_string",
+    "find_errors",
+    "_collect_yaml_files",
+    "_collect_test_python_modules",
+]
 
 DEFAULT_LINT_MODE = "default"
 ACCESSIBILITY_LINT_MODE = "accessibility"
@@ -2544,6 +2550,96 @@ def _collect_yaml_files(
     return _formatter_collect(paths, include_default_ignores=include_default_ignores)
 
 
+_DO_NOT_PRELOAD_DIRECTIVE = b"# do not pre-load"
+
+
+def _is_default_ignored_python_dir(dirname: str) -> bool:
+    return (
+        dirname.startswith(".git")
+        or dirname.startswith(".github")
+        or dirname.startswith(".venv")
+        or dirname in {"build", "dist", "node_modules"}
+    )
+
+
+def _is_docassemble_python_module(path: Path) -> bool:
+    return "docassemble" in path.resolve().parts
+
+
+def _collect_test_python_modules(
+    paths: list[Path],
+    yaml_files: list[Path] | None = None,
+    include_default_ignores: bool = True,
+) -> list[Path]:
+    """Find test_*.py modules under the docassemble namespace.
+
+    Package roots inferred from selected question files are included so that a
+    command targeting an individual YAML file still checks sibling modules.
+    Ordinary pytest files outside ``docassemble`` are intentionally excluded.
+    """
+
+    candidates: list[Path] = []
+    search_roots = [path for path in paths if path.is_dir()]
+    if yaml_files:
+        search_roots.extend(infer_package_dirs(yaml_files))
+
+    for path in paths:
+        if (
+            path.is_file()
+            and path.match("test_*.py")
+            and _is_docassemble_python_module(path)
+        ):
+            candidates.append(path)
+
+    for search_root in search_roots:
+        for root, dirnames, filenames in os.walk(search_root, topdown=True):
+            if include_default_ignores and _is_default_ignored_python_dir(
+                Path(root).name
+            ):
+                dirnames[:] = []
+                continue
+            if include_default_ignores:
+                dirnames[:] = [
+                    dirname
+                    for dirname in dirnames
+                    if not _is_default_ignored_python_dir(dirname)
+                ]
+
+            root_path = Path(root)
+            if not _is_docassemble_python_module(root_path):
+                continue
+            candidates.extend(
+                root_path / filename
+                for filename in filenames
+                if filename.startswith("test_") and filename.endswith(".py")
+            )
+
+    unique_modules: dict[Path, Path] = {}
+    for candidate in candidates:
+        unique_modules.setdefault(candidate.resolve(), candidate)
+    return sorted(unique_modules.values())
+
+
+def _find_test_module_preload_findings(paths: list[Path]) -> list[Finding]:
+    findings: list[Finding] = []
+    for path in paths:
+        try:
+            with path.open("rb") as test_module:
+                first_line = test_module.readline().rstrip(b"\r\n")
+        except OSError:
+            first_line = b""
+
+        if not first_line.startswith(_DO_NOT_PRELOAD_DIRECTIVE):
+            findings.append(
+                make_finding(
+                    MessageId.PYTHON_TEST_MODULE_MISSING_NO_PRELOAD,
+                    file_name=str(path),
+                    line_number=1,
+                )
+            )
+    return findings
+
+
 def process_file(
     input_file,
     lint_mode: str = DEFAULT_LINT_MODE,
@@ -2578,7 +2674,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         "files",
         nargs="+",
         type=Path,
-        help="YAML files or directories to validate (directories are searched recursively)",
+        help=(
+            "YAML/Python files or directories to validate "
+            "(directories are searched recursively)"
+        ),
     )
     parser.add_argument(
         "--suppress",
@@ -2742,8 +2841,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
     )
-    if not yaml_files:
-        print("No YAML files found.", file=sys.stderr)
+    test_python_modules = _collect_test_python_modules(
+        args.files,
+        yaml_files=yaml_files,
+        include_default_ignores=not args.check_all,
+    )
+    if not yaml_files and not test_python_modules:
+        print("No YAML files or test Python modules found.", file=sys.stderr)
         return 1
 
     from dayamlchecker.messages import print_github_annotation
@@ -2757,7 +2861,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         all_findings.extend(findings)
 
-    if args.url_check:
+    all_findings.extend(_find_test_module_preload_findings(test_python_modules))
+
+    if args.url_check and yaml_files:
         url_check_root = (
             args.url_check_root.resolve()
             if args.url_check_root is not None

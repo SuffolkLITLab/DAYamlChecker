@@ -7,7 +7,11 @@ from tempfile import TemporaryDirectory
 import dayamlchecker.yaml_structure as yaml_structure
 from dayamlchecker.check_questions_urls import URLCheckResult, URLIssue
 from dayamlchecker.messages import MessageId, make_finding, print_github_annotation
-from dayamlchecker.yaml_structure import _collect_yaml_files, main
+from dayamlchecker.yaml_structure import (
+    _collect_test_python_modules,
+    _collect_yaml_files,
+    main,
+)
 
 
 def _write_valid_question(path: Path) -> None:
@@ -165,6 +169,69 @@ def test_collect_yaml_files_can_disable_default_ignores():
                 sources_file,
             ]
         )
+
+
+def test_collect_test_python_modules_only_in_docassemble_namespace(tmp_path):
+    package = tmp_path / "docassemble" / "Demo"
+    interview = package / "data" / "questions" / "interview.yml"
+    module = package / "data" / "sources" / "test_helpers.py"
+    ordinary_pytest_file = tmp_path / "tests" / "test_helpers.py"
+    non_test_module = package / "data" / "sources" / "helpers.py"
+
+    _write_valid_question(interview)
+    module.parent.mkdir(parents=True)
+    ordinary_pytest_file.parent.mkdir(parents=True)
+    module.write_text("# do not pre-load\n", encoding="utf-8")
+    ordinary_pytest_file.write_text("def test_example(): pass\n", encoding="utf-8")
+    non_test_module.write_text("class Helper: pass\n", encoding="utf-8")
+
+    assert _collect_test_python_modules([interview], yaml_files=[interview]) == [module]
+
+
+def test_main_rejects_each_test_module_missing_do_not_preload(tmp_path, capsys):
+    package = tmp_path / "docassemble" / "Demo"
+    interview = package / "data" / "questions" / "interview.yml"
+    sources = package / "data" / "sources"
+    first_bad_module = sources / "test_empty.py"
+    second_bad_module = sources / "test_mocked.py"
+
+    _write_valid_question(interview)
+    sources.mkdir(parents=True)
+    first_bad_module.write_text("", encoding="utf-8")
+    second_bad_module.write_text("from unittest.mock import patch\n", encoding="utf-8")
+
+    assert main(["--no-url-check", str(tmp_path)]) == 1
+
+    output = capsys.readouterr().out
+    assert output.count("[EG105]") == 2
+    assert str(first_bad_module) in output
+    assert str(second_bad_module) in output
+    assert "must start with `# do not pre-load`" in output
+
+
+def test_main_accepts_test_module_with_do_not_preload_on_first_line(tmp_path, capsys):
+    package = tmp_path / "docassemble" / "Demo"
+    interview = package / "data" / "questions" / "interview.yml"
+    module = package / "data" / "sources" / "test_helpers.py"
+
+    _write_valid_question(interview)
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "# do not pre-load   \nfrom unittest.mock import patch\n",
+        encoding="utf-8",
+    )
+
+    assert main(["--no-url-check", str(interview)]) == 0
+    assert capsys.readouterr().out == "No issues found.\n"
+
+
+def test_main_requires_do_not_preload_to_be_the_first_line(tmp_path, capsys):
+    module = tmp_path / "docassemble" / "Demo" / "test_helpers.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("\n# do not pre-load\n", encoding="utf-8")
+
+    assert main(["--no-url-check", str(module)]) == 1
+    assert "[EG105]" in capsys.readouterr().out
 
 
 def test_main_default_wcag_reports_failures():

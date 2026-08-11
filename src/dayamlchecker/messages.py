@@ -33,6 +33,7 @@ class MessageId(StrEnum):
     PYTHON_CODE_TYPE = "python_code_type"
     PYTHON_SYNTAX_ERROR = "python_syntax_error"
     PYTHON_CODE_FUNCTION_DEF = "python_code_function_def"
+    PYTHON_TEST_MODULE_MISSING_NO_PRELOAD = "python_test_module_missing_no_preload"
     VALIDATION_CODE_MISSING_VALIDATION_ERROR = (
         "validation_code_missing_validation_error"
     )
@@ -292,6 +293,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template=(
             "code block defines function `{function_name}`; move reusable "
             "helper functions to a Python module instead, or use inline code for small snippets that are only used once"
+        ),
+    ),
+    MessageId.PYTHON_TEST_MODULE_MISSING_NO_PRELOAD: MessageDefinition(
+        code="EG105",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Test module may be pre-loaded by docassemble",
+        template=(
+            "test modules must start with `# do not pre-load` so docassemble "
+            "does not import them during server startup"
         ),
     ),
     MessageId.VALIDATION_CODE_MISSING_VALIDATION_ERROR: MessageDefinition(
