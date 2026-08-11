@@ -129,6 +129,9 @@ class MessageId(StrEnum):
         "accessibility_generic_validation_message"
     )
     ACCESSIBILITY_AMBIGUOUS_BUTTON_TEXT = "accessibility_ambiguous_button_text"
+    ACCESSIBILITY_DISPLAY_TEMPLATE_MISSING_SUBJECT = (
+        "accessibility_display_template_missing_subject"
+    )
 
     # Translatability
     TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES = (
@@ -873,6 +876,17 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Button text may be too vague",
         template="button text may be too vague out of context: {snippet}",
+    ),
+    MessageId.ACCESSIBILITY_DISPLAY_TEMPLATE_MISSING_SUBJECT: MessageDefinition(
+        code="WA529",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Displayed template is missing an accessible subject",
+        template=(
+            "template `{template_name}` is used with `display_template()` but has "
+            "no non-empty `subject`; add a descriptive subject to label the "
+            "displayed content"
+        ),
     ),
     # Translatability
     MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES: MessageDefinition(
