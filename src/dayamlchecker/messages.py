@@ -640,8 +640,8 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template="question block is missing an `id`: {snippet}",
     ),
     MessageId.MULTIPLE_MANDATORY_BLOCKS: MessageDefinition(
-        code="EG415",
-        severity=Severity.ERROR,
+        code="WG415",
+        severity=Severity.WARNING,
         finding_class=FindingClass.GENERAL,
         summary="Interview has more than one mandatory block",
         template="interview has more than one `mandatory: True` block: {labels}",
