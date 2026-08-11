@@ -2651,7 +2651,7 @@ field: review_now
 """
         errs = find_errors_from_string(yaml_text, input_file="<string_invalid>")
         self.assertTrue(
-            _has_code(errs, "EG415"),
+            _has_code(errs, "WG415"),
             f"Expected multiple-mandatory-blocks finding, got: {errs}",
         )
 
