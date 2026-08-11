@@ -761,14 +761,30 @@ class DAFields:
         return field_line + max(code_line - 1, 0)
 
     def _extract_field_name(self, field_item):
+        field_key = self._extract_field_key(field_item)
+        if field_key is None:
+            return None
+        return field_item[field_key]
+
+    def _extract_field_key(self, field_item):
         if not isinstance(field_item, dict):
             return None
+        if "field" in field_item and isinstance(field_item["field"], str):
+            return "field"
+
+        possible_keys = []
         for key, value in field_item.items():
             if key in self.modifier_keys:
                 continue
             if isinstance(value, str):
-                return value
-        return None
+                possible_keys.append(key)
+
+        # A field's arbitrary label key is not a modifier typo. Prefer a key that
+        # does not resemble a modifier when deciding which key declares the field.
+        for key in possible_keys:
+            if not isinstance(key, str) or _suggest_known_field_modifier(key) is None:
+                return key
+        return possible_keys[0] if possible_keys else None
 
     def _validate_python_modifier(
         self, modifier_key, modifier_value, field_item, screen_variables
@@ -902,6 +918,8 @@ class DAFields:
             if not isinstance(field_item, dict):
                 continue
 
+            field_variable_key = self._extract_field_key(field_item)
+
             for field_key, field_value in field_item.items():
                 if (
                     field_key not in self.modifier_keys
@@ -929,16 +947,22 @@ class DAFields:
                                     **dict(err.context),
                                 )
                             )
-                    if (
-                        field_key not in self.modifier_keys
-                        and field_key.lower() in self.modifier_keys
-                    ):
+                    suggested_key = None
+                    if field_key not in self.modifier_keys:
+                        modifier_case_key = field_key.lower()
+                        if modifier_case_key in self.modifier_keys:
+                            # Preserve the existing casing check even when the key
+                            # could otherwise be interpreted as a shorthand label.
+                            suggested_key = modifier_case_key
+                        elif field_key != field_variable_key:
+                            suggested_key = _suggest_known_field_modifier(field_key)
+                    if suggested_key is not None:
                         self.errors.append(
                             draft(
                                 MessageId.FIELD_MODIFIER_CASE,
                                 line_number=self._line_for(field_item),
                                 field_key=field_key,
-                                suggested_key=field_key.lower(),
+                                suggested_key=suggested_key,
                             )
                         )
                     if field_key in self.mako_keys:
@@ -1428,6 +1452,111 @@ all_dict_keys = (
     "sort key",
     "sort reverse",
 )
+
+
+def _normalize_key_for_similarity(key: str) -> str:
+    """Case-fold a key and remove whitespace and punctuation."""
+    return "".join(character for character in key.casefold() if character.isalnum())
+
+
+_KNOWN_DICT_KEYS_BY_NORMALIZED: dict[str, set[str]] = {}
+for _known_dict_key in all_dict_keys:
+    _KNOWN_DICT_KEYS_BY_NORMALIZED.setdefault(
+        _normalize_key_for_similarity(_known_dict_key), set()
+    ).add(_known_dict_key)
+_MAX_NORMALIZED_DICT_KEY_LENGTH = max(map(len, _KNOWN_DICT_KEYS_BY_NORMALIZED))
+
+_KNOWN_FIELD_MODIFIER_KEYS_BY_NORMALIZED: dict[str, set[str]] = {}
+for _field_modifier_key in DAFields.modifier_keys - {"__line__"}:
+    _KNOWN_FIELD_MODIFIER_KEYS_BY_NORMALIZED.setdefault(
+        _normalize_key_for_similarity(_field_modifier_key), set()
+    ).add(_field_modifier_key)
+_MAX_NORMALIZED_FIELD_MODIFIER_KEY_LENGTH = max(
+    map(len, _KNOWN_FIELD_MODIFIER_KEYS_BY_NORMALIZED)
+)
+
+
+def _damerau_levenshtein_distance(left: str, right: str) -> int:
+    """Return edit distance, treating an adjacent transposition as one edit."""
+    previous_previous_row: list[int] | None = None
+    previous_row = list(range(len(right) + 1))
+
+    for left_index, left_character in enumerate(left, start=1):
+        current_row = [left_index]
+        for right_index, right_character in enumerate(right, start=1):
+            current_row.append(
+                min(
+                    current_row[right_index - 1] + 1,
+                    previous_row[right_index] + 1,
+                    previous_row[right_index - 1] + (left_character != right_character),
+                )
+            )
+            if (
+                previous_previous_row is not None
+                and left_index > 1
+                and right_index > 1
+                and left_character == right[right_index - 2]
+                and left[left_index - 2] == right_character
+            ):
+                current_row[right_index] = min(
+                    current_row[right_index],
+                    previous_previous_row[right_index - 2] + 1,
+                )
+        previous_previous_row, previous_row = previous_row, current_row
+
+    return previous_row[-1]
+
+
+def _suggest_known_key(
+    invalid_key: str,
+    known_keys_by_normalized: dict[str, set[str]],
+    max_known_key_length: int,
+) -> str | None:
+    """Return a unique, conservatively close known key."""
+    normalized_key = _normalize_key_for_similarity(invalid_key)
+    exact_matches = known_keys_by_normalized.get(normalized_key, set())
+    if len(exact_matches) == 1:
+        return next(iter(exact_matches))
+
+    # Short keys are too easy to match accidentally. Longer keys can tolerate two
+    # edits while still requiring one unique best match.
+    if len(normalized_key) < 5:
+        return None
+    max_distance = 1 if len(normalized_key) < 9 else 2
+    if len(normalized_key) > max_known_key_length + max_distance:
+        return None
+
+    best_distance = max_distance + 1
+    best_matches: set[str] = set()
+    for known_normalized, known_keys in known_keys_by_normalized.items():
+        if abs(len(normalized_key) - len(known_normalized)) > max_distance:
+            continue
+        distance = _damerau_levenshtein_distance(normalized_key, known_normalized)
+        if distance < best_distance:
+            best_distance = distance
+            best_matches = set(known_keys)
+        elif distance == best_distance:
+            best_matches.update(known_keys)
+
+    if best_distance <= max_distance and len(best_matches) == 1:
+        return next(iter(best_matches))
+    return None
+
+
+def _suggest_known_dict_key(invalid_key: str) -> str | None:
+    return _suggest_known_key(
+        invalid_key,
+        _KNOWN_DICT_KEYS_BY_NORMALIZED,
+        _MAX_NORMALIZED_DICT_KEY_LENGTH,
+    )
+
+
+def _suggest_known_field_modifier(invalid_key: str) -> str | None:
+    return _suggest_known_key(
+        invalid_key,
+        _KNOWN_FIELD_MODIFIER_KEYS_BY_NORMALIZED,
+        _MAX_NORMALIZED_FIELD_MODIFIER_KEY_LENGTH,
+    )
 
 
 def _lowercase_key_map(mapping: dict[Any, Any]) -> dict[str, str]:
@@ -2073,6 +2202,7 @@ def find_errors_from_string(
                     )
 
         weird_keys = []
+        key_suggestions = []
         for attr in doc.keys():
             if attr == "__line__":
                 continue
@@ -2081,13 +2211,22 @@ def find_errors_from_string(
                 weird_keys.append(str(attr))
             elif attr.lower() not in all_dict_keys:
                 weird_keys.append(attr)
+                suggested_key = _suggest_known_dict_key(attr)
+                if suggested_key is not None:
+                    key_suggestions.append(
+                        f'"{attr}" should likely be "{suggested_key}"'
+                    )
         if len(weird_keys) > 0:
+            suggestions = ""
+            if key_suggestions:
+                suggestions = ". Did you mean: " + "; ".join(key_suggestions) + "?"
             all_errors.append(
                 make_finding(
                     MessageId.UNKNOWN_KEYS,
                     line_number=line_number,
                     file_name=input_file,
                     keys=", ".join(weird_keys),
+                    suggestions=suggestions,
                 )
             )
         for key in doc.keys():
