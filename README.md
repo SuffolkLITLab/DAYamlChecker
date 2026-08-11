@@ -91,6 +91,7 @@ Current accessibility checks focus on objective failures only:
 - Non-descriptive link text such as `click here`, `here`, `read more`, and Spanish equivalents like `haga clic aquí`
 - `no label` and empty/missing labels on multi-field screens (allowed on single-field screens)
 - Low contrast in custom Bootstrap theme CSS loaded by `features: bootstrap theme`; inspects actual CSS values for body text, navbar, dropdown menu, and buttons (minimum ratio 4.5:1)
+- Templates used with `display_template()` that have a missing or empty `subject`
 
 Optional runtime-gated accessibility checks:
 
