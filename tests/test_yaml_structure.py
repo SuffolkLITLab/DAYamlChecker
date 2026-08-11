@@ -280,6 +280,59 @@ foo: bar
             f"Expected clearer unknown block type error, got: {errs}",
         )
 
+    def test_unknown_key_suggests_known_separator_variant(self):
+        invalid = """question: What should happen next?
+depends_on: prior_answer
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        unknown_key_error = next(err for err in errs if err.code == "EG301")
+        self.assertIn(
+            '"depends_on" should likely be "depends on"', unknown_key_error.err_str
+        )
+
+    def test_unknown_key_suggestion_ignores_punctuation(self):
+        invalid = """question: What should happen next?
+depends.on: prior_answer
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        unknown_key_error = next(err for err in errs if err.code == "EG301")
+        self.assertIn(
+            '"depends.on" should likely be "depends on"', unknown_key_error.err_str
+        )
+
+    def test_unknown_key_suggests_single_typo(self):
+        invalid = """question: What should happen next?
+dependz on: prior_answer
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        unknown_key_error = next(err for err in errs if err.code == "EG301")
+        self.assertIn(
+            '"dependz on" should likely be "depends on"', unknown_key_error.err_str
+        )
+
+    def test_unknown_key_suggests_adjacent_transposition(self):
+        invalid = """question: What should happen next?
+depneds on: prior_answer
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        unknown_key_error = next(err for err in errs if err.code == "EG301")
+        self.assertIn(
+            '"depneds on" should likely be "depends on"', unknown_key_error.err_str
+        )
+
+    def test_unknown_key_does_not_suggest_unrelated_key(self):
+        invalid = """question: What should happen next?
+completely unrelated: prior_answer
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        unknown_key_error = next(err for err in errs if err.code == "EG301")
+        self.assertNotIn("Did you mean", unknown_key_error.err_str)
+
     def test_mixed_case_question_keys_are_accepted(self):
         invalid = """
 Question: |
@@ -309,6 +362,60 @@ fields:
                 for e in errs
             ),
             f"Expected mixed-case modifier key to be rejected, got: {errs}",
+        )
+
+    def test_field_modifier_suggests_punctuation_variant(self):
+        invalid = """question: |
+  What is your favorite fruit?
+fields:
+  - label: Fruit
+    field: favorite_fruit
+  - label: Why
+    field: fruit_reason
+    show_if: favorite_fruit
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            any(
+                err.code == "EG413"
+                and 'invalid field key "show_if"' in err.err_str
+                and 'Did you mean "show if"?' in err.err_str
+                for err in errs
+            ),
+            f"Expected a field modifier suggestion, got: {errs}",
+        )
+
+    def test_field_modifier_suggests_typo(self):
+        invalid = """question: |
+  What is your favorite fruit?
+fields:
+  - Fruit: favorite_fruit
+  - Why: fruit_reason
+    shwo if: favorite_fruit
+"""
+        errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+
+        self.assertTrue(
+            any(
+                err.code == "EG413"
+                and 'invalid field key "shwo if"' in err.err_str
+                and 'Did you mean "show if"?' in err.err_str
+                for err in errs
+            ),
+            f"Expected a field modifier typo suggestion, got: {errs}",
+        )
+
+    def test_shorthand_field_label_is_not_treated_as_modifier_typo(self):
+        valid = """question: Choose an option
+fields:
+  - Choices!: selected_choice
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(
+            any(err.code == "EG413" for err in errs),
+            f"Did not expect the shorthand label to be treated as a modifier: {errs}",
         )
 
     def test_duplicate_key_error(self):

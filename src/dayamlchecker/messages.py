@@ -388,7 +388,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.ERROR,
         finding_class=FindingClass.GENERAL,
         summary="Unknown YAML keys",
-        template="keys that should not appear in a docassemble block: {keys}",
+        template="keys that should not appear in a docassemble block: {keys}{suggestions}",
     ),
     MessageId.SHOW_IF_MALFORMED: MessageDefinition(
         code="EG302",
@@ -629,10 +629,11 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         code="EG413",
         severity=Severity.ERROR,
         finding_class=FindingClass.GENERAL,
-        summary="Invalid field modifier key casing",
+        summary="Invalid field modifier key",
         template=(
-            'invalid field key "{field_key}". docassemble field modifier keys are '
-            'case-sensitive; use "{suggested_key}"'
+            'invalid field key "{field_key}". Did you mean "{suggested_key}"? '
+            'If so, use "{suggested_key}" exactly; docassemble field modifier keys '
+            "are case-sensitive"
         ),
     ),
     MessageId.MISSING_QUESTION_ID: MessageDefinition(
