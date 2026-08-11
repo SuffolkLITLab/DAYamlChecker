@@ -11,6 +11,7 @@ from typing import Any, Optional
 from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
+    find_display_template_subject_findings,
 )
 from dayamlchecker.messages import Finding, FindingClass, MessageId, draft, make_finding
 from dayamlchecker.style import (
@@ -2186,6 +2187,13 @@ def find_errors_from_string(
         all_errors.extend(
             _find_interview_level_findings(parsed_docs, input_file=input_file)
         )
+        if lint_mode == ACCESSIBILITY_LINT_MODE:
+            all_errors.extend(
+                find_display_template_subject_findings(
+                    parsed_docs=parsed_docs,
+                    input_file=input_file,
+                )
+            )
     style_options = runtime_options.style_options()
     if style_options.enabled and not has_yaml_parse_errors:
         all_errors.extend(

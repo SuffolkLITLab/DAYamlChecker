@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from dayamlchecker.messages import Finding, FindingDraft, MessageId, draft
 
 TEXT_SECTION_KEYS = ("question", "subquestion", "under", "help", "note", "html")
@@ -211,6 +211,10 @@ _HTML_HEADING_RE = re.compile(
 )
 _MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[(.*?)\]\((.*?)\)")
 _HTML_LINK_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.IGNORECASE | re.DOTALL)
+_DISPLAY_TEMPLATE_CALL_RE = re.compile(
+    r"\bdisplay_template\s*\(\s*"
+    r"([A-Za-z_]\w*(?:\s*(?:\.\s*[A-Za-z_]\w*|\[[^\]\r\n]+\]))*)"
+)
 _CSS_RULE_RE = re.compile(r"(?s)([^{}]+)\{([^{}]+)\}")
 _HEX_COLOR_RE = re.compile(r"^#([0-9a-f]{3}|[0-9a-f]{6})$", re.IGNORECASE)
 _RGB_COLOR_RE = re.compile(r"rgba?\(([^\)]+)\)", re.IGNORECASE)
@@ -334,6 +338,61 @@ def find_accessibility_findings(
         seen.add(key)
         unique_findings.append(rendered)
     return unique_findings
+
+
+def find_display_template_subject_findings(
+    *, parsed_docs: Iterable[Any], input_file: Optional[str] = None
+) -> list[AccessibilityFinding]:
+    """Warn when a locally defined template displayed in the interview lacks a subject."""
+    docs = list(parsed_docs)
+    displayed_template_names = {
+        template_name
+        for parsed_doc in docs
+        for value in _iter_string_values(parsed_doc.doc)
+        for template_name in _display_template_names(value)
+    }
+    if not displayed_template_names:
+        return []
+
+    findings: list[AccessibilityFinding] = []
+    seen_template_names: set[str] = set()
+    for parsed_doc in docs:
+        template_name = str(parsed_doc.doc.get("template") or "").strip()
+        if (
+            not template_name
+            or template_name not in displayed_template_names
+            or template_name in seen_template_names
+            or str(parsed_doc.doc.get("subject") or "").strip()
+        ):
+            continue
+        seen_template_names.add(template_name)
+        line_key = "subject" if "subject" in parsed_doc.doc else "template"
+        findings.append(
+            AccessibilityFinding(
+                message_id=MessageId.ACCESSIBILITY_DISPLAY_TEMPLATE_MISSING_SUBJECT,
+                file_name=input_file,
+                line_number=parsed_doc.line_for_key(line_key),
+                context={"template_name": template_name},
+            )
+        )
+    return findings
+
+
+def _iter_string_values(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != "__line__":
+                yield from _iter_string_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_string_values(item)
+
+
+def _display_template_names(value: str) -> Iterable[str]:
+    for match in _DISPLAY_TEMPLATE_CALL_RE.finditer(value):
+        yield re.sub(r"\s+", "", match.group(1))
 
 
 def _check_combobox_usage(

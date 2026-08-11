@@ -361,6 +361,72 @@ fields
             f"Did not expect accessibility errors in default mode, got: {accessibility_errors}",
         )
 
+    def test_accessibility_display_template_missing_subject_warns(self):
+        yaml_content = """template: terms_of_use
+content: |
+  These are the terms.
+---
+question: Review the terms
+subquestion: |
+  ${ display_template(terms_of_use) }
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        warning = next(err for err in errs if err.code == "WA529")
+        self.assertEqual(warning.line_number, 1)
+        self.assertEqual(warning.context["template_name"], "terms_of_use")
+
+    def test_accessibility_display_template_empty_subject_warns(self):
+        yaml_content = """question: Review the terms
+subquestion: ${ display_template(terms_of_use) }
+---
+template: terms_of_use
+subject: "   "
+content: These are the terms.
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_invalid>",
+            lint_mode="accessibility",
+        )
+        warning = next(err for err in errs if err.code == "WA529")
+        self.assertEqual(warning.line_number, 5)
+
+    def test_accessibility_display_template_nonempty_subject_allowed(self):
+        yaml_content = """question: Review the terms
+subquestion: ${ display_template(terms_of_use) }
+---
+template: terms_of_use
+subject: Terms of use
+content: These are the terms.
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(
+            _has_code(errs, "WA529"),
+            f"Did not expect a display-template subject warning, got: {errs}",
+        )
+
+    def test_accessibility_unused_template_without_subject_allowed(self):
+        yaml_content = """template: terms_of_use
+content: These are the terms.
+---
+question: Continue
+subquestion: No displayed template here.
+"""
+        errs = find_errors_from_string(
+            yaml_content,
+            input_file="<string_valid>",
+            lint_mode="accessibility",
+        )
+        self.assertFalse(_has_code(errs, "WA529"))
+
     def test_accessibility_markdown_image_missing_alt_text(self):
         yaml_content = """question: |
   ![](docassemble.demo:data/static/logo.png)
