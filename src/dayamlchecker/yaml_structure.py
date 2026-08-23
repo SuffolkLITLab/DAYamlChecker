@@ -609,55 +609,6 @@ class JSShowIf:
         return expanded
 
 
-class ShowIf:
-    """Validator for show if field modifier (non-js variants)
-    Checks that if show if uses variable/code pattern, the referenced variable
-    is defined on the same screen.
-    """
-
-    def __init__(self, x, context=None):
-        self.errors = []
-        self.context = context or {}
-
-        if isinstance(x, str):
-            # Shorthand form: show if: variable_name
-            # This is only valid if variable_name refers to a yes/no field on the same screen
-            if ":" not in x and " " not in x:  # Simple variable name
-                # We can't validate this here without screen context
-                # This will be validated at a higher level with fields context
-                pass
-            elif x.startswith("variable:") or x.startswith("code:"):
-                # Malformed - these should be YAML dict format
-                self.errors.append(draft(MessageId.SHOW_IF_MALFORMED, value=x))
-        elif isinstance(x, dict):
-            # YAML dict form
-            if "variable" in x:
-                # First method: show if: { variable: field_name, is: value }
-                # Can only reference fields on the same screen - we'll validate in context
-                pass
-            elif "code" in x:
-                # Third method: show if: { code: python_code }
-                # Validate Python syntax for the provided code block
-                code_block = x.get("code")
-                if not isinstance(code_block, str):
-                    self.errors.append(draft(MessageId.SHOW_IF_CODE_TYPE))
-                else:
-                    try:
-                        ast.parse(code_block)
-                    except SyntaxError as ex:
-                        lineno = ex.lineno or 1
-                        msg = ex.msg or str(ex)
-                        self.errors.append(
-                            draft(
-                                MessageId.SHOW_IF_CODE_SYNTAX,
-                                line_number=lineno,
-                                error=msg,
-                            )
-                        )
-            else:
-                self.errors.append(draft(MessageId.SHOW_IF_DICT_KEYS))
-
-
 class DAPythonVar:
     """Things that need to be defined as a docassemble var, i.e. abc or x.y['a']"""
 
@@ -723,6 +674,7 @@ class DAFields:
 
     js_modifier_keys = ("js show if", "js hide if", "js enable if", "js disable if")
     py_modifier_keys = ("show if", "hide if", "enable if", "disable if")
+    inequality_keys = frozenset({"is not", "isnt", "is_not", "not", "!="})
 
     def __init__(self, x):
         self.errors = []
@@ -837,6 +789,34 @@ class DAFields:
                             line_number=self._line_for(field_item),
                             modifier_key=modifier_key,
                             variable=ref_var,
+                        )
+                    )
+                if "is" not in modifier_value:
+                    displayed_keys = [
+                        str(key) for key in modifier_value if key != "__line__"
+                    ]
+                    comparison_key = next(
+                        (
+                            key
+                            for key in displayed_keys
+                            if key.strip().lower() in self.inequality_keys
+                        ),
+                        None,
+                    )
+                    comparison_guidance = ""
+                    if comparison_key is not None and isinstance(ref_var, str):
+                        comparison_guidance = (
+                            f' "{comparison_key}" is not supported. To test for a '
+                            f"different value, use `js {modifier_key}:` with "
+                            f'`val("{ref_var}") != ...` instead.'
+                        )
+                    self.errors.append(
+                        draft(
+                            MessageId.FIELD_MODIFIER_MISSING_IS,
+                            line_number=self._line_for(field_item),
+                            modifier_key=modifier_key,
+                            keys=", ".join(displayed_keys),
+                            comparison_guidance=comparison_guidance,
                         )
                     )
             elif "code" in modifier_value:
