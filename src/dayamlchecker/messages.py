@@ -49,10 +49,6 @@ class MessageId(StrEnum):
     JS_VAL_ARG_NOT_QUOTED = "js_val_arg_not_quoted"
 
     UNKNOWN_KEYS = "unknown_keys"
-    SHOW_IF_MALFORMED = "show_if_malformed"
-    SHOW_IF_CODE_TYPE = "show_if_code_type"
-    SHOW_IF_CODE_SYNTAX = "show_if_code_syntax"
-    SHOW_IF_DICT_KEYS = "show_if_dict_keys"
     NO_POSSIBLE_TYPES = "no_possible_types"
     TOO_MANY_TYPES = "too_many_types"
     INTERVIEW_ORDER_UNMATCHED_GUARD = "interview_order_unmatched_guard"
@@ -77,6 +73,7 @@ class MessageId(StrEnum):
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
     FIELD_MODIFIER_SAME_SCREEN_CODE = "field_modifier_same_screen_code"
     FIELD_MODIFIER_DICT_KEYS = "field_modifier_dict_keys"
+    FIELD_MODIFIER_MISSING_IS = "field_modifier_missing_is"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING = "field_modifier_unknown_variable_string"
     FIELD_MODIFIER_CASE = "field_modifier_case"
     MISSING_QUESTION_ID = "missing_question_id"
@@ -401,37 +398,6 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Unknown YAML keys",
         template="keys that should not appear in a docassemble block: {keys}{suggestions}",
     ),
-    MessageId.SHOW_IF_MALFORMED: MessageDefinition(
-        code="EG302",
-        severity=Severity.ERROR,
-        finding_class=FindingClass.GENERAL,
-        summary="Malformed show if shorthand",
-        template=(
-            'show if value "{value}" appears malformed. Use YAML dict syntax: '
-            "show if: {{ variable: var_name, is: value }} or show if: {{ code: ... }}"
-        ),
-    ),
-    MessageId.SHOW_IF_CODE_TYPE: MessageDefinition(
-        code="EG303",
-        severity=Severity.ERROR,
-        finding_class=FindingClass.GENERAL,
-        summary="show if: code must be a YAML string",
-        template="show if: code must be a YAML string",
-    ),
-    MessageId.SHOW_IF_CODE_SYNTAX: MessageDefinition(
-        code="EG304",
-        severity=Severity.ERROR,
-        finding_class=FindingClass.GENERAL,
-        summary="show if: code has a Python syntax error",
-        template="show if: code has a Python syntax error: {error}",
-    ),
-    MessageId.SHOW_IF_DICT_KEYS: MessageDefinition(
-        code="EG305",
-        severity=Severity.ERROR,
-        finding_class=FindingClass.GENERAL,
-        summary='show if dict must include "variable" or "code"',
-        template='show if dict must include either "variable" or "code"',
-    ),
     MessageId.NO_POSSIBLE_TYPES: MessageDefinition(
         code="EG306",
         severity=Severity.ERROR,
@@ -625,6 +591,17 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary='Field modifier dict must include "variable" or "code"',
         template='{modifier_key} dict must include either "variable" or "code"',
+    ),
+    MessageId.FIELD_MODIFIER_MISSING_IS: MessageDefinition(
+        code="EG422",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary='Field modifier variable form requires "is"',
+        template=(
+            '{modifier_key}: {{ variable: ... }} also requires "is:". '
+            "docassemble accepts {{ variable: x, is: y }} or {{ code: ... }} "
+            "(found: {keys}){comparison_guidance}"
+        ),
     ),
     MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING: MessageDefinition(
         code="EG412",

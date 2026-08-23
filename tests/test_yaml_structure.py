@@ -1530,6 +1530,10 @@ fields:
         self.assertEqual(
             len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}"
         )
+        self.assertFalse(
+            _has_code(errs, "EG422"),
+            f"Expected show if shorthand to remain valid, got: {errs}",
+        )
 
     def test_show_if_variable_dict_valid_same_screen(self):
         """Valid: show if with dict syntax references field on same screen"""
@@ -1555,6 +1559,88 @@ fields:
         self.assertEqual(
             len(show_if_errors), 0, f"Expected no show if errors, got: {show_if_errors}"
         )
+
+    def test_field_modifier_variable_dict_requires_is(self):
+        """All non-JavaScript field modifiers require is with variable."""
+        for modifier_key in ("show if", "hide if", "enable if", "disable if"):
+            with self.subTest(modifier_key=modifier_key):
+                invalid = f"""
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Why do you like it?: reason
+    {modifier_key}:
+      variable: fruit
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                missing_is = [err for err in errs if err.code == "EG422"]
+
+                self.assertEqual(len(missing_is), 1, f"Unexpected errors: {errs}")
+                self.assertIn(
+                    f'{modifier_key}: {{ variable: ... }} also requires "is:"',
+                    missing_is[0].err_str,
+                )
+                self.assertIn("found: variable", missing_is[0].err_str)
+
+    def test_field_modifier_inequality_typo_points_to_js_modifier(self):
+        """Comparison-like keys get actionable client-side guidance."""
+        for comparison_key in ("is not", "isnt", "is_not", "not", "!="):
+            with self.subTest(comparison_key=comparison_key):
+                yaml_key = (
+                    f'"{comparison_key}"' if comparison_key == "!=" else comparison_key
+                )
+                invalid = f"""
+question: |
+  Output options
+fields:
+  - Shape: shape
+  - Court: court
+    show if:
+      variable: shape
+      {yaml_key}: intake
+"""
+                errs = find_errors_from_string(invalid, input_file="<string_invalid>")
+                missing_is = [err for err in errs if err.code == "EG422"]
+
+                self.assertEqual(len(missing_is), 1, f"Unexpected errors: {errs}")
+                self.assertIn(
+                    f'"{comparison_key}" is not supported', missing_is[0].err_str
+                )
+                self.assertIn("`js show if:`", missing_is[0].err_str)
+                self.assertIn('`val("shape") != ...`', missing_is[0].err_str)
+
+    def test_field_modifier_code_with_variable_does_not_require_is(self):
+        """The accepted code form may also contain a variable key."""
+        valid = """
+question: |
+  What information do you need?
+fields:
+  - Why do you like it?: reason
+    show if:
+      code: previous_answer
+      variable: extra_value
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(_has_code(errs, "EG422"), f"Unexpected errors: {errs}")
+
+    def test_field_modifier_variable_is_form_allows_extra_keys(self):
+        """Do not reject extra keys when the required variable/is pair is present."""
+        valid = """
+question: |
+  What information do you need?
+fields:
+  - Favorite fruit: fruit
+  - Why do you like it?: reason
+    show if:
+      variable: fruit
+      is: Apple
+      extra key: ignored
+"""
+        errs = find_errors_from_string(valid, input_file="<string_valid>")
+
+        self.assertFalse(_has_code(errs, "EG422"), f"Unexpected errors: {errs}")
 
     def test_show_if_variable_expression_valid_same_screen(self):
         """Valid: show if expression using on-screen base variable should pass"""
