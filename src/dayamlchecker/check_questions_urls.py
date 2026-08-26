@@ -349,7 +349,7 @@ def parse_url_token(raw_url: str) -> tuple[str | None, bool]:
         return None, False
 
     # Link extraction in YAML/JS text can include trailing punctuation.
-    url = url.rstrip(".,;:!?)>]}")
+    url = url.rstrip(".,;:!?)>]}{*$")
 
     # Query strings are valid. For concatenation checks, inspect only the
     # URL part before '?' so embedded URLs in query parameters don't trigger

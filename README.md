@@ -17,6 +17,8 @@ The checker includes WCAG-style checks for clear static accessibility failures i
 python3 -m dayamlchecker path/to/interview.yml          # WCAG checks on (default)
 python3 -m dayamlchecker --no-wcag path/to/interview.yml  # WCAG checks off
 python3 -m dayamlchecker --accessibility-error-on-widget combobox path/to/interview.yml  # opt into combobox failures
+python3 -m dayamlchecker --docx-accessibility path/to/templates  # opt into DOCX accessibility checks
+python3 -m dayamlchecker --docx-accessibility --docx-accessibility-errors-as-warnings path/to/templates  # report DOCX errors without failing CI
 ```
 
 Some accessibility checks are behind runtime options while the rules are still being evaluated. Right now `combobox` failures are default-off and can be enabled with `--accessibility-error-on-widget combobox`.
@@ -40,6 +42,7 @@ Current accessibility checks focus on objective failures only:
 Optional runtime-gated accessibility checks:
 
 - `combobox` usage, including `datatype: combobox` when `--accessibility-error-on-widget combobox` is enabled
+- DOCX accessibility checks when `--docx-accessibility` is enabled. The DOCX checker inspects `.docx` packages for missing alt text, empty links, missing language/title metadata, heading and table risks, explicit low contrast, floating/text-box content, and other static issues. Use `--docx-accessibility-errors-as-warnings` to demote DOCX errors, and `--docx-table-merged-cells-severity error|warning|ignore` to tune merged table cell reporting.
 
 Accessibility informational notes are also emitted for likely PDF accessibility issues:
 

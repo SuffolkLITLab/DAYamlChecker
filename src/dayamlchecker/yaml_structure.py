@@ -27,6 +27,14 @@ from dayamlchecker.check_questions_urls import (
     print_url_check_report,
     run_url_check,
 )
+from dayamlchecker.docx_accessibility import (
+    ERROR as DOCX_ERROR,
+    TIP as DOCX_TIP,
+    WARNING as DOCX_WARNING,
+    DocxAccessibilityOptions,
+    check_docx_accessibility,
+    collect_docx_files,
+)
 
 # TODO(brycew):
 # * DA is fine with mixed case it looks like (i.e. Subquestion, vs subquestion)
@@ -49,10 +57,18 @@ ACCESSIBILITY_LINT_MODE = "accessibility"
 @dataclass(frozen=True)
 class RuntimeOptions:
     accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
+    docx_accessibility_errors_as_warnings: bool = False
+    docx_table_merged_cells_severity: str = DOCX_WARNING
 
     def accessibility_options(self) -> AccessibilityLintOptions:
         return AccessibilityLintOptions(
             error_on_widgets=self.accessibility_error_on_widgets
+        )
+
+    def docx_accessibility_options(self) -> DocxAccessibilityOptions:
+        return DocxAccessibilityOptions(
+            errors_as_warnings=self.docx_accessibility_errors_as_warnings,
+            table_merged_cells_severity=self.docx_table_merged_cells_severity,
         )
 
 
@@ -1746,6 +1762,42 @@ def process_file(
     return blocking_count
 
 
+def process_docx_file(
+    input_file: Path,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> bool:
+    """Return True when DOCX accessibility findings include errors."""
+    runtime_options = runtime_options or RuntimeOptions()
+    findings = check_docx_accessibility(
+        input_file,
+        options=runtime_options.docx_accessibility_options(),
+    )
+    if not findings:
+        print(".", end="")
+        return False
+
+    error_count = sum(1 for finding in findings if finding.severity == DOCX_ERROR)
+    warning_count = sum(1 for finding in findings if finding.severity == DOCX_WARNING)
+    tip_count = sum(1 for finding in findings if finding.severity == DOCX_TIP)
+    print()
+    print(
+        "DOCX accessibility findings for "
+        f"{input_file} ({error_count} errors, {warning_count} warnings, {tip_count} tips):"
+    )
+    for finding in findings:
+        prefix = {
+            DOCX_ERROR: "Accessibility",
+            DOCX_WARNING: "Warning: Accessibility",
+            DOCX_TIP: "Info: Accessibility",
+        }.get(finding.severity, "Accessibility")
+        wcag = f" Related WCAG: {', '.join(finding.wcag)}." if finding.wcag else ""
+        print(
+            f"At {input_file}:{finding.location}: "
+            f"{prefix}: [{finding.rule_id}] {finding.message}.{wcag}"
+        )
+    return error_count > 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
@@ -1781,6 +1833,26 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Treat a specific accessibility-sensitive widget as an error. "
             "Repeat to enable multiple widgets. Default: none"
         ),
+    )
+    parser.add_argument(
+        "--docx-accessibility",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Check DOCX files for high-confidence static accessibility issues "
+            "(default: off)"
+        ),
+    )
+    parser.add_argument(
+        "--docx-accessibility-errors-as-warnings",
+        action="store_true",
+        help="Report DOCX accessibility errors as warnings instead of failing the command",
+    )
+    parser.add_argument(
+        "--docx-table-merged-cells-severity",
+        choices=("error", "warning", "ignore"),
+        default=DOCX_WARNING,
+        help="How to report merged/split cells in DOCX tables (default: warning)",
     )
     parser.add_argument(
         "--url-check",
@@ -1858,14 +1930,26 @@ def main(argv: Optional[list[str]] = None) -> int:
             widget.strip().lower()
             for widget in args.accessibility_error_on_widgets
             if widget.strip()
-        )
+        ),
+        docx_accessibility_errors_as_warnings=args.docx_accessibility_errors_as_warnings,
+        docx_table_merged_cells_severity=args.docx_table_merged_cells_severity,
     )
 
     yaml_files = _collect_yaml_files(
         args.files, include_default_ignores=not args.check_all
     )
-    if not yaml_files:
-        print("No YAML files found.", file=sys.stderr)
+    docx_files = (
+        collect_docx_files(args.files, include_default_ignores=not args.check_all)
+        if args.docx_accessibility
+        else []
+    )
+    if not yaml_files and not docx_files:
+        message = (
+            "No YAML or DOCX files found."
+            if args.docx_accessibility
+            else "No YAML files found."
+        )
+        print(message, file=sys.stderr)
         return 1
 
     failed = False
@@ -1878,7 +1962,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         if error_count > 0:
             failed = True
 
-    if args.url_check:
+    if args.docx_accessibility:
+        for input_file in docx_files:
+            if process_docx_file(input_file, runtime_options=runtime_options):
+                failed = True
+
+    if args.url_check and yaml_files:
         url_check_root = (
             args.url_check_root.resolve()
             if args.url_check_root is not None
