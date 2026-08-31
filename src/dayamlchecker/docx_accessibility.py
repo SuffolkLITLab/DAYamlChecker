@@ -167,19 +167,21 @@ def collect_docx_files(
     ignored = {".hg", ".mypy_cache", ".pytest_cache", "__pycache__", ".venv", "venv"}
     if include_default_ignores:
         ignored.update({"build", "dist", "node_modules", "sources"})
-    found: set[Path] = set()
+    # Keyed by the resolved path so the same file reached two ways is checked
+    # once, but reported as it was given: findings become GitHub annotations,
+    # which only attach to a file when the path is workspace-relative.
+    found: dict[Path, Path] = {}
     for path in paths:
-        path = path.resolve()
         if path.is_file() and path.suffix.lower() == ".docx":
-            found.add(path)
+            found.setdefault(path.resolve(), path)
             continue
         if not path.is_dir():
             continue
         for candidate in path.rglob("*.docx"):
             if include_default_ignores and _has_ignored_path_part(candidate, ignored):
                 continue
-            found.add(candidate.resolve())
-    return sorted(found)
+            found.setdefault(candidate.resolve(), candidate)
+    return sorted(found.values())
 
 
 class _DocxContext:
@@ -354,7 +356,7 @@ class _DocxContext:
                     "document-title-missing",
                     Severity.INFO,
                     "docProps/core.xml",
-                    detail="Document title metadata is missing",
+                    detail="the document title metadata is missing",
                 )
             )
         elif (
@@ -368,7 +370,7 @@ class _DocxContext:
                     "document-title-missing",
                     Severity.INFO,
                     "docProps/core.xml",
-                    detail="Document title metadata is generic or repeats the filename",
+                    detail="the document title is generic or repeats the filename",
                 )
             )
         if filename_stem in _GENERIC_FILENAMES:
@@ -538,7 +540,7 @@ class _DocxContext:
                         "link-ambiguous",
                         Severity.WARNING,
                         part_name,
-                        detail=f'Link text is ambiguous: "{visible.strip()}"',
+                        detail=f'link text is ambiguous: "{visible.strip()}"',
                     )
                 )
 
@@ -551,7 +553,7 @@ class _DocxContext:
                         "link-ambiguous",
                         Severity.WARNING,
                         part_name,
-                        detail=f'Link text "{text}" points to multiple URLs',
+                        detail=f'the link text "{text}" points to multiple URLs',
                     )
                 )
         for target, texts in target_to_texts.items():
@@ -602,7 +604,7 @@ class _DocxContext:
                         "table-layout-suspected",
                         Severity.WARNING,
                         part_name,
-                        detail="Nested table found; verify it is not being used for layout",
+                        detail="a nested table was found; verify it is not being used for layout",
                     )
                 )
             if len(rows) >= 2 and len(cells) >= 4 and not has_header:
@@ -624,7 +626,7 @@ class _DocxContext:
                         "table-layout-suspected",
                         Severity.WARNING,
                         part_name,
-                        detail="Table has many empty cells and may be used for layout",
+                        detail="a table has many empty cells and may be used for layout",
                     )
                 )
         return findings
