@@ -14,7 +14,14 @@ from dayamlchecker.accessibility import (
     find_accessibility_findings,
     find_display_template_subject_findings,
 )
-from dayamlchecker.messages import Finding, FindingClass, MessageId, draft, make_finding
+from dayamlchecker.messages import (
+    Finding,
+    FindingClass,
+    MessageId,
+    Severity,
+    draft,
+    make_finding,
+)
 from dayamlchecker.style import (
     ParsedInterviewDocument,
     StyleLintOptions,
@@ -35,6 +42,11 @@ from dayamlchecker.check_questions_urls import (
     parse_ignore_urls,
     print_url_check_report,
     run_url_check,
+)
+from dayamlchecker.docx_accessibility import (
+    DocxAccessibilityOptions,
+    check_docx_accessibility,
+    collect_docx_files,
 )
 
 # TODO(brycew):
@@ -211,6 +223,10 @@ class RuntimeOptions:
     style_openai_base_url: str | None = None
     style_openai_api_key: str | None = None
     style_openai_model: str | None = None
+    docx_accessibility_severity: Severity = Severity.WARNING
+
+    def docx_accessibility_options(self) -> DocxAccessibilityOptions:
+        return DocxAccessibilityOptions(max_severity=self.docx_accessibility_severity)
 
     def accessibility_options(self) -> AccessibilityLintOptions:
         return AccessibilityLintOptions(
@@ -2646,6 +2662,24 @@ def process_file(
     return all_errors
 
 
+_SEVERITY_SORT_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+
+def _findings_summary(findings: list[Finding]) -> str:
+    if not findings:
+        return "No issues found."
+    counts = {
+        label: sum(1 for f in findings if f.severity == severity)
+        for label, severity in (
+            ("errors", "error"),
+            ("warnings", "warning"),
+            ("infos", "info"),
+        )
+    }
+    counted = ", ".join(f"{count} {label}" for label, count in counts.items() if count)
+    return f"Found {len(findings)} issues ({counted})."
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
@@ -2791,6 +2825,24 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="How to report URLs that could not be reached at all (default: warning)",
     )
     parser.add_argument(
+        "--docx-accessibility",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Check DOCX templates for static accessibility problems " "(default: on)"
+        ),
+    )
+    parser.add_argument(
+        "--docx-accessibility-severity",
+        choices=("error", "warning"),
+        default="warning",
+        help=(
+            "Highest severity a DOCX finding may be reported at. The default, "
+            "warning, reports every finding without failing the command; use "
+            "error to fail on documents with accessibility errors"
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=("text", "github"),
         default="text",
@@ -2816,6 +2868,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         style_openai_base_url=args.openai_base_url,
         style_openai_api_key=args.openai_api_key,
         style_openai_model=args.openai_model,
+        docx_accessibility_severity=Severity(args.docx_accessibility_severity),
     )
 
     yaml_files = _collect_yaml_files(
@@ -2826,8 +2879,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         yaml_files=yaml_files,
         include_default_ignores=not args.check_all,
     )
-    if not yaml_files and not test_python_modules:
-        print("No YAML files or test Python modules found.", file=sys.stderr)
+    docx_files = (
+        collect_docx_files(args.files, include_default_ignores=not args.check_all)
+        if args.docx_accessibility
+        else []
+    )
+    if not yaml_files and not test_python_modules and not docx_files:
+        print(
+            "No YAML files, test Python modules, or DOCX templates found.",
+            file=sys.stderr,
+        )
         return 1
 
     from dayamlchecker.messages import print_github_annotation
@@ -2842,6 +2903,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         all_findings.extend(findings)
 
     all_findings.extend(_find_test_module_preload_findings(test_python_modules))
+
+    docx_options = runtime_options.docx_accessibility_options()
+    for docx_file in docx_files:
+        all_findings.extend(check_docx_accessibility(docx_file, docx_options))
 
     if args.url_check and yaml_files:
         url_check_root = (
@@ -2875,10 +2940,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 
     if args.format == "github":
-        for finding in all_findings:
+        # Sort so that when GitHub truncates (it keeps only the first 10
+        # annotations per level per check run) the survivors are the most
+        # severe ones rather than whatever happened to be collected first.
+        for finding in sorted(
+            all_findings, key=lambda f: _SEVERITY_SORT_ORDER.get(f.severity, 3)
+        ):
             if finding.severity == "error":
                 had_error = True
             print_github_annotation(finding)
+        # Workflow commands are consumed by the runner, so nothing above
+        # reaches the job log -- and past the annotation cap it reaches
+        # nowhere at all. Print the full report too so the log stays complete.
+        print(_findings_summary(all_findings))
+        if all_findings:
+            print()
+            print("\n\n".join(str(finding) for finding in all_findings))
     else:
         error_count = sum(1 for f in all_findings if f.severity == "error")
         info_count = sum(1 for f in all_findings if f.severity == "info")

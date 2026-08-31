@@ -164,3 +164,17 @@ uv.lock
 
 # local tooling artifact
 .codex
+
+# Scratch space for the bulk accessibility-fix runs across AL repos
+/workdir/
+/all_repos.json
+/live_interviews.json
+/results.json
+/target_repos.txt
+/inspection_repos.txt
+/orchestrate_fix.py
+/fix_accessibility.py
+/filter_repos.py
+/finish_prs.py
+/create_prs.sh
+/push_all.sh
