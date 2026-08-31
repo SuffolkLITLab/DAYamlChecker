@@ -131,6 +131,94 @@ class MessageId(StrEnum):
         "accessibility_display_template_missing_subject"
     )
 
+    # DOCX template accessibility
+    ACCESSIBILITY_DOCX_DOCX_UNREADABLE = "accessibility_docx_docx_unreadable"
+    ACCESSIBILITY_DOCX_DOCX_UNREADABLE_WARNING = (
+        "accessibility_docx_docx_unreadable_warning"
+    )
+    ACCESSIBILITY_DOCX_IMAGE_ALT_MISSING = "accessibility_docx_image_alt_missing"
+    ACCESSIBILITY_DOCX_IMAGE_ALT_MISSING_WARNING = (
+        "accessibility_docx_image_alt_missing_warning"
+    )
+    ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING = "accessibility_docx_object_alt_missing"
+    ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING_WARNING = (
+        "accessibility_docx_object_alt_missing_warning"
+    )
+    ACCESSIBILITY_DOCX_HYPERLINK_EMPTY = "accessibility_docx_hyperlink_empty"
+    ACCESSIBILITY_DOCX_HYPERLINK_EMPTY_WARNING = (
+        "accessibility_docx_hyperlink_empty_warning"
+    )
+    ACCESSIBILITY_DOCX_CONTRAST_EXPLICIT_FAIL = (
+        "accessibility_docx_contrast_explicit_fail"
+    )
+    ACCESSIBILITY_DOCX_CONTRAST_EXPLICIT_FAIL_WARNING = (
+        "accessibility_docx_contrast_explicit_fail_warning"
+    )
+    ACCESSIBILITY_DOCX_DOCUMENT_LANGUAGE_MISSING = (
+        "accessibility_docx_document_language_missing"
+    )
+    ACCESSIBILITY_DOCX_DOCUMENT_LANGUAGE_MISSING_WARNING = (
+        "accessibility_docx_document_language_missing_warning"
+    )
+    ACCESSIBILITY_DOCX_TABLE_MERGED_CELLS_WARNING = (
+        "accessibility_docx_table_merged_cells_warning"
+    )
+    ACCESSIBILITY_DOCX_DECORATIVE_IMAGE_HAS_ALT_WARNING = (
+        "accessibility_docx_decorative_image_has_alt_warning"
+    )
+    ACCESSIBILITY_DOCX_IMAGE_ALT_PLACEHOLDER_WARNING = (
+        "accessibility_docx_image_alt_placeholder_warning"
+    )
+    ACCESSIBILITY_DOCX_LINK_RAW_URL_WARNING = "accessibility_docx_link_raw_url_warning"
+    ACCESSIBILITY_DOCX_LINK_AMBIGUOUS_WARNING = (
+        "accessibility_docx_link_ambiguous_warning"
+    )
+    ACCESSIBILITY_DOCX_TABLE_LAYOUT_SUSPECTED_WARNING = (
+        "accessibility_docx_table_layout_suspected_warning"
+    )
+    ACCESSIBILITY_DOCX_TABLE_NO_HEADER_ROW_WARNING = (
+        "accessibility_docx_table_no_header_row_warning"
+    )
+    ACCESSIBILITY_DOCX_FLOATING_OBJECT_DETECTED_WARNING = (
+        "accessibility_docx_floating_object_detected_warning"
+    )
+    ACCESSIBILITY_DOCX_TEXT_BOX_DETECTED_WARNING = (
+        "accessibility_docx_text_box_detected_warning"
+    )
+    ACCESSIBILITY_DOCX_HEADING_EMPTY_WARNING = (
+        "accessibility_docx_heading_empty_warning"
+    )
+    ACCESSIBILITY_DOCX_HEADING_NONE_WARNING = "accessibility_docx_heading_none_warning"
+    ACCESSIBILITY_DOCX_HEADING_ORDER_STARTS_TOO_LOW_WARNING = (
+        "accessibility_docx_heading_order_starts_too_low_warning"
+    )
+    ACCESSIBILITY_DOCX_HEADING_SKIPPED_LEVEL_WARNING = (
+        "accessibility_docx_heading_skipped_level_warning"
+    )
+    ACCESSIBILITY_DOCX_IMAGE_ONLY_DOCUMENT_WARNING = (
+        "accessibility_docx_image_only_document_warning"
+    )
+    ACCESSIBILITY_DOCX_COLOR_ONLY_RISK_WARNING = (
+        "accessibility_docx_color_only_risk_warning"
+    )
+    ACCESSIBILITY_DOCX_DOCUMENT_TITLE_MISSING = (
+        "accessibility_docx_document_title_missing"
+    )
+    ACCESSIBILITY_DOCX_FILENAME_NOT_DESCRIPTIVE = (
+        "accessibility_docx_filename_not_descriptive"
+    )
+    ACCESSIBILITY_DOCX_ALL_CAPS_HEADING = "accessibility_docx_all_caps_heading"
+    ACCESSIBILITY_DOCX_LONG_ALT_TEXT = "accessibility_docx_long_alt_text"
+    ACCESSIBILITY_DOCX_MANY_EMPTY_PARAGRAPHS = (
+        "accessibility_docx_many_empty_paragraphs"
+    )
+    ACCESSIBILITY_DOCX_MANUAL_NUMBERING_DETECTED = (
+        "accessibility_docx_manual_numbering_detected"
+    )
+    ACCESSIBILITY_DOCX_LINK_SAME_URL_DIFFERENT_TEXT = (
+        "accessibility_docx_link_same_url_different_text"
+    )
+
     # Translatability
     TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES = (
         "translatability_choices_without_invariant_values"
@@ -876,6 +964,270 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "no non-empty `subject`; add a descriptive subject to label the "
             "displayed content"
         ),
+    ),
+    # DOCX template accessibility
+    MessageId.ACCESSIBILITY_DOCX_DOCX_UNREADABLE: MessageDefinition(
+        code="EA540",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="DOCX package could not be read",
+        template=("{detail}"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_DOCX_UNREADABLE_WARNING: MessageDefinition(
+        code="WA540",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="DOCX package could not be read",
+        template=("{detail}"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_IMAGE_ALT_MISSING: MessageDefinition(
+        code="EA541",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Image has no alt text",
+        template=("an image in {part} has no alt text and is not marked decorative"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_IMAGE_ALT_MISSING_WARNING: MessageDefinition(
+        code="WA541",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Image has no alt text",
+        template=("an image in {part} has no alt text and is not marked decorative"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING: MessageDefinition(
+        code="EA542",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Drawing or object has no accessible name",
+        template=("a non-image drawing or object in {part} has no accessible name"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING_WARNING: MessageDefinition(
+        code="WA542",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Drawing or object has no accessible name",
+        template=("a non-image drawing or object in {part} has no accessible name"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HYPERLINK_EMPTY: MessageDefinition(
+        code="EA543",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Hyperlink has no visible text",
+        template=("a hyperlink to {target} in {part} has no visible text"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HYPERLINK_EMPTY_WARNING: MessageDefinition(
+        code="WA543",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Hyperlink has no visible text",
+        template=("a hyperlink to {target} in {part} has no visible text"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_CONTRAST_EXPLICIT_FAIL: MessageDefinition(
+        code="EA544",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Text contrast is below WCAG AA",
+        template=(
+            "text in {part} sets colors {ratio}:1 apart, below the "
+            "{threshold}:1 WCAG AA threshold"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_CONTRAST_EXPLICIT_FAIL_WARNING: MessageDefinition(
+        code="WA544",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Text contrast is below WCAG AA",
+        template=(
+            "text in {part} sets colors {ratio}:1 apart, below the "
+            "{threshold}:1 WCAG AA threshold"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_DOCUMENT_LANGUAGE_MISSING: MessageDefinition(
+        code="EA545",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Document language is not set",
+        template=(
+            "no default language was detected; screen readers need one to "
+            "choose a voice"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_DOCUMENT_LANGUAGE_MISSING_WARNING: MessageDefinition(
+        code="WA545",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Document language is not set",
+        template=(
+            "no default language was detected; screen readers need one to "
+            "choose a voice"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_TABLE_MERGED_CELLS_WARNING: MessageDefinition(
+        code="WA546",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Table contains merged or split cells",
+        template=("a table in {part} contains merged or split cells"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_DECORATIVE_IMAGE_HAS_ALT_WARNING: MessageDefinition(
+        code="WA547",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Decorative image also has alt text",
+        template=(
+            "an image in {part} is marked decorative but also has alt text or a "
+            "title"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_IMAGE_ALT_PLACEHOLDER_WARNING: MessageDefinition(
+        code="WA548",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Alt text looks like a placeholder",
+        template=('alt text in {part} looks like a placeholder: "{alt}"'),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_LINK_RAW_URL_WARNING: MessageDefinition(
+        code="WA549",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Link text is a raw URL",
+        template=('link text in {part} is a raw URL: "{link_text}"'),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_LINK_AMBIGUOUS_WARNING: MessageDefinition(
+        code="WA550",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Link text is ambiguous",
+        template=("{detail} in {part}"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_TABLE_LAYOUT_SUSPECTED_WARNING: MessageDefinition(
+        code="WA551",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Table may be used for layout",
+        template=("{detail} in {part}"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_TABLE_NO_HEADER_ROW_WARNING: MessageDefinition(
+        code="WA552",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Table has no header row marker",
+        template=("a table in {part} has no obvious header row marker"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_FLOATING_OBJECT_DETECTED_WARNING: MessageDefinition(
+        code="WA553",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Floating object may disturb reading order",
+        template=(
+            "a floating object in {part} may be read out of order; verify its "
+            "position in Word"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_TEXT_BOX_DETECTED_WARNING: MessageDefinition(
+        code="WA554",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Text box may disturb reading order",
+        template=("a text box in {part} may be read out of order"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HEADING_EMPTY_WARNING: MessageDefinition(
+        code="WA555",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Empty paragraph uses a heading style",
+        template=("an empty paragraph in {part} uses a heading style"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HEADING_NONE_WARNING: MessageDefinition(
+        code="WA556",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Document has no heading styles",
+        template=("no built-in heading styles were detected"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HEADING_ORDER_STARTS_TOO_LOW_WARNING: MessageDefinition(
+        code="WA557",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Heading structure does not start at level 1",
+        template=("heading structure starts at level {level} instead of level 1"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_HEADING_SKIPPED_LEVEL_WARNING: MessageDefinition(
+        code="WA558",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Heading levels skip a level",
+        template=(
+            "heading levels skip from H{previous_level} to H{level}: " "{heading_text}"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_IMAGE_ONLY_DOCUMENT_WARNING: MessageDefinition(
+        code="WA559",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Document may be image-based",
+        template=(
+            "there is very little real text; the document may be scanned or "
+            "image-based"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_COLOR_ONLY_RISK_WARNING: MessageDefinition(
+        code="WA560",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Color may be the only cue",
+        template=("text may use color as the only cue"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_DOCUMENT_TITLE_MISSING: MessageDefinition(
+        code="IA561",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Document title metadata is missing",
+        template=("{detail}"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_FILENAME_NOT_DESCRIPTIVE: MessageDefinition(
+        code="IA562",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="File name is generic",
+        template=("the file name is generic; use a descriptive one"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_ALL_CAPS_HEADING: MessageDefinition(
+        code="IA563",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Heading is all caps",
+        template=("a heading in {part} is all caps; review readability"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_LONG_ALT_TEXT: MessageDefinition(
+        code="IA564",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Alt text is very long",
+        template=(
+            "alt text is very long; consider moving the detail into nearby body " "text"
+        ),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_MANY_EMPTY_PARAGRAPHS: MessageDefinition(
+        code="IA565",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Empty paragraphs used for spacing",
+        template=("the document contains many empty paragraphs used for spacing"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_MANUAL_NUMBERING_DETECTED: MessageDefinition(
+        code="IA566",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="Manual list numbering",
+        template=("text looks like manual list numbering instead of Word lists"),
+    ),
+    MessageId.ACCESSIBILITY_DOCX_LINK_SAME_URL_DIFFERENT_TEXT: MessageDefinition(
+        code="IA567",
+        severity=Severity.INFO,
+        finding_class=FindingClass.ACCESSIBILITY,
+        summary="One URL has several link texts",
+        template=("the same URL has multiple link texts in {part}: {target}"),
     ),
     # Translatability
     MessageId.TRANSLATABILITY_CHOICES_WITHOUT_INVARIANT_VALUES: MessageDefinition(

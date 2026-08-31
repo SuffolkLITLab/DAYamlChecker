@@ -104,3 +104,40 @@ Accessibility informational notes are also emitted for likely PDF accessibility 
 WCAG checks still report YAML parse errors, so CI/CD can surface broken YAML and accessibility failures in one run.
 
 This mode is source-based static analysis. It does not audit rendered pages for runtime behavior or JavaScript-created accessibility issues.
+
+## DOCX template checks
+
+Any `.docx` files you pass on the command line are checked for static
+accessibility problems in the documents users receive: missing alt text,
+empty or ambiguous link text, missing language metadata, heading structure,
+table header and merged-cell risks, explicitly low-contrast text, and
+floating objects or text boxes that disturb reading order. These run by
+default; use `--no-docx-accessibility` to skip them.
+
+**Every finding is capped at warning severity by default**, so turning these
+checks on reports problems without failing the build. Most existing
+templates have findings today, and the intent is for authors to work through
+them over time rather than to block a release. Opt into failing with
+`--docx-accessibility-severity error`, which restores each rule's own
+severity.
+
+```bash
+# Report findings without failing (the default)
+python3 -m dayamlchecker docassemble/MyPackage/data/templates
+
+# Fail the command when a document has accessibility errors
+python3 -m dayamlchecker --docx-accessibility-severity error docassemble/MyPackage/data/templates
+```
+
+DOCX findings use the same diagnostic codes, `--suppress`, `--format github`
+and `--max-warnings` machinery as every other check. They are numbered
+`EA540`-`IA567` in the accessibility range, so a single noisy rule is
+silenced the usual way:
+
+```bash
+python3 -m dayamlchecker --suppress IA561 ...   # missing document title
+```
+
+Because a DOCX has no line numbers, findings name the package part they came
+from (`word/document.xml`, `word/header1.xml`) and are de-duplicated per
+document, so a rule that matches every table in a file is reported once.
