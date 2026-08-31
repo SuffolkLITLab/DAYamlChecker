@@ -2662,6 +2662,21 @@ def process_file(
     return all_errors
 
 
+def _findings_summary(findings: list[Finding]) -> str:
+    if not findings:
+        return "No issues found."
+    counts = {
+        label: sum(1 for f in findings if f.severity == severity)
+        for label, severity in (
+            ("errors", "error"),
+            ("warnings", "warning"),
+            ("infos", "info"),
+        )
+    }
+    counted = ", ".join(f"{count} {label}" for label, count in counts.items() if count)
+    return f"Found {len(findings)} issues ({counted})."
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Docassemble YAML files",
@@ -2926,6 +2941,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             if finding.severity == "error":
                 had_error = True
             print_github_annotation(finding)
+        # The runner consumes workflow commands, so they never appear in the
+        # job log. Echo a plain summary so the log still says what happened.
+        print(_findings_summary(all_findings))
     else:
         error_count = sum(1 for f in all_findings if f.severity == "error")
         info_count = sum(1 for f in all_findings if f.severity == "info")

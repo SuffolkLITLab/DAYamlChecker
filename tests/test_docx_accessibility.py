@@ -471,6 +471,8 @@ def test_cli_github_format_annotates_the_document():
         assert exit_code == 0
         assert f"::warning file={path},title=WA541::" in output
         assert "::error" not in output
+        # Annotations are consumed by the runner; the log needs a summary.
+        assert "Found " in output and "0 errors" not in output
 
 
 def test_cli_github_format_errors_when_opted_in():
