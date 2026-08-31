@@ -2662,6 +2662,9 @@ def process_file(
     return all_errors
 
 
+_SEVERITY_SORT_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+
 def _findings_summary(findings: list[Finding]) -> str:
     if not findings:
         return "No issues found."
@@ -2937,13 +2940,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 
     if args.format == "github":
-        for finding in all_findings:
+        # Sort so that when GitHub truncates (it keeps only the first 10
+        # annotations per level per check run) the survivors are the most
+        # severe ones rather than whatever happened to be collected first.
+        for finding in sorted(
+            all_findings, key=lambda f: _SEVERITY_SORT_ORDER.get(f.severity, 3)
+        ):
             if finding.severity == "error":
                 had_error = True
             print_github_annotation(finding)
-        # The runner consumes workflow commands, so they never appear in the
-        # job log. Echo a plain summary so the log still says what happened.
+        # Workflow commands are consumed by the runner, so nothing above
+        # reaches the job log -- and past the annotation cap it reaches
+        # nowhere at all. Print the full report too so the log stays complete.
         print(_findings_summary(all_findings))
+        if all_findings:
+            print()
+            print("\n\n".join(str(finding) for finding in all_findings))
     else:
         error_count = sum(1 for f in all_findings if f.severity == "error")
         info_count = sum(1 for f in all_findings if f.severity == "info")
