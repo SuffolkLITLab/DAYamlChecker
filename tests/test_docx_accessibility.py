@@ -400,6 +400,135 @@ def test_short_documents_are_not_faulted_for_having_no_headings():
         assert "heading-none" in _rules(check_docx_accessibility(long))
 
 
+def test_findings_name_nearby_text_so_they_can_be_located():
+    """A DOCX has no line numbers, so messages must say where to look."""
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "locatable",
+            "<w:tbl>"
+            "<w:tr><w:tc><w:p><w:r><w:t>Household income</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>Amount</w:t></w:r></w:p></w:tc></w:tr>"
+            "<w:tr><w:tc><w:p><w:r><w:t>Wages</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>100</w:t></w:r></w:p></w:tc></w:tr>"
+            "</w:tbl>"
+            f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>",
+        )
+
+        messages = {f.code: f.message for f in check_docx_accessibility(path)}
+
+        assert 'table begins "Household income"' in messages["WA552"]
+
+
+def test_empty_paragraph_findings_quote_the_text_beside_them():
+    body = (
+        "<w:p><w:r><w:t>Signature of Petitioner</w:t></w:r></w:p>"
+        + "<w:p/>" * 6
+        + f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>"
+    )
+    with TemporaryDirectory() as tmp:
+        path = _build(tmp, "spacing", body)
+
+        messages = {f.code: f.message for f in check_docx_accessibility(path)}
+
+        assert "6 empty paragraphs" in messages["IA565"]
+        assert "longest run being 6" in messages["IA565"]
+        assert 'near "Signature of Petitioner"' in messages["IA565"]
+
+
+def test_images_are_located_by_the_text_around_them():
+    image = (
+        '<w:r><w:drawing><wp:inline><wp:docPr id="1" name="Image 1"/>'
+        "<a:graphic><a:graphicData><pic:pic><pic:nvPicPr>"
+        '<pic:cNvPr id="2" name="image1.png"/></pic:nvPicPr>'
+        '<pic:blipFill><a:blip r:embed="rIdImage1"/></pic:blipFill>'
+        "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"
+    )
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "images",
+            "<w:p><w:r><w:t>Step 3: mail the form</w:t></w:r></w:p>"
+            f"<w:p>{image}</w:p>"
+            f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>",
+        )
+
+        alt_missing = [f for f in check_docx_accessibility(path) if f.code == "WA541"]
+
+        assert len(alt_missing) == 1
+        assert 'near "Step 3: mail the form"' in alt_missing[0].message
+
+
+def test_two_problem_tables_are_reported_separately():
+    """Without locating context these would collapse into one finding."""
+
+    def table(first_cell: str) -> str:
+        return (
+            "<w:tbl>"
+            f"<w:tr><w:tc><w:p><w:r><w:t>{first_cell}</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr>"
+            "<w:tr><w:tc><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>d</w:t></w:r></w:p></w:tc></w:tr>"
+            "</w:tbl>"
+        )
+
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "two_tables",
+            table("Income")
+            + table("Expenses")
+            + f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>",
+        )
+
+        no_header = [f for f in check_docx_accessibility(path) if f.code == "WA552"]
+
+        assert len(no_header) == 2
+        assert {'table begins "Income"' in f.message for f in no_header} == {
+            True,
+            False,
+        }
+
+
+def test_context_is_omitted_when_there_is_no_nearby_text():
+    """The suffix must vanish rather than render an empty quote."""
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "bare",
+            "<w:tbl>"
+            "<w:tr><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr>"
+            "<w:tr><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr>"
+            "</w:tbl>"
+            f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>",
+        )
+
+        for finding in check_docx_accessibility(path):
+            assert '""' not in finding.message
+            assert "(near )" not in finding.message
+
+
+def test_long_nearby_text_is_truncated_to_one_line():
+    sentence = "The petitioner must file this motion with the clerk of the court "
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "long_context",
+            f"<w:p><w:r><w:t>{sentence * 4}</w:t></w:r></w:p>"
+            + "<w:p/>" * 6
+            + f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>",
+        )
+
+        message = next(
+            f.message for f in check_docx_accessibility(path) if f.code == "IA565"
+        )
+        excerpt = message.split('near "')[1].rstrip('")')
+
+        assert len(excerpt) <= 81, excerpt
+        assert excerpt.endswith("\u2026")
+        assert excerpt.startswith("The petitioner must file")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

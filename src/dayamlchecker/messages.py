@@ -985,28 +985,38 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.ERROR,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Image has no alt text",
-        template=("an image in {part} has no alt text and is not marked decorative"),
+        template=(
+            "an image in {part} has no alt text and is not marked "
+            "decorative{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_IMAGE_ALT_MISSING_WARNING: MessageDefinition(
         code="WA541",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Image has no alt text",
-        template=("an image in {part} has no alt text and is not marked decorative"),
+        template=(
+            "an image in {part} has no alt text and is not marked "
+            "decorative{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING: MessageDefinition(
         code="EA542",
         severity=Severity.ERROR,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Drawing or object has no accessible name",
-        template=("a non-image drawing or object in {part} has no accessible name"),
+        template=(
+            "a non-image drawing or object in {part} has no accessible " "name{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_OBJECT_ALT_MISSING_WARNING: MessageDefinition(
         code="WA542",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Drawing or object has no accessible name",
-        template=("a non-image drawing or object in {part} has no accessible name"),
+        template=(
+            "a non-image drawing or object in {part} has no accessible " "name{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_HYPERLINK_EMPTY: MessageDefinition(
         code="EA543",
@@ -1029,7 +1039,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Text contrast is below WCAG AA",
         template=(
             "text in {part} sets colors {ratio}:1 apart, below the "
-            "{threshold}:1 WCAG AA threshold"
+            "{threshold}:1 WCAG AA threshold{context}"
         ),
     ),
     MessageId.ACCESSIBILITY_DOCX_CONTRAST_EXPLICIT_FAIL_WARNING: MessageDefinition(
@@ -1039,7 +1049,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Text contrast is below WCAG AA",
         template=(
             "text in {part} sets colors {ratio}:1 apart, below the "
-            "{threshold}:1 WCAG AA threshold"
+            "{threshold}:1 WCAG AA threshold{context}"
         ),
     ),
     MessageId.ACCESSIBILITY_DOCX_DOCUMENT_LANGUAGE_MISSING: MessageDefinition(
@@ -1067,7 +1077,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Table contains merged or split cells",
-        template=("a table in {part} contains merged or split cells"),
+        template=("a table in {part} contains merged or split cells{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_DECORATIVE_IMAGE_HAS_ALT_WARNING: MessageDefinition(
         code="WA547",
@@ -1076,7 +1086,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Decorative image also has alt text",
         template=(
             "an image in {part} is marked decorative but also has alt text or a "
-            "title"
+            "title{context}"
         ),
     ),
     MessageId.ACCESSIBILITY_DOCX_IMAGE_ALT_PLACEHOLDER_WARNING: MessageDefinition(
@@ -1084,7 +1094,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Alt text looks like a placeholder",
-        template=('alt text in {part} looks like a placeholder: "{alt}"'),
+        template=('alt text in {part} looks like a placeholder: "{alt}"{context}'),
     ),
     MessageId.ACCESSIBILITY_DOCX_LINK_RAW_URL_WARNING: MessageDefinition(
         code="WA549",
@@ -1105,14 +1115,14 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Table may be used for layout",
-        template=("{detail} in {part}"),
+        template=("{detail} in {part}{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_TABLE_NO_HEADER_ROW_WARNING: MessageDefinition(
         code="WA552",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Table has no header row marker",
-        template=("a table in {part} has no obvious header row marker"),
+        template=("a table in {part} has no obvious header row marker{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_FLOATING_OBJECT_DETECTED_WARNING: MessageDefinition(
         code="WA553",
@@ -1121,7 +1131,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Floating object may disturb reading order",
         template=(
             "a floating object in {part} may be read out of order; verify its "
-            "position in Word"
+            "position in Word{context}"
         ),
     ),
     MessageId.ACCESSIBILITY_DOCX_TEXT_BOX_DETECTED_WARNING: MessageDefinition(
@@ -1129,14 +1139,14 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Text box may disturb reading order",
-        template=("a text box in {part} may be read out of order"),
+        template=("a text box in {part} may be read out of order{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_HEADING_EMPTY_WARNING: MessageDefinition(
         code="WA555",
         severity=Severity.WARNING,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Empty paragraph uses a heading style",
-        template=("an empty paragraph in {part} uses a heading style"),
+        template=("an empty paragraph in {part} uses a heading style{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_HEADING_NONE_WARNING: MessageDefinition(
         code="WA556",
@@ -1197,7 +1207,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.INFO,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Heading is all caps",
-        template=("a heading in {part} is all caps; review readability"),
+        template=("a heading in {part} is all caps; review readability{context}"),
     ),
     MessageId.ACCESSIBILITY_DOCX_LONG_ALT_TEXT: MessageDefinition(
         code="IA564",
@@ -1205,7 +1215,8 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Alt text is very long",
         template=(
-            "alt text is very long; consider moving the detail into nearby body " "text"
+            "alt text is very long; consider moving the detail into nearby body "
+            "text{context}"
         ),
     ),
     MessageId.ACCESSIBILITY_DOCX_MANY_EMPTY_PARAGRAPHS: MessageDefinition(
@@ -1213,14 +1224,19 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.INFO,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Empty paragraphs used for spacing",
-        template=("the document contains many empty paragraphs used for spacing"),
+        template=(
+            "{count} empty paragraphs are used for spacing, the longest run "
+            "being {run_length}{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_MANUAL_NUMBERING_DETECTED: MessageDefinition(
         code="IA566",
         severity=Severity.INFO,
         finding_class=FindingClass.ACCESSIBILITY,
         summary="Manual list numbering",
-        template=("text looks like manual list numbering instead of Word lists"),
+        template=(
+            "text looks like manual list numbering instead of Word " "lists{context}"
+        ),
     ),
     MessageId.ACCESSIBILITY_DOCX_LINK_SAME_URL_DIFFERENT_TEXT: MessageDefinition(
         code="IA567",

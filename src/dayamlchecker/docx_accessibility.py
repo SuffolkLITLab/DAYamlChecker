@@ -219,24 +219,38 @@ class _DocxContext:
         alt_texts: list[str] = []
         empty_paragraphs = 0
         manual_numbering_count = 0
+        manual_numbering_sample = ""
+
+        empty_run_length = 0
+        empty_run_context = ""
 
         for part_name, root in roots.items():
+            index = _PartIndex(root)
             findings.extend(
-                self._check_drawings_and_objects(part_name, root, options, alt_texts)
+                self._check_drawings_and_objects(
+                    part_name, root, options, alt_texts, index
+                )
             )
             findings.extend(self._check_hyperlinks(part_name, root, options))
-            table_findings = self._check_tables(part_name, root, options)
-            findings.extend(table_findings)
-            findings.extend(self._check_reading_order_risks(part_name, root, options))
-            contrast_findings = self._check_contrast(part_name, root, options)
-            findings.extend(contrast_findings)
+            findings.extend(self._check_tables(part_name, root, options))
+            findings.extend(
+                self._check_reading_order_risks(part_name, root, options, index)
+            )
+            findings.extend(self._check_contrast(part_name, root, options))
 
-            for paragraph in _descendants(root, "p"):
+            run_length, run_context = index.longest_empty_run()
+            if run_length > empty_run_length:
+                empty_run_length = run_length
+                empty_run_context = run_context
+
+            for position, paragraph in enumerate(index.paragraphs):
                 paragraph_text = _element_text(paragraph)
                 if paragraph_text.strip():
                     all_text.append(paragraph_text.strip())
                     if _MANUAL_NUMBERING_RE.match(paragraph_text):
                         manual_numbering_count += 1
+                        if not manual_numbering_sample:
+                            manual_numbering_sample = paragraph_text
                 else:
                     empty_paragraphs += 1
                 heading = self._paragraph_heading_level(paragraph)
@@ -251,6 +265,7 @@ class _DocxContext:
                             "heading-empty",
                             Severity.WARNING,
                             part_name,
+                            context=_near(index.text_near_index(position)),
                         )
                     )
                 if (
@@ -264,6 +279,7 @@ class _DocxContext:
                             "all-caps-heading",
                             Severity.INFO,
                             part_name,
+                            context=_near(paragraph_text, label="the heading is"),
                         )
                     )
 
@@ -274,7 +290,13 @@ class _DocxContext:
         findings.extend(self._check_document_text_risks(document_text, options))
         findings.extend(
             self._check_tips(
-                alt_texts, empty_paragraphs, manual_numbering_count, options
+                alt_texts,
+                empty_paragraphs,
+                manual_numbering_count,
+                options,
+                empty_run_length,
+                empty_run_context,
+                manual_numbering_sample,
             )
         )
         return _unique_findings(findings)
@@ -412,6 +434,7 @@ class _DocxContext:
         root: ET.Element,
         options: DocxAccessibilityOptions,
         alt_texts: list[str],
+        index: _PartIndex,
     ) -> list[Finding]:
         findings: list[Finding] = []
         candidates = (
@@ -421,6 +444,7 @@ class _DocxContext:
         )
         rels = self.relationships.get(part_name, {})
         for element in candidates:
+            near = _near(index.text_near_element(element))
             alt_values = _accessible_names(element)
             alt_texts.extend(alt_values)
             decorative = _is_decorative(element)
@@ -435,6 +459,7 @@ class _DocxContext:
                         "decorative-image-has-alt",
                         Severity.WARNING,
                         part_name,
+                        context=near,
                     )
                 )
 
@@ -447,6 +472,7 @@ class _DocxContext:
                             "image-alt-missing",
                             Severity.ERROR,
                             part_name,
+                            context=near,
                         )
                     )
                 for alt in alt_values:
@@ -459,6 +485,7 @@ class _DocxContext:
                                 Severity.WARNING,
                                 part_name,
                                 alt=alt,
+                                context=near,
                             )
                         )
                 continue
@@ -471,6 +498,7 @@ class _DocxContext:
                         "object-alt-missing",
                         Severity.ERROR,
                         part_name,
+                        context=near,
                     )
                 )
         return findings
@@ -575,6 +603,7 @@ class _DocxContext:
     ) -> list[Finding]:
         findings: list[Finding] = []
         for table in _descendants(root, "tbl"):
+            near = _near(_table_first_text(table), label="table begins")
             rows = list(_children(table, "tr"))
             # Only this table's own cells; a nested table's cells belong to it,
             # not to the parent, for merge and empty-cell ratio purposes.
@@ -594,6 +623,7 @@ class _DocxContext:
                         "table-merged-cells",
                         Severity.WARNING,
                         part_name,
+                        context=near,
                     )
                 )
             if has_nested_table:
@@ -605,6 +635,7 @@ class _DocxContext:
                         Severity.WARNING,
                         part_name,
                         detail="a nested table was found; verify it is not being used for layout",
+                        context=near,
                     )
                 )
             if len(rows) >= 2 and len(cells) >= 4 and not has_header:
@@ -615,6 +646,7 @@ class _DocxContext:
                         "table-no-header-row",
                         Severity.WARNING,
                         part_name,
+                        context=near,
                     )
                 )
             empty_cells = [cell for cell in cells if not _element_text(cell).strip()]
@@ -627,15 +659,21 @@ class _DocxContext:
                         Severity.WARNING,
                         part_name,
                         detail="a table has many empty cells and may be used for layout",
+                        context=near,
                     )
                 )
         return findings
 
     def _check_reading_order_risks(
-        self, part_name: str, root: ET.Element, options: DocxAccessibilityOptions
+        self,
+        part_name: str,
+        root: ET.Element,
+        options: DocxAccessibilityOptions,
+        index: _PartIndex,
     ) -> list[Finding]:
         findings: list[Finding] = []
-        if _first_descendant(root, "anchor") is not None:
+        anchor = _first_descendant(root, "anchor")
+        if anchor is not None:
             findings.append(
                 _finding(
                     options,
@@ -643,6 +681,7 @@ class _DocxContext:
                     "floating-object-detected",
                     Severity.WARNING,
                     part_name,
+                    context=_near(index.text_near_element(anchor)),
                 )
             )
         risky_names = {
@@ -659,11 +698,6 @@ class _DocxContext:
             if not rule_id or rule_id in seen_rules:
                 continue
             seen_rules.add(rule_id)
-            message = (
-                "Text box found; reading order may be problematic"
-                if rule_id == "text-box-detected"
-                else "Floating object detected; verify reading order in Word"
-            )
             findings.append(
                 _finding(
                     options,
@@ -671,6 +705,7 @@ class _DocxContext:
                     rule_id,
                     Severity.WARNING,
                     part_name,
+                    context=_near(index.text_near_element(element)),
                 )
             )
         return findings
@@ -744,6 +779,7 @@ class _DocxContext:
                         part_name,
                         ratio=f"{ratio:.2f}",
                         threshold=f"{threshold:.1f}",
+                        context=_near(text, label="the text is"),
                     )
                 )
         return findings
@@ -891,6 +927,9 @@ class _DocxContext:
         empty_paragraphs: int,
         manual_numbering_count: int,
         options: DocxAccessibilityOptions,
+        empty_run_length: int,
+        empty_run_context: str,
+        manual_numbering_sample: str,
     ) -> list[Finding]:
         findings: list[Finding] = []
         for alt in alt_texts:
@@ -902,6 +941,7 @@ class _DocxContext:
                         "long-alt-text",
                         Severity.INFO,
                         "word/document.xml",
+                        context=_near(alt, label="the alt text begins"),
                     )
                 )
         if empty_paragraphs >= 5:
@@ -912,6 +952,9 @@ class _DocxContext:
                     "many-empty-paragraphs",
                     Severity.INFO,
                     "word/document.xml",
+                    count=empty_paragraphs,
+                    run_length=empty_run_length,
+                    context=_near(empty_run_context, label="longest run is near"),
                 )
             )
         if manual_numbering_count >= 3:
@@ -922,9 +965,96 @@ class _DocxContext:
                     "manual-numbering-detected",
                     Severity.INFO,
                     "word/document.xml",
+                    context=_near(manual_numbering_sample, label="first is"),
                 )
             )
         return findings
+
+
+# A finding in a DOCX has no line number to point at, so every rule that can
+# name nearby text does, to give the author something to search the document
+# for. Kept to roughly one line so the message stays scannable in a CI log.
+_CONTEXT_SNIPPET_LENGTH = 80
+
+
+def _snippet(text: str, limit: int = _CONTEXT_SNIPPET_LENGTH) -> str:
+    """Collapse a run of document text to a short single-line excerpt."""
+    collapsed = re.sub(r"\s+", " ", text or "").strip()
+    if len(collapsed) <= limit:
+        return collapsed
+    clipped = collapsed[:limit].rsplit(" ", 1)[0] or collapsed[:limit]
+    return clipped.rstrip(" ,;:.") + "\u2026"
+
+
+def _near(text: str, label: str = "near") -> str:
+    """Render an excerpt as a message suffix, or nothing when there is none."""
+    excerpt = _snippet(text)
+    return f' ({label} "{excerpt}")' if excerpt else ""
+
+
+def _table_first_text(table: ET.Element) -> str:
+    """First text in the table, by paragraph.
+
+    Reading whole cells would run their paragraphs together, since w:t runs
+    carry no separator of their own.
+    """
+    for cell in _descendants(table, "tc"):
+        for paragraph in _descendants(cell, "p"):
+            text = _element_text(paragraph).strip()
+            if text:
+                return text
+    return ""
+
+
+class _PartIndex:
+    """Document-order paragraph index for one part, used to locate findings.
+
+    ElementTree has no parent pointers, so this also records a child->parent
+    map to walk from an image or table back to the paragraph around it.
+    """
+
+    def __init__(self, root: ET.Element) -> None:
+        self.paragraphs = _descendants(root, "p")
+        self.texts = [_element_text(p).strip() for p in self.paragraphs]
+        self._index = {id(p): i for i, p in enumerate(self.paragraphs)}
+        self._parents = {
+            id(child): parent for parent in root.iter() for child in parent
+        }
+
+    def text_near_index(self, index: int) -> str:
+        """Nearest non-empty paragraph text, preferring what comes before."""
+        for i in range(index - 1, -1, -1):
+            if self.texts[i]:
+                return self.texts[i]
+        for i in range(index + 1, len(self.texts)):
+            if self.texts[i]:
+                return self.texts[i]
+        return ""
+
+    def text_near_element(self, element: ET.Element) -> str:
+        """Nearest non-empty text to any element, via its paragraph ancestor."""
+        current: Optional[ET.Element] = element
+        while current is not None:
+            index = self._index.get(id(current))
+            if index is not None:
+                return self.texts[index] or self.text_near_index(index)
+            current = self._parents.get(id(current))
+        return ""
+
+    def longest_empty_run(self) -> tuple[int, str]:
+        """Length of the longest run of empty paragraphs, and the text by it."""
+        best_length = 0
+        best_index = 0
+        length = 0
+        for index, text in enumerate(self.texts):
+            if text:
+                length = 0
+                continue
+            length += 1
+            if length > best_length:
+                best_length = length
+                best_index = index - length + 1
+        return best_length, self.text_near_index(best_index)
 
 
 def _finding(
@@ -938,7 +1068,9 @@ def _finding(
     return Finding(
         message_id=options.message_id(rule_id, natural_severity),
         file_name=document,
-        context={"document": document, "part": part, **context},
+        # `context` is always present: templates that locate a finding
+        # interpolate it, and str.format raises on a missing key.
+        context={"document": document, "part": part, "context": "", **context},
     )
 
 

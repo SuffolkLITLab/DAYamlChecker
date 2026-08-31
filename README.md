@@ -139,5 +139,18 @@ python3 -m dayamlchecker --suppress IA561 ...   # missing document title
 ```
 
 Because a DOCX has no line numbers, findings name the package part they came
-from (`word/document.xml`, `word/header1.xml`) and are de-duplicated per
-document, so a rule that matches every table in a file is reported once.
+from (`word/document.xml`, `word/header1.xml`) and quote up to 80 characters
+of nearby text so you can search the document for the problem:
+
+```
+WARN  [WA552] docassemble/MyPackage/data/templates/discovery.docx
+  a table in word/document.xml has no obvious header row marker
+  (table begins "Certificate of Service")
+IA565  the document contains 48 empty paragraphs used for spacing, the
+  longest run being 7 (longest run is near "v.")
+```
+
+Tables quote their first text, images and text boxes quote the paragraph
+beside them, and empty-paragraph runs quote what precedes them. Findings that
+would otherwise read identically are kept separate, so two tables with the
+same problem are two findings rather than one.
