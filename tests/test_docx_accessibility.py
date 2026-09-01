@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from dayamlchecker.docx_accessibility import (
     DocxAccessibilityOptions,
     check_docx_accessibility,
+    check_docx_review_markup,
 )
 from dayamlchecker.messages import Severity
 from dayamlchecker.yaml_structure import main
@@ -257,6 +258,71 @@ def test_unreadable_docx_reports_a_package_finding():
             path, DocxAccessibilityOptions(max_severity=ERROR)
         )
         assert strict[0].severity == ERROR
+
+
+# ---------------------------------------------------------------------------
+# Comments and tracked changes
+# ---------------------------------------------------------------------------
+
+
+def test_docx_comments_are_errors_by_default():
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "commented",
+            '<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>Draft</w:t></w:r>'
+            '<w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/>'
+            "</w:p>",
+        )
+        with zipfile.ZipFile(path, "a") as package:
+            package.writestr(
+                "word/comments.xml",
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<w:comments xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:comment w:id="0">'
+                "<w:p><w:r><w:t>Do not publish this note</w:t></w:r></w:p>"
+                "</w:comment></w:comments>",
+            )
+
+        findings = check_docx_review_markup(path)
+
+        assert len(findings) == 1
+        assert findings[0].code == "EG130"
+        assert findings[0].severity == ERROR
+        assert findings[0].finding_class == "general"
+        assert "embedded comments" in findings[0].message
+        assert "word/comments.xml" in findings[0].message
+
+
+def test_docx_tracked_changes_are_errors_by_default():
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "revisions",
+            '<w:p><w:del w:id="1"><w:r><w:delText>Old</w:delText></w:r></w:del>'
+            '<w:ins w:id="2"><w:r><w:t>New</w:t></w:r></w:ins></w:p>',
+        )
+
+        findings = check_docx_review_markup(path)
+
+        assert len(findings) == 1
+        assert findings[0].code == "EG130"
+        assert "tracked changes" in findings[0].message
+        assert "word/document.xml" in findings[0].message
+
+
+def test_track_changes_setting_without_revision_markup_is_allowed():
+    with TemporaryDirectory() as tmp:
+        path = _build(tmp, "tracking-on", f"<w:p><w:r><w:t>{PROSE}</w:t></w:r></w:p>")
+        with zipfile.ZipFile(path, "a") as package:
+            package.writestr(
+                "word/settings.xml",
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<w:settings xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:trackRevisions/></w:settings>',
+            )
+
+        assert check_docx_review_markup(path) == []
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +619,7 @@ def test_cli_checks_docx_by_default_without_failing():
         assert "WA541" in output, "image-alt-missing, demoted to a warning"
 
 
-def test_cli_can_skip_docx_checks():
+def test_cli_can_skip_all_docx_checks():
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "inaccessible.docx"
         _write_docx(path, _base_files(_inaccessible_document_xml()))
@@ -562,7 +628,57 @@ def test_cli_can_skip_docx_checks():
             ["--no-docx-accessibility", "--no-url-check", str(path)]
         )
 
-        assert exit_code == 1, "nothing left to check"
+        assert exit_code == 1, "nothing is enabled to check the DOCX"
+
+
+def test_cli_review_markup_fails_independently_of_accessibility_severity():
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "revisions",
+            '<w:p><w:ins w:id="2"><w:r><w:t>New</w:t></w:r></w:ins></w:p>',
+        )
+
+        exit_code, output = _run_cli(["--no-url-check", str(path)])
+
+        assert exit_code == 1
+        assert "EG130" in output
+
+
+def test_cli_can_disable_docx_review_markup_rule():
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "revisions",
+            '<w:p><w:ins w:id="2"><w:r><w:t>New</w:t></w:r></w:ins></w:p>',
+        )
+
+        exit_code, output = _run_cli(
+            [
+                "--no-docx-review-markup",
+                "--no-url-check",
+                str(path),
+            ]
+        )
+
+        assert exit_code == 0, "warning-level accessibility findings do not fail"
+        assert "EG130" not in output
+
+
+def test_cli_can_suppress_docx_review_markup_by_code():
+    with TemporaryDirectory() as tmp:
+        path = _build(
+            tmp,
+            "revisions",
+            '<w:p><w:ins w:id="2"><w:r><w:t>New</w:t></w:r></w:ins></w:p>',
+        )
+
+        exit_code, output = _run_cli(
+            ["--suppress", "EG130", "--no-url-check", str(path)]
+        )
+
+        assert exit_code == 0
+        assert "EG130" not in output
 
 
 def test_cli_error_severity_fails_the_command():

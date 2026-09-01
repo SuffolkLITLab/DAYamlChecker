@@ -72,6 +72,51 @@ _WCAG_CONTRAST_OFFSET = 0.05
 # a caption fragment) that having no heading styles is not a real finding.
 _HEADING_REQUIRED_TEXT_LENGTH = 1500
 
+_WORDPROCESSINGML_NAMESPACES = {
+    "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "http://purl.oclc.org/ooxml/wordprocessingml/main",
+}
+_COMMENT_MARKUP_NAMES = {
+    "comment",
+    "commentRangeStart",
+    "commentRangeEnd",
+    "commentReference",
+}
+_TRACKED_CHANGE_NAMES = {
+    "ins",
+    "del",
+    "delText",
+    "delInstrText",
+    "moveFrom",
+    "moveTo",
+    "moveFromRangeStart",
+    "moveFromRangeEnd",
+    "moveToRangeStart",
+    "moveToRangeEnd",
+    "customXmlInsRangeStart",
+    "customXmlInsRangeEnd",
+    "customXmlDelRangeStart",
+    "customXmlDelRangeEnd",
+    "customXmlMoveFromRangeStart",
+    "customXmlMoveFromRangeEnd",
+    "customXmlMoveToRangeStart",
+    "customXmlMoveToRangeEnd",
+    "conflictIns",
+    "conflictDel",
+    "numberingChange",
+    "cellIns",
+    "cellDel",
+    "cellMerge",
+    "pPrChange",
+    "rPrChange",
+    "sectPrChange",
+    "tblPrChange",
+    "tblPrExChange",
+    "tblGridChange",
+    "trPrChange",
+    "tcPrChange",
+}
+
 _SEVERITY_RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.ERROR: 2}
 
 
@@ -159,6 +204,60 @@ def check_docx_accessibility(
                 detail="the file is not a valid DOCX ZIP package",
             )
         ]
+
+
+def check_docx_review_markup(path: str | Path) -> list[Finding]:
+    """Return an error when a DOCX still contains comments or revisions.
+
+    This is intentionally independent from the accessibility severity ceiling:
+    unresolved review markup can expose drafting material or produce unintended
+    output, so it is a default-on release-safety check.
+    """
+    path = Path(path)
+    comment_parts: set[str] = set()
+    revision_parts: set[str] = set()
+
+    try:
+        with zipfile.ZipFile(path) as package:
+            for part_name in package.namelist():
+                if not part_name.startswith("word/") or not part_name.endswith(".xml"):
+                    continue
+                try:
+                    root = ET.fromstring(package.read(part_name))
+                except (ET.ParseError, KeyError):
+                    continue
+                for element in root.iter():
+                    if _namespace(element.tag) not in _WORDPROCESSINGML_NAMESPACES:
+                        continue
+                    local_name = _local_name(element.tag)
+                    if local_name in _COMMENT_MARKUP_NAMES:
+                        comment_parts.add(part_name)
+                    if local_name in _TRACKED_CHANGE_NAMES:
+                        revision_parts.add(part_name)
+    except (OSError, zipfile.BadZipFile):
+        # The accessibility package check owns the existing unreadable-DOCX
+        # diagnostic. Avoid reporting a misleading review-markup error too.
+        return []
+
+    markup = []
+    if comment_parts:
+        markup.append("embedded comments")
+    if revision_parts:
+        markup.append("tracked changes")
+    if not markup:
+        return []
+
+    parts = sorted(comment_parts | revision_parts)
+    return [
+        Finding(
+            message_id=MessageId.DOCX_REVIEW_MARKUP,
+            file_name=str(path),
+            context={
+                "markup": " and ".join(markup),
+                "parts": ", ".join(parts),
+            },
+        )
+    ]
 
 
 def collect_docx_files(
@@ -1108,6 +1207,12 @@ def _local_name(tag: str) -> str:
     if "}" in tag:
         return tag.rsplit("}", 1)[1]
     return tag
+
+
+def _namespace(tag: str) -> str:
+    if tag.startswith("{") and "}" in tag:
+        return tag[1:].split("}", 1)[0]
+    return ""
 
 
 def _attr(element: Optional[ET.Element], local_name: str) -> str:

@@ -46,6 +46,7 @@ from dayamlchecker.check_questions_urls import (
 from dayamlchecker.docx_accessibility import (
     DocxAccessibilityOptions,
     check_docx_accessibility,
+    check_docx_review_markup,
     collect_docx_files,
 )
 
@@ -2843,6 +2844,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--docx-review-markup",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Fail when DOCX templates contain comments or tracked changes "
+            "(default: on)"
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=("text", "github"),
         default="text",
@@ -2907,6 +2917,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     docx_options = runtime_options.docx_accessibility_options()
     for docx_file in docx_files:
         all_findings.extend(check_docx_accessibility(docx_file, docx_options))
+        if args.docx_review_markup:
+            all_findings.extend(check_docx_review_markup(docx_file))
 
     if args.url_check and yaml_files:
         url_check_root = (

@@ -80,6 +80,7 @@ class MessageId(StrEnum):
     MULTIPLE_MANDATORY_BLOCKS = "multiple_mandatory_blocks"
     MISSING_METADATA_FIELDS = "missing_metadata_fields"
     ATTACHMENT_CONDITIONAL_VARIABLE = "attachment_conditional_variable"
+    DOCX_REVIEW_MARKUP = "docx_review_markup"
 
     ACCESSIBILITY_COMBOBOX_NOT_ACCESSIBLE = "accessibility_combobox_not_accessible"
     ACCESSIBILITY_NO_LABEL_MULTI_FIELD = "accessibility_no_label_multi_field"
@@ -963,6 +964,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "template `{template_name}` is used with `display_template()` but has "
             "no non-empty `subject`; add a descriptive subject to label the "
             "displayed content"
+        ),
+    ),
+    MessageId.DOCX_REVIEW_MARKUP: MessageDefinition(
+        code="EG130",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="DOCX contains review markup",
+        template=(
+            "the document contains {markup}; accept or reject tracked changes and "
+            "remove comments before publishing (found in {parts})"
         ),
     ),
     # DOCX template accessibility

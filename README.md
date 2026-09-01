@@ -114,6 +114,14 @@ table header and merged-cell risks, explicitly low-contrast text, and
 floating objects or text boxes that disturb reading order. These run by
 default; use `--no-docx-accessibility` to skip them.
 
+DOCX files are also checked for embedded comments and tracked-change markup.
+These are errors by default because drafting material can leak into published
+documents or change their output. Accept or reject all changes and remove all
+comments before committing a template. Use `--no-docx-review-markup` to disable
+only this rule while keeping the accessibility checks, or suppress `EG130` with
+the standard `--suppress` option. The existing `--no-docx-accessibility` master
+switch disables all DOCX checks, including this one.
+
 **Every finding is capped at warning severity by default**, so turning these
 checks on reports problems without failing the build. Most existing
 templates have findings today, and the intent is for authors to work through
