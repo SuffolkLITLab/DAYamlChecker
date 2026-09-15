@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dayamlchecker.fixer import _target_counts, apply_plan, plan_file
+from dayamlchecker.fixer import (
+    FixOptions,
+    _target_counts,
+    apply_plan,
+    plan_file,
+)
+from dayamlchecker.yaml_structure import DEFAULT_LINT_MODE
 
 
 class TestYAMLCheckerFixer(unittest.TestCase):
@@ -124,3 +130,173 @@ question: Second
             apply_plan(plan, write=False)
 
             self.assertEqual(path.read_text(encoding="utf-8"), source)
+
+    def _fixed(self, source: str, name: str = "interview.yml") -> tuple[str, object]:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / name
+            path.write_text(source, encoding="utf-8")
+            plan = plan_file(path)
+            apply_plan(plan, write=True)
+            return path.read_text(encoding="utf-8"), plan
+
+    def test_fixer_leaves_screens_with_two_shortcuts_alone(self) -> None:
+        source = "id: two\nquestion: Agree?\nyesno: a\nnoyes: b\n"
+        result, plan = self._fixed(source, "two-shortcuts.yml")
+
+        # One replacement per shortcut would write two ``fields`` keys.
+        self.assertEqual(result, source)
+        self.assertEqual(result.count("fields:"), 0)
+        self.assertEqual(plan.counts, {})
+
+    def test_fixer_adds_label_as_a_sibling_of_a_sequence_field(self) -> None:
+        source = (
+            "id: seq\nquestion: |\n  What is your name?\n"
+            "fields:\n  - field: user_name\n  - Second thing: other_var\n"
+        )
+        result, _ = self._fixed(source, "sequence-field.yml")
+
+        self.assertIn('  - field: user_name\n    label: "What is your name?"\n', result)
+        # A copied ``- `` prefix would add a third field instead of a label.
+        self.assertEqual(result.count("  - "), 2)
+        self.assertEqual(_target_counts(result, Path("sequence-field.yml"))["EA502"], 0)
+
+    def test_fixer_replaces_boolean_no_label_with_a_label(self) -> None:
+        source = (
+            "id: bool\nquestion: |\n  Do you agree?\n"
+            "fields:\n  - no label: true\n    field: user_agrees\n"
+            "  - Second thing: other_var\n"
+        )
+        result, _ = self._fixed(source, "bool-no-label.yml")
+
+        # ``true`` is a modifier, not the field's variable name.
+        self.assertIn('  - label: "Do you agree?"\n    field: user_agrees\n', result)
+        self.assertNotIn('"Do you agree?": true', result)
+        self.assertNotIn("no label", result)
+
+    def test_fixer_labels_the_first_offending_field_not_the_first_field(self) -> None:
+        source = (
+            "id: later\nquestion: Income?\n"
+            "fields:\n  - Employer: employer_name\n  - no label: income_amount\n"
+        )
+        result, plan = self._fixed(source, "later-offender.yml")
+
+        self.assertEqual(plan.counts, {"EA502": 1})
+        self.assertIn('  - "Income?": income_amount\n', result)
+
+    def test_fixer_skips_code_fields_like_the_checker(self) -> None:
+        source = (
+            "id: code\nquestion: Income?\n"
+            "fields:\n  - no label: choices\n    code: options\n"
+            "  - no label: income_amount\n"
+        )
+        result, plan = self._fixed(source, "code-field.yml")
+
+        # The checker never reports the ``code`` field, so neither may the fixer.
+        self.assertIn("  - no label: choices\n    code: options\n", result)
+        self.assertIn('  - "Income?": income_amount\n', result)
+        self.assertEqual(plan.counts, {"EA502": 1})
+
+    def test_fixer_leaves_folded_multiline_ids_alone(self) -> None:
+        source = (
+            "id: >\n  same\n  screen\nquestion: First\n---\n"
+            "id: >\n  same\n  screen\nquestion: Second\n"
+        )
+        result, plan = self._fixed(source, "folded-id.yml")
+
+        # Rewriting only the first content line would fold the remaining lines
+        # onto the new ID, producing "same screen 2 screen".
+        self.assertEqual(result, source)
+        self.assertIsNotNone(plan.skipped_reason)
+
+    def test_fixer_plans_tab_indented_files(self) -> None:
+        source = (
+            "id: tabbed\nquestion: Agree?\nfields:\n\t- no label: a\n\t- Second: b\n"
+        )
+        result, plan = self._fixed(source, "tabbed.yml")
+
+        # The checker expands tabs before parsing; the fixer must agree, and
+        # must translate the expanded columns back onto the raw line.
+        self.assertIsNone(plan.skipped_reason)
+        self.assertIn('\t- "Agree?": a\n', result)
+        self.assertIn("\t- Second: b\n", result)
+
+    def test_fixer_honors_lint_mode_and_suppressions(self) -> None:
+        source = "id: flag\nquestion: Agree?\nyesno: user_agrees\n"
+        with tempfile.TemporaryDirectory() as directory:
+            for name, options in (
+                ("no-wcag.yml", FixOptions(lint_mode=DEFAULT_LINT_MODE)),
+                ("suppressed.yml", FixOptions(suppressed_codes=frozenset({"EA510"}))),
+            ):
+                path = Path(directory) / name
+                path.write_text(source, encoding="utf-8")
+                plan = plan_file(path, options)
+                apply_plan(plan, write=True)
+
+                # The rule is turned off for this run, so nothing to rewrite.
+                self.assertEqual(path.read_text(encoding="utf-8"), source, name)
+                self.assertEqual(plan.counts, {}, name)
+
+    def test_fixer_rejects_an_edit_that_removes_no_finding(self) -> None:
+        from dayamlchecker import fixer
+
+        source = (
+            "id: noop\nquestion: |\n  What is your name?\n"
+            "fields:\n  - field: user_name\n  - Second thing: other_var\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "noop.yml"
+            path.write_text(source, encoding="utf-8")
+
+            # Recreate the pre-fix behaviour of copying the ``- `` prefix.
+            original = fixer._insert_before_line
+
+            def _sibling_becomes_a_new_item(
+                lines, *, line_number, replacement_lines, newline
+            ):
+                return original(
+                    lines,
+                    line_number=line_number,
+                    replacement_lines=[
+                        line.replace("    ", "  - ", 1) for line in replacement_lines
+                    ],
+                    newline=newline,
+                )
+
+            fixer._insert_before_line = _sibling_becomes_a_new_item
+            try:
+                plan = plan_file(path)
+            finally:
+                fixer._insert_before_line = original
+
+            self.assertIsNotNone(plan.validation_error)
+            self.assertFalse(plan.changed)
+            # Counts must describe what was written, not what was attempted.
+            self.assertEqual(plan.counts, {})
+            apply_plan(plan, write=True)
+            self.assertEqual(path.read_text(encoding="utf-8"), source)
+
+    def test_fixer_is_idempotent_on_screens_with_several_bare_fields(self) -> None:
+        source = (
+            "id: assets\nquestion: |\n  Is anyone holding assets for you?\n"
+            "fields:\n  - no label: anyone_holds\n  - no label: anyone_holds_describe\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "repeat.yml"
+            path.write_text(source, encoding="utf-8")
+
+            first = plan_file(path)
+            apply_plan(first, write=True)
+            after_first = path.read_text(encoding="utf-8")
+            self.assertEqual(first.counts, {"EA502": 1})
+            self.assertIn(
+                '  - "Is anyone holding assets for you?": anyone_holds\n', after_first
+            )
+
+            # The second field is intentionally left for human review, so a
+            # repeat run must not spend the same question text on it.
+            second = plan_file(path)
+            apply_plan(second, write=True)
+
+            self.assertFalse(second.changed)
+            self.assertEqual(second.counts, {})
+            self.assertEqual(path.read_text(encoding="utf-8"), after_first)

@@ -31,12 +31,29 @@ from dayamlchecker.accessibility import (
 from dayamlchecker.messages import Finding
 from dayamlchecker.yaml_structure import (
     ACCESSIBILITY_LINT_MODE,
+    RuntimeOptions,
     _collect_yaml_files,
+    _finding_matches_suppression,
     find_errors_from_string,
+    fix_tabs,
 )
 
 TARGET_CODES = frozenset({"EG414", "EA510", "EA502", "EG104"})
 SHORTCUTS = ("yesno", "noyes", "yesnomaybe", "noyesmaybe")
+
+
+@dataclass(frozen=True)
+class FixOptions:
+    """The lint settings the fixer must agree with.
+
+    ``--fix`` runs inside the checker, so it has to see exactly the findings
+    the checker will report: rewriting source for a rule the user disabled
+    with ``--no-wcag`` or ``--suppress`` is never what they asked for.
+    """
+
+    lint_mode: str = ACCESSIBILITY_LINT_MODE
+    suppressed_codes: frozenset[str] = frozenset()
+    runtime_options: RuntimeOptions | None = None
 
 
 @dataclass(frozen=True)
@@ -89,9 +106,31 @@ def _yaml_loader() -> YAML:
     return yaml
 
 
+def _normalize_for_parsing(text: str) -> str:
+    """Expand tabs the way ``find_errors_from_string`` does before parsing.
+
+    Without this the fixer rejects files the checker reads happily. Tabs are
+    one character in the source but two columns after expansion, so every
+    column ruamel reports is translated back by :func:`_raw_column`.
+    """
+    return fix_tabs.sub("  ", text)
+
+
+def _raw_column(raw_line: str, column: int) -> int:
+    """Map a column in the tab-expanded line back onto the raw line."""
+    if "\t" not in raw_line:
+        return column
+    expanded = 0
+    for index, char in enumerate(raw_line):
+        if expanded >= column:
+            return index
+        expanded += 2 if char == "\t" else 1
+    return len(raw_line)
+
+
 def _load_documents(text: str) -> tuple[list[Any] | None, str | None]:
     try:
-        return list(_yaml_loader().load_all(text)), None
+        return list(_yaml_loader().load_all(_normalize_for_parsing(text))), None
     except Exception as exc:  # ruamel uses several MarkedYAMLError subclasses
         return None, str(exc)
 
@@ -153,11 +192,15 @@ def _split_inline_comment(line: str, start: int) -> tuple[str, str]:
     return line[start:].rstrip(), ""
 
 
-def _key_column(document: Any, key: str) -> tuple[int, int] | None:
+def _key_column(
+    document: Any, key: str, lines: list[str] | None = None
+) -> tuple[int, int] | None:
     try:
         line, column = document.lc.key(key)
     except (AttributeError, KeyError, TypeError):
         return None
+    if lines is not None and 0 <= line < len(lines):
+        column = _raw_column(lines[line], column)
     return line, column
 
 
@@ -190,6 +233,37 @@ def _replace_scalar_line(
         start=line_number,
         end=line_number + 1,
         replacement=replacement_body + ending,
+    )
+
+
+def _replace_key_and_value_line(
+    lines: list[str],
+    *,
+    line_number: int,
+    column: int,
+    key: str,
+    value: str,
+    newline: str,
+) -> TextEdit | None:
+    """Replace a whole ``key: value`` pair, keeping indentation and comments."""
+    original = lines[line_number]
+    body = original.rstrip("\r\n")
+    colon = body.find(":", column)
+    if colon < 0:
+        return None
+    raw_value, comment = _split_inline_comment(body, colon + 1)
+    if raw_value.lstrip().startswith(("|", ">")):
+        return None
+    replacement_body = (
+        body[:column]
+        + f"{key}: "
+        + _quote_yaml_string(value)
+        + ((" " + comment) if comment else "")
+    )
+    return TextEdit(
+        start=line_number,
+        end=line_number + 1,
+        replacement=replacement_body + _line_ending(original, newline),
     )
 
 
@@ -244,8 +318,16 @@ def _replace_id_value(
 
     # Do not guess how to rewrite a multi-line ID. The corpus uses one-line
     # block scalars here, but preserving an unusual value is safer than
-    # silently changing its meaning.
-    if "\n" in str(value):
+    # silently changing its meaning. ``value`` is single-line by construction,
+    # so only the block scalar's own source lines can answer this: a folded
+    # ``id: >`` spanning two lines would otherwise keep its trailing lines and
+    # fold them onto the replacement.
+    for following in lines[content_line_number + 1 :]:
+        following_body = following.rstrip("\r\n")
+        if not following_body.strip():
+            continue
+        if len(following_body) - len(following_body.lstrip()) < content_indent:
+            break
         return None
     replacement_body = content_body[:content_indent] + value
     return TextEdit(
@@ -331,8 +413,30 @@ def _first_ea502_field(document: Any, target_lines: set[int]) -> Any | None:
     ]
     if len(labelable_fields) <= 1:
         return None
-    first_field = labelable_fields[0]
-    if not _is_ea502_offending(first_field):
+    # Only one field can sensibly carry the question text, so a screen whose
+    # question text is already in use was labeled by an earlier run: taking a
+    # second field would duplicate the label and would make repeated ``--fix``
+    # runs keep eating into the fields left for human review.
+    question = _normalized_question(document.get("question"))
+    if question and any(
+        _extract_field_label(item).strip() == question
+        or str(item.get("label") or "").strip() == question
+        for item in labelable_fields
+    ):
+        return None
+
+    # ``_check_multifield_no_label_usage`` counts ``code`` fields towards the
+    # screen's field total but never reports them, so skip them here too and
+    # take the first field the checker would actually flag.
+    first_field = next(
+        (
+            item
+            for item in labelable_fields
+            if "code" not in item and _is_ea502_offending(item)
+        ),
+        None,
+    )
+    if first_field is None:
         return None
     if getattr(getattr(first_field, "lc", None), "line", None) not in target_lines:
         return None
@@ -376,7 +480,7 @@ def fix_missing_question_id(
         str(document.get("id")).strip() if isinstance(document.get("id"), str) else ""
     )
     question = _normalized_question(document.get("question"))
-    question_key = _key_column(document, "question")
+    question_key = _key_column(document, "question", lines)
     if current_id or not question or question_key is None:
         return
     if question_key[0] not in target_lines:
@@ -384,7 +488,7 @@ def fix_missing_question_id(
 
     final_id = _unique_id(question, reserved=reserved_ids, used=used_ids)
     used_ids.add(final_id)
-    id_key = _key_column(document, "id")
+    id_key = _key_column(document, "id", lines)
     if id_key is not None:
         edit = _replace_id_value(
             lines,
@@ -440,7 +544,7 @@ def fix_duplicate_id(
 
     final_id = _unique_id(current_id, reserved=reserved_ids, used=used_ids)
     used_ids.add(final_id)
-    id_key = _key_column(document, "id")
+    id_key = _key_column(document, "id", lines)
     if id_key is None:
         raise ValueError("duplicate ID has no source location")
     edit = _replace_id_value(
@@ -469,10 +573,15 @@ def fix_yesno_shortcut(
         # review; duplicate ``fields`` keys would be worse than the finding.
         return
 
-    for shortcut in SHORTCUTS:
-        if shortcut not in document:
-            continue
-        key_location = _key_column(document, shortcut)
+    present = [shortcut for shortcut in SHORTCUTS if shortcut in document]
+    if len(present) != 1:
+        # One replacement per shortcut would write one ``fields`` key per
+        # shortcut; docassemble keeps only the last, and the checker reports
+        # the duplicate key. Combining them needs semantic review.
+        return
+
+    for shortcut in present:
+        key_location = _key_column(document, shortcut, lines)
         value = document.get(shortcut)
         if (
             key_location is None
@@ -533,7 +642,7 @@ def fix_missing_field_label(
 
     first_key = next(iter(field_item), None)
     if first_key == "":
-        key_location = _key_column(field_item, first_key)
+        key_location = _key_column(field_item, first_key, lines)
         if key_location is None:
             return
         edit = _replace_mapping_key_line(
@@ -548,22 +657,39 @@ def fix_missing_field_label(
         return
 
     if "no label" in field_item:
-        key_location = _key_column(field_item, "no label")
+        key_location = _key_column(field_item, "no label", lines)
         if key_location is None:
             return
-        edit = _replace_mapping_key_line(
-            lines,
-            line_number=key_location[0],
-            column=key_location[1],
-            value=question,
-            newline=newline,
-        )
+        no_label_value = field_item.get("no label")
+        if isinstance(no_label_value, str) and no_label_value.strip():
+            # ``no label: some_variable`` names the field: turning the key
+            # into the label keeps the variable where it is.
+            edit = _replace_mapping_key_line(
+                lines,
+                line_number=key_location[0],
+                column=key_location[1],
+                value=question,
+                newline=newline,
+            )
+        else:
+            # ``no label: true`` (or a bare ``no label:``) is a modifier, not
+            # a variable name. Rewriting the key would make the boolean the
+            # field's value; replace the modifier with the missing label
+            # instead, which is the change the rule is asking for.
+            edit = _replace_key_and_value_line(
+                lines,
+                line_number=key_location[0],
+                column=key_location[1],
+                key="label",
+                value=question,
+                newline=newline,
+            )
         if edit is not None:
             edits.add(edit, "EA502")
         return
 
     if "label" in field_item:
-        key_location = _key_column(field_item, "label")
+        key_location = _key_column(field_item, "label", lines)
         if key_location is None:
             return
         edit = _replace_scalar_line(
@@ -580,11 +706,14 @@ def fix_missing_field_label(
 
     if first_key is None:
         return
-    key_location = _key_column(field_item, first_key)
+    key_location = _key_column(field_item, first_key, lines)
     if key_location is None:
         return
+    # The key column sits past any ``- `` sequence marker, so copying the
+    # prefix verbatim would start a new list item instead of adding a sibling
+    # property. Blank out the marker but keep the original whitespace bytes.
     field_line = lines[key_location[0]]
-    indent = field_line[: key_location[1]]
+    indent = re.sub(r"\S", " ", field_line[: key_location[1]])
     edits.add(
         _insert_before_line(
             lines,
@@ -596,23 +725,46 @@ def fix_missing_field_label(
     )
 
 
-def _target_findings(text: str, path: Path) -> list[Finding]:
+def _all_findings(
+    text: str, path: Path, options: FixOptions | None = None
+) -> list[Finding]:
+    options = options or FixOptions()
     return [
         finding
         for finding in find_errors_from_string(
             text,
             input_file=str(path),
-            lint_mode=ACCESSIBILITY_LINT_MODE,
+            lint_mode=options.lint_mode,
+            runtime_options=options.runtime_options,
         )
+        if not _finding_matches_suppression(finding, options.suppressed_codes)
+    ]
+
+
+def _all_counts(
+    text: str, path: Path, options: FixOptions | None = None
+) -> Counter[str]:
+    return Counter(finding.code for finding in _all_findings(text, path, options))
+
+
+def _target_findings(
+    text: str, path: Path, options: FixOptions | None = None
+) -> list[Finding]:
+    return [
+        finding
+        for finding in _all_findings(text, path, options)
         if finding.code in TARGET_CODES
     ]
 
 
-def _target_counts(text: str, path: Path) -> Counter[str]:
-    return Counter(finding.code for finding in _target_findings(text, path))
+def _target_counts(
+    text: str, path: Path, options: FixOptions | None = None
+) -> Counter[str]:
+    return Counter(finding.code for finding in _target_findings(text, path, options))
 
 
-def plan_file(path: Path) -> FilePlan:
+def plan_file(path: Path, options: FixOptions | None = None) -> FilePlan:
+    options = options or FixOptions()
     plan = FilePlan(path=path)
     try:
         text = path.read_text(encoding="utf-8")
@@ -625,7 +777,7 @@ def plan_file(path: Path) -> FilePlan:
         plan.skipped_reason = f"YAML parse failed: {parse_error}"
         return plan
 
-    target_findings = _target_findings(text, path)
+    target_findings = _target_findings(text, path, options)
     target_lines_by_code: dict[str, set[int]] = defaultdict(set)
     for finding in target_findings:
         if finding.line_number is not None:
@@ -684,7 +836,6 @@ def plan_file(path: Path) -> FilePlan:
         plan.skipped_reason = str(exc)
         return plan
 
-    plan.counts = dict(edits.counts)
     if not edits.edits:
         return plan
 
@@ -696,30 +847,53 @@ def plan_file(path: Path) -> FilePlan:
         new_lines[edit.start : edit.end] = edit.replacement.splitlines(keepends=True)
     candidate = "".join(new_lines)
 
-    # Never write a candidate that no longer parses. Also ensure the three
-    # deterministic families are gone after the edit; EA502 may intentionally
-    # remain when a screen had multiple no-label fields.
+    # Never write a candidate that no longer parses.
     _, candidate_parse_error = _load_documents(candidate)
     if candidate_parse_error:
         plan.validation_error = (
             f"candidate YAML does not parse: {candidate_parse_error}"
         )
         return plan
-    candidate_counts = _target_counts(candidate, path)
+
+    # Compare every rule, not just the four the fixer targets. The loader
+    # above tolerates duplicate keys and ignores rules outside TARGET_CODES,
+    # so a botched edit can round-trip cleanly here while the checker reports
+    # a brand new error against the file the user is left with.
+    original_counts = _all_counts(text, path, options)
+    candidate_counts = _all_counts(candidate, path, options)
+    introduced = sorted(
+        code
+        for code in candidate_counts
+        if candidate_counts[code] > original_counts[code]
+    )
+    if introduced:
+        plan.validation_error = "candidate introduces new findings: " + ", ".join(
+            f"{code} ({original_counts[code]} -> {candidate_counts[code]})"
+            for code in introduced
+        )
+        return plan
+
+    # The three deterministic families must be gone after the edit; EA502 may
+    # intentionally remain when a screen had several unlabeled fields.
     for code in ("EG414", "EA510", "EG104"):
         if candidate_counts[code] > 0:
             plan.validation_error = (
                 f"candidate still has {candidate_counts[code]} {code} finding(s)"
             )
             return plan
-    original_counts = _target_counts(text, path)
-    if candidate_counts["EA502"] > original_counts["EA502"]:
-        plan.validation_error = (
-            f"candidate increased EA502 from {original_counts['EA502']} "
-            f"to {candidate_counts['EA502']}"
-        )
-        return plan
+
+    # An edit that removes nothing is not a fix, however well it parses.
+    for code, applied in sorted(edits.counts.items()):
+        if candidate_counts[code] >= original_counts[code]:
+            plan.validation_error = (
+                f"candidate applied {applied} {code} edit(s) without reducing "
+                f"{code} findings ({original_counts[code]} -> "
+                f"{candidate_counts[code]})"
+            )
+            return plan
+
     plan.edits = edits.edits
+    plan.counts = dict(edits.counts)
     return plan
 
 
@@ -736,12 +910,17 @@ def apply_plan(plan: FilePlan, *, write: bool) -> None:
 
 
 def run(
-    paths: list[Path], *, write: bool, include_default_ignores: bool
+    paths: list[Path],
+    *,
+    write: bool,
+    include_default_ignores: bool,
+    options: FixOptions | None = None,
 ) -> dict[str, Any]:
+    options = options or FixOptions()
     yaml_files = _collect_yaml_files(
         paths, include_default_ignores=include_default_ignores
     )
-    plans = [plan_file(path) for path in yaml_files]
+    plans = [plan_file(path, options) for path in yaml_files]
     for plan in plans:
         apply_plan(plan, write=write)
 
