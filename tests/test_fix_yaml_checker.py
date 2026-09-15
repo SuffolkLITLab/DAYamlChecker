@@ -51,8 +51,8 @@ question: Second duplicate
             self.assertEqual(after["EA510"], 0)
             self.assertEqual(after["EG104"], 0)
             self.assertLess(after["EA502"], before["EA502"])
-            self.assertIn('id: "What is your name?"', result)
-            self.assertIn('id: "What is your name? 2"', result)
+            self.assertIn('id: "what is your name"', result)
+            self.assertIn('id: "what is your name 2"', result)
             self.assertIn('id: "duplicate 2"', result)
             self.assertIn('"What is your name?": first_name', result)
 
@@ -300,3 +300,41 @@ question: Second
             self.assertFalse(second.changed)
             self.assertEqual(second.counts, {})
             self.assertEqual(path.read_text(encoding="utf-8"), after_first)
+
+    def test_generated_ids_are_alphanumeric_lowercase(self) -> None:
+        source = (
+            "---\nquestion: What is your name?\n"
+            "---\nquestion: |\n  WHAT is your NAME!?\n"
+            "---\nquestion: Does ${ users[0] } agree?\n"
+        )
+        result, plan = self._fixed(source, "ids.yml")
+
+        self.assertEqual(plan.counts, {"EG414": 3})
+        self.assertIn('id: "what is your name"\n', result)
+        # Punctuation and case no longer hide a collision from the uniqueness
+        # pass, so the second screen is suffixed rather than reading the same.
+        self.assertIn('id: "what is your name 2"\n', result)
+        self.assertIn('id: "does users 0 agree"\n', result)
+
+    def test_generated_ids_drop_apostrophes_but_separate_on_punctuation(self) -> None:
+        source = (
+            "---\nquestion: We didn\u2019t find a matching court\n"
+            "---\nquestion: ${city_only_address}\n"
+        )
+        result, _ = self._fixed(source, "punct.yml")
+
+        self.assertIn('id: "we didnt find a matching court"\n', result)
+        self.assertIn('id: "city only address"\n', result)
+
+    def test_duplicate_id_fix_keeps_the_author_s_own_text(self) -> None:
+        source = (
+            "---\nid: My Screen?\nquestion: First\n"
+            "---\nid: My Screen?\nquestion: Second\n"
+        )
+        result, plan = self._fixed(source, "dup.yml")
+
+        # EG104 only has to make an existing ID unique; rewriting the author's
+        # own text beyond the suffix is not the fixer's call.
+        self.assertEqual(plan.counts, {"EG104": 1})
+        self.assertIn("id: My Screen?\n", result)
+        self.assertIn('id: "My Screen? 2"\n', result)

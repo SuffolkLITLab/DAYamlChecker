@@ -440,8 +440,8 @@ def test_main_fix_mode_writes_safe_fixes_before_checking(tmp_path, capsys):
     )
 
     result = interview.read_text(encoding="utf-8")
-    assert 'id: "What is your name?"' in result
-    assert 'id: "What is your age?"' in result
+    assert 'id: "what is your name"' in result
+    assert 'id: "what is your age"' in result
     assert (
         "Fix mode: scanned 1 YAML files; wrote changes in 1" in capsys.readouterr().out
     )

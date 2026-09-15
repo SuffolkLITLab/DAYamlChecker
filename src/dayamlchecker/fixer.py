@@ -159,6 +159,24 @@ def _normalized_question(value: Any) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _normalized_id(value: Any) -> str:
+    """Normalize question text into a block ID.
+
+    An ID only has to be unique and readable, so nothing but letters, digits
+    and spaces survives: punctuation, Mako delimiters and smart quotes all
+    make an ID awkward to quote and to reference. Lowercasing means two
+    questions that differ only in case or punctuation collide here rather than
+    producing two IDs that read identically.
+
+    Apostrophes are dropped rather than separated on, so ``didn't`` becomes
+    ``didnt`` instead of ``didn t``; every other mark becomes a space, so
+    ``city_only_address`` stays three readable words.
+    """
+    text = re.sub(r"['\u2018\u2019\u02bc]", "", _normalized_question(value))
+    text = "".join(char if char.isalnum() else " " for char in text)
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
 def _is_truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -486,7 +504,9 @@ def fix_missing_question_id(
     if question_key[0] not in target_lines:
         return
 
-    final_id = _unique_id(question, reserved=reserved_ids, used=used_ids)
+    final_id = _unique_id(
+        _normalized_id(document.get("question")), reserved=reserved_ids, used=used_ids
+    )
     used_ids.add(final_id)
     id_key = _key_column(document, "id", lines)
     if id_key is not None:
