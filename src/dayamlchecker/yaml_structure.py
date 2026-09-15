@@ -2709,6 +2709,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Apply safe, deterministic YAML fixes before checking; "
+            "the remaining findings are still reported"
+        ),
+    )
+    parser.add_argument(
         "--no-wcag",
         dest="wcag",
         action="store_false",
@@ -2901,6 +2909,37 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         return 1
 
+    fix_had_problem = False
+    if args.fix and yaml_files:
+        from dayamlchecker.fixer import run as run_fixes
+
+        fix_result = run_fixes(
+            yaml_files,
+            write=True,
+            include_default_ignores=not args.check_all,
+        )
+        fix_had_problem = bool(
+            fix_result["files_skipped"] or fix_result["files_rejected"]
+        )
+        print(
+            "Fix mode: scanned {yaml_files} YAML files; wrote changes in "
+            "{files_with_changes}; skipped {files_skipped}; rejected "
+            "{files_rejected}.".format(**fix_result)
+        )
+        if fix_result["changes_by_code"]:
+            print(f"Fixes by rule: {fix_result['changes_by_code']}")
+        for plan in fix_result["plans"]:
+            if plan["skipped_reason"]:
+                print(
+                    f"Fix skipped {plan['file']}: {plan['skipped_reason']}",
+                    file=sys.stderr,
+                )
+            if plan["validation_error"]:
+                print(
+                    f"Fix rejected {plan['file']}: {plan['validation_error']}",
+                    file=sys.stderr,
+                )
+
     from dayamlchecker.messages import print_github_annotation
 
     all_findings = []
@@ -2948,7 +2987,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             if not _finding_matches_suppression(f, cli_suppressed_codes)
         ]
 
-    had_error = False
+    had_error = fix_had_problem
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 
     if args.format == "github":
