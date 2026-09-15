@@ -159,6 +159,62 @@ def _normalized_question(value: Any) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+# Mako honours ``% if``/``% for`` only at the start of a line, so question
+# text using them cannot survive being collapsed into a one-line label.
+_MAKO_DIRECTIVE = re.compile(r"^[ \t]*%", re.MULTILINE)
+
+
+def _question_needs_block_label(value: Any) -> bool:
+    return isinstance(value, str) and bool(_MAKO_DIRECTIVE.search(value))
+
+
+def _question_block_lines(value: Any) -> list[str]:
+    """The question's own lines, trailing blanks dropped, Mako left as written."""
+    return str(value).rstrip().splitlines()
+
+
+def _block_label_edit(
+    lines: list[str],
+    *,
+    line_number: int,
+    column: int,
+    question: Any,
+    variable: str | None,
+    newline: str,
+) -> TextEdit | None:
+    """Rewrite a field's first line as a multi-line ``label:`` block.
+
+    The one-line ``"question": variable`` shorthand cannot hold a line break,
+    so a question carrying Mako line directives has to move to the
+    ``label:``/``field:`` form, where a literal block scalar keeps the
+    directives on their own lines exactly as the author wrote them.
+    """
+    body = lines[line_number].rstrip("\r\n")
+    colon = body.find(":", column)
+    if colon < 0:
+        return None
+    _, comment = _split_inline_comment(body, colon + 1)
+    question_lines = _question_block_lines(question)
+    if not question_lines:
+        return None
+
+    marker = body[:column]
+    key_indent = " " * column
+    content_indent = " " * (column + 2)
+    replacement = [marker + "label: |" + ((" " + comment) if comment else "")]
+    replacement += [
+        content_indent + line if line.strip() else "" for line in question_lines
+    ]
+    if variable is not None:
+        replacement.append(key_indent + "field: " + variable)
+    ending = _line_ending(lines[line_number], newline)
+    return TextEdit(
+        start=line_number,
+        end=line_number + 1,
+        replacement=newline.join(replacement) + ending,
+    )
+
+
 def _normalized_id(value: Any) -> str:
     """Normalize question text into a block ID.
 
@@ -660,16 +716,22 @@ def fix_missing_field_label(
     if not question:
         return
 
+    raw_question = document.get("question")
+    needs_block = _question_needs_block_label(raw_question)
+
     first_key = next(iter(field_item), None)
     if first_key == "":
         key_location = _key_column(field_item, first_key, lines)
         if key_location is None:
             return
-        edit = _replace_mapping_key_line(
+        edit = _shorthand_label_edit(
             lines,
-            line_number=key_location[0],
-            column=key_location[1],
-            value=question,
+            key_location=key_location,
+            field_item=field_item,
+            key=first_key,
+            question=question,
+            raw_question=raw_question,
+            needs_block=needs_block,
             newline=newline,
         )
         if edit is not None:
@@ -684,11 +746,14 @@ def fix_missing_field_label(
         if isinstance(no_label_value, str) and no_label_value.strip():
             # ``no label: some_variable`` names the field: turning the key
             # into the label keeps the variable where it is.
-            edit = _replace_mapping_key_line(
+            edit = _shorthand_label_edit(
                 lines,
-                line_number=key_location[0],
-                column=key_location[1],
-                value=question,
+                key_location=key_location,
+                field_item=field_item,
+                key="no label",
+                question=question,
+                raw_question=raw_question,
+                needs_block=needs_block,
                 newline=newline,
             )
         else:
@@ -696,13 +761,24 @@ def fix_missing_field_label(
             # a variable name. Rewriting the key would make the boolean the
             # field's value; replace the modifier with the missing label
             # instead, which is the change the rule is asking for.
-            edit = _replace_key_and_value_line(
-                lines,
-                line_number=key_location[0],
-                column=key_location[1],
-                key="label",
-                value=question,
-                newline=newline,
+            edit = (
+                _block_label_edit(
+                    lines,
+                    line_number=key_location[0],
+                    column=key_location[1],
+                    question=raw_question,
+                    variable=None,
+                    newline=newline,
+                )
+                if needs_block
+                else _replace_key_and_value_line(
+                    lines,
+                    line_number=key_location[0],
+                    column=key_location[1],
+                    key="label",
+                    value=question,
+                    newline=newline,
+                )
             )
         if edit is not None:
             edits.add(edit, "EA502")
@@ -711,6 +787,18 @@ def fix_missing_field_label(
     if "label" in field_item:
         key_location = _key_column(field_item, "label", lines)
         if key_location is None:
+            return
+        if needs_block:
+            edit = _block_label_edit(
+                lines,
+                line_number=key_location[0],
+                column=key_location[1],
+                question=raw_question,
+                variable=None,
+                newline=newline,
+            )
+            if edit is not None:
+                edits.add(edit, "EA502")
             return
         edit = _replace_scalar_line(
             lines,
@@ -724,7 +812,9 @@ def fix_missing_field_label(
             edits.add(edit, "EA502")
         return
 
-    if first_key is None:
+    if first_key is None or needs_block:
+        # A sibling ``label:`` would have to be a block scalar inserted next to
+        # a key whose own layout we have not inspected; leave it for a human.
         return
     key_location = _key_column(field_item, first_key, lines)
     if key_location is None:
@@ -765,6 +855,39 @@ def _all_counts(
     text: str, path: Path, options: FixOptions | None = None
 ) -> Counter[str]:
     return Counter(finding.code for finding in _all_findings(text, path, options))
+
+
+def _shorthand_label_edit(
+    lines: list[str],
+    *,
+    key_location: tuple[int, int],
+    field_item: dict[str, Any],
+    key: str,
+    question: str,
+    raw_question: Any,
+    needs_block: bool,
+    newline: str,
+) -> TextEdit | None:
+    """Label a ``<key>: variable`` field, in block form when Mako requires it."""
+    if not needs_block:
+        return _replace_mapping_key_line(
+            lines,
+            line_number=key_location[0],
+            column=key_location[1],
+            value=question,
+            newline=newline,
+        )
+    variable = field_item.get(key)
+    if not isinstance(variable, str) or not variable.strip():
+        return None
+    return _block_label_edit(
+        lines,
+        line_number=key_location[0],
+        column=key_location[1],
+        question=raw_question,
+        variable=variable.strip(),
+        newline=newline,
+    )
 
 
 def _target_findings(

@@ -338,3 +338,64 @@ question: Second
         self.assertEqual(plan.counts, {"EG104": 1})
         self.assertIn("id: My Screen?\n", result)
         self.assertIn('id: "My Screen? 2"\n', result)
+
+    def test_mako_directives_force_a_block_label(self) -> None:
+        source = (
+            "id: guardian\n"
+            "question: |\n"
+            "  % if filled_by_attorney:\n"
+            "  Does ${ users[0] } want to be the guardian?\n"
+            "  % else:\n"
+            "  Do you want to be the guardian?\n"
+            "  % endif\n"
+            "fields:\n"
+            "  - no label: wants_guardianship\n"
+            "    datatype: yesnoradio\n"
+            "  - Something else: other_var\n"
+        )
+        result, plan = self._fixed(source, "mako.yml")
+
+        # `% if` only works at the start of a line, so the one-line
+        # `"question": variable` shorthand cannot carry it; the long form can.
+        self.assertEqual(plan.counts, {"EA502": 1})
+        self.assertIn(
+            "  - label: |\n"
+            "      % if filled_by_attorney:\n"
+            "      Does ${ users[0] } want to be the guardian?\n"
+            "      % else:\n"
+            "      Do you want to be the guardian?\n"
+            "      % endif\n"
+            "    field: wants_guardianship\n"
+            "    datatype: yesnoradio\n",
+            result,
+        )
+        self.assertNotIn('"% if', result)
+
+        from ruamel.yaml import YAML
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "parsed.yml"
+            path.write_text(result, encoding="utf-8")
+            doc = YAML().load(path)
+            # The label must be the question text verbatim, not a flattened copy.
+            self.assertEqual(doc["fields"][0]["label"], doc["question"])
+            self.assertEqual(doc["fields"][0]["field"], "wants_guardianship")
+            self.assertFalse(plan_file(path).changed)
+
+    def test_inline_mako_expressions_still_use_the_shorthand(self) -> None:
+        source = (
+            "id: inline\n"
+            "question: |\n"
+            "  What is ${ other_parties[0].familiar() }'s address?\n"
+            "fields:\n"
+            "  - no label: other_address\n"
+            "  - Something else: other_var\n"
+        )
+        result, _ = self._fixed(source, "inline-mako.yml")
+
+        # ``${ }`` evaluates fine mid-line, so nothing needs to move.
+        self.assertIn(
+            '  - "What is ${ other_parties[0].familiar() }\'s address?": other_address\n',
+            result,
+        )
+        self.assertNotIn("label: |", result)
