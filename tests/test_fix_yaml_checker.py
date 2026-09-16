@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from dayamlchecker.fixer import (
+    FilePlan,
     FixOptions,
     _target_counts,
     apply_plan,
@@ -131,7 +132,7 @@ question: Second
 
             self.assertEqual(path.read_text(encoding="utf-8"), source)
 
-    def _fixed(self, source: str, name: str = "interview.yml") -> tuple[str, object]:
+    def _fixed(self, source: str, name: str = "interview.yml") -> tuple[str, FilePlan]:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / name
             path.write_text(source, encoding="utf-8")
