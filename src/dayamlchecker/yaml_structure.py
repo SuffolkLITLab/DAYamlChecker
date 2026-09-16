@@ -2709,6 +2709,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Apply safe, deterministic YAML fixes before checking; "
+            "the remaining findings are still reported"
+        ),
+    )
+    parser.add_argument(
         "--no-wcag",
         dest="wcag",
         action="store_false",
@@ -2901,6 +2909,45 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         return 1
 
+    if args.fix and yaml_files:
+        from dayamlchecker.fixer import FixOptions
+        from dayamlchecker.fixer import run as run_fixes
+
+        # The fixer must see the same findings this run will report, or it
+        # rewrites source for rules the user turned off.
+        fix_result = run_fixes(
+            yaml_files,
+            write=True,
+            include_default_ignores=not args.check_all,
+            options=FixOptions(
+                lint_mode=lint_mode,
+                suppressed_codes=(
+                    _parse_suppression_codes(",".join(args.suppress))
+                    if args.suppress
+                    else frozenset()
+                ),
+                runtime_options=runtime_options,
+            ),
+        )
+        print(
+            "Fix mode: scanned {yaml_files} YAML files; wrote changes in "
+            "{files_with_changes}; skipped {files_skipped}; rejected "
+            "{files_rejected}.".format(**fix_result)
+        )
+        if fix_result["changes_by_code"]:
+            print(f"Fixes by rule: {fix_result['changes_by_code']}")
+        for plan in fix_result["plans"]:
+            if plan["skipped_reason"]:
+                print(
+                    f"Fix skipped {plan['file']}: {plan['skipped_reason']}",
+                    file=sys.stderr,
+                )
+            if plan["validation_error"]:
+                print(
+                    f"Fix rejected {plan['file']}: {plan['validation_error']}",
+                    file=sys.stderr,
+                )
+
     from dayamlchecker.messages import print_github_annotation
 
     all_findings = []
@@ -2948,6 +2995,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             if not _finding_matches_suppression(f, cli_suppressed_codes)
         ]
 
+    # A file the fixer could not rewrite is a limitation of the fixer, not a
+    # finding in the user's interview: it is reported on stderr above and must
+    # not by itself fail the run.
     had_error = False
     warning_count = sum(1 for f in all_findings if f.severity == "warning")
 

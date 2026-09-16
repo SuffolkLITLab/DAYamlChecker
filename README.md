@@ -9,6 +9,23 @@ pip install .
 python3 -m dayamlchecker `find . -name "*.yml" -path "*/questions/*" snot -path "*/.venv/*" -not -path "*/build/*"` # i.e. a space separated list of files
 ```
 
+For the conservative, deterministic fixes supported by the checker, add
+`--fix`. It writes only changes that validate after editing, then runs the
+normal checker against the updated files. The fixes add missing question IDs,
+expand yes/no shortcuts, label the first offending field on a multi-field
+screen, and suffix later duplicate block IDs. A dry run is still available via
+the standalone `scripts/fix_yaml_checker.py` tool.
+
+`--fix` respects `--no-wcag` and `--suppress`: it never rewrites source for a
+rule the run would not report. A candidate edit is written only when it parses,
+introduces no new finding of any rule, and actually removes the finding it was
+made for; anything else is reported on stderr and left alone. A file the fixer
+cannot safely rewrite is not itself an error, so it does not fail the run.
+
+```bash
+python3 -m dayamlchecker --fix path/to/interview.yml
+```
+
 ## Suppressing checks
 
 You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `general`). 

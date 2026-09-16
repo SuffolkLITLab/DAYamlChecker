@@ -419,6 +419,34 @@ def test_main_can_disable_url_checker(monkeypatch):
         assert called is False
 
 
+def test_main_fix_mode_writes_safe_fixes_before_checking(tmp_path, capsys):
+    interview = tmp_path / "interview.yml"
+    interview.write_text(
+        "---\nquestion: What is your name?\nfields:\n  - Name: user_name\n"
+        "---\nquestion: What is your age?\nfields:\n  - Age: user_age\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "--fix",
+                "--no-url-check",
+                "--no-docx-accessibility",
+                str(interview),
+            ]
+        )
+        == 0
+    )
+
+    result = interview.read_text(encoding="utf-8")
+    assert 'id: "what is your name"' in result
+    assert 'id: "what is your age"' in result
+    assert (
+        "Fix mode: scanned 1 YAML files; wrote changes in 1" in capsys.readouterr().out
+    )
+
+
 def test_main_fails_on_url_checker_errors(monkeypatch, capsys):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
