@@ -40,7 +40,7 @@ Missing variables, imports, and parent templates produce `EG105`. Rendering
 uses Jinja's sandbox and disables HTML escaping.
 
 Missing `{% include %}` files (including unavailable package-qualified paths)
-produce error `EG106`: the included Jinja2 document could not be verified and
+produce warning `WG106`: the included Jinja2 document could not be verified and
 findings are partial. The checker substitutes a marker, skips each rendered YAML
 document containing that marker, and checks the remaining documents. This also
 applies to `ignore missing`; include fallback lists try all candidates first.
@@ -51,21 +51,24 @@ document boundaries or Jinja definitions, so the remaining output may differ fro
 the real interview. A partial-block include causes its entire containing YAML
 document to be skipped. Findings retain rendered line numbers.
 
-Missing includes fail CI by default. Explicitly accept a known external dependency
-with a source-level suppression:
+Missing includes are skipped by default and do not fail CI unless a warning
+limit such as `--max-warnings 0` is set. You can suppress the partial-validation
+warning with `# no-dayc: WG106` on the include or `# no-dayc-block: WG106` in its
+source block.
+
+Other errors, including missing Jinja variables, imports, and parent templates
+(`EG105`), still fail by default. Explicitly suppress a known dependency-related
+rendering limitation with a source-level suppression, for example:
 
 ```yaml
 # use jinja
-{% include "docassemble.framework:data/questions/base.yml" %} # no-dayc: EG106
----
-code: |
-  downstream_value = 1
+# no-dayc-block: EG105
+{% import "external-macros.yml" as framework %}
 ```
 
-`# no-dayc-block: EG106` also works. These suppressions apply to the original
-include location, including includes in local templates; they do not suppress
-errors in the remaining YAML. Jinja rendering errors (`EG105`) also honor source
-suppressions, but a rendering failure prevents validation of the remaining file.
+Rendering errors also honor source suppressions, but a rendering failure prevents
+validation of the remaining file. Missing includes alone allow partial validation;
+suppressing their warning does not suppress errors in the remaining YAML.
 
 Findings after preprocessing use a virtual filename ending in `(rendered Jinja)`;
 their line numbers and suppression comments refer to the rendered YAML, not the

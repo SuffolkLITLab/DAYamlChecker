@@ -164,7 +164,7 @@ def test_missing_include_skips_affected_document_only(include):
     ]
     errors = [f for f in findings if f.message_id != MessageId.JINJA_MISSING_INCLUDE]
     assert len(missing_findings) == 1
-    assert missing_findings[0].severity == "error"
+    assert missing_findings[0].severity == "warning"
     assert "Validation is partial" in missing_findings[0].message
     assert len(errors) == 2
     assert all(f.message_id == MessageId.PYTHON_SYNTAX_ERROR for f in errors)
@@ -229,18 +229,19 @@ def test_partial_validation_cli_exit_status(tmp_path, capsys):
         '# use jinja\n{% include "missing.yml" %}\n---\ncode: |\n  valid = 1\n'
     )
     args = [str(path), "--no-docx-accessibility"]
-    assert main(args) == 1
+    assert main(args) == 0
     assert "Validation is partial" in capsys.readouterr().out
-    path.write_text(path.read_text().replace("%}\n---", "%} # no-dayc: EG106\n---"))
+    assert main(args + ["--max-warnings", "0"]) == 1
+    path.write_text(path.read_text().replace("%}\n---", "%} # no-dayc: WG106\n---"))
     assert main(args + ["--max-warnings", "0"]) == 0
     path.write_text(path.read_text().replace("valid = 1", "broken ="))
     assert main(args) == 1
 
 
 @pytest.mark.parametrize(
-    "suppression", ["# no-dayc: EG106", "# no-dayc: jinja_missing_include"]
+    "suppression", ["# no-dayc: WG106", "# no-dayc: jinja_missing_include"]
 )
-def test_inline_suppression_opts_into_partial_validation(suppression):
+def test_inline_suppression_hides_only_partial_validation_warning(suppression):
     source = (
         '# use jinja\n{% include "docassemble.framework:data/questions/base.yml" %} '
         + suppression
@@ -252,19 +253,19 @@ def test_inline_suppression_opts_into_partial_validation(suppression):
 
 def test_block_suppression_does_not_hide_other_missing_dependencies():
     source = (
-        '# use jinja\n# no-dayc-block: EG106\n{% include "known.yml" %}\n'
+        '# use jinja\n# no-dayc-block: WG106\n{% include "known.yml" %}\n'
         '---\n{% include "unexpected.yml" %}\n'
     )
     findings = find_errors_from_string(source)
     assert len(findings) == 1
-    assert findings[0].code == "EG106"
+    assert findings[0].code == "WG106"
     assert "unexpected.yml" in findings[0].message
     assert findings[0].line_number == 5
 
 
 def test_nested_include_suppression_uses_its_own_source(tmp_path):
     included = tmp_path / "local.yml"
-    included.write_text('{% include "external.yml" %} # no-dayc: EG106\n')
+    included.write_text('{% include "external.yml" %} # no-dayc: WG106\n')
     source = '# use jinja\n{% include "local.yml" %}\n---\ncode: |\n  valid = 1\n'
     assert find_errors_from_string(source, input_file=str(tmp_path / "main.yml")) == []
     included.write_text('{% include "external.yml" %}\n')
@@ -280,10 +281,47 @@ def test_jinja_syntax_error_suppression_uses_template_source():
 def test_include_suppression_is_per_source_site_not_rendered_line():
     source = (
         '# use jinja\n{{ "\\n" * 10 }}\n'
-        '{% include "external.yml" %} # no-dayc: EG106\n---\n'
+        '{% include "external.yml" %} # no-dayc: WG106\n---\n'
         '{% include "external.yml" %}\n'
     )
     findings = find_errors_from_string(source)
     assert len(findings) == 1
-    assert findings[0].code == "EG106"
+    assert findings[0].code == "WG106"
     assert findings[0].line_number == 5
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{% import "external.yml" as framework %}',
+        '{% extends "external.yml" %}',
+        "question: {{ external_setting }}",
+    ],
+)
+def test_other_dependency_errors_require_explicit_suppression(tmp_path, body):
+    path = tmp_path / "main.yml"
+    args = [str(path), "--no-docx-accessibility"]
+    source = "# use jinja\n" + body + "\n"
+    path.write_text(source)
+    assert main(args) == 1
+    findings = find_errors(str(path))
+    assert findings[0].code == "EG105"
+    assert findings[0].severity == "error"
+    path.write_text(
+        source.replace("# use jinja\n", "# use jinja\n# no-dayc-block: EG105\n")
+    )
+    assert main(args) == 0
+    assert find_errors(str(path)) == []
+
+
+def test_missing_include_does_not_make_downstream_errors_nonbreaking(tmp_path):
+    path = tmp_path / "main.yml"
+    source = '# use jinja\n{% include "external.yml" %}\n---\ncode: |\n  broken =\n'
+    path.write_text(source)
+    assert main([str(path), "--no-docx-accessibility"]) == 1
+    assert {f.code for f in find_errors(str(path))} == {"WG106", "EG122"}
+    path.write_text(
+        source.replace("code: |", "# no-dayc-block: EG122\ncode: |") + "# end\n"
+    )
+    assert main([str(path), "--no-docx-accessibility"]) == 0
+    assert [f.code for f in find_errors(str(path))] == ["WG106"]

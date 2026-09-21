@@ -301,8 +301,8 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template="{error}",
     ),
     MessageId.JINJA_MISSING_INCLUDE: MessageDefinition(
-        code="EG106",
-        severity=Severity.ERROR,
+        code="WG106",
+        severity=Severity.WARNING,
         finding_class=FindingClass.GENERAL,
         summary="Missing Jinja include; validation is partial",
         template="Included Jinja2 document could not be verified: {missing}. "
