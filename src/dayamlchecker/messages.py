@@ -22,6 +22,7 @@ class MessageId(StrEnum):
     YAML_DUPLICATE_KEY = "yaml_duplicate_key"
     YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
+    JINJA_RENDER_ERROR = "jinja_render_error"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
     MAKO_SYNTAX_ERROR = "mako_syntax_error"
@@ -297,6 +298,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Duplicate YAML key",
         template="{error}",
+    ),
+    MessageId.JINJA_RENDER_ERROR: MessageDefinition(
+        code="EG105",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Jinja rendering error",
+        template="Could not render Jinja YAML: {error}",
     ),
     MessageId.YAML_PARSE_ERROR: MessageDefinition(
         code="EG102",

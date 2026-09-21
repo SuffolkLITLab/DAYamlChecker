@@ -915,6 +915,10 @@ def plan_file(path: Path, options: FixOptions | None = None) -> FilePlan:
         plan.skipped_reason = f"could not read file: {exc}"
         return plan
 
+    if text.startswith("# use jinja"):
+        plan.skipped_reason = "Jinja templates cannot be automatically rewritten"
+        return plan
+
     documents, parse_error = _load_documents(text)
     if documents is None:
         plan.skipped_reason = f"YAML parse failed: {parse_error}"

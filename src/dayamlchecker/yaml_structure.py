@@ -58,8 +58,6 @@ from dayamlchecker.docx_accessibility import (
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# * if "# use jinja" at top, process whole file with Jinja:
-#   https://docassemble.org/docs/interviews.html#jinja2
 
 
 __all__ = [
@@ -2067,6 +2065,34 @@ def find_errors_from_string(
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
+    """Preprocess opted-in Jinja templates, then run normal YAML validation."""
+    if full_content.startswith("# use jinja"):
+        from dayamlchecker._jinja import render_yaml
+
+        try:
+            full_content = render_yaml(full_content, input_file)
+        except Exception as exc:
+            # Rendering can also raise Python errors (e.g. division by zero).
+            return [
+                make_finding(
+                    MessageId.JINJA_RENDER_ERROR,
+                    file_name=getattr(exc, "filename", None) or input_file,
+                    line_number=getattr(exc, "lineno", None),
+                    error=str(exc),
+                )
+            ]
+        # Generated lines need not correspond to template lines. A virtual
+        # filename also prevents CLI suppressions from re-reading raw source.
+        input_file = f"{input_file or '<string input>'} (rendered Jinja)"
+    return _find_errors_from_yaml(full_content, input_file, lint_mode, runtime_options)
+
+
+def _find_errors_from_yaml(
+    full_content: str,
+    input_file: Optional[str] = None,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> list[YAMLError]:
     """Return list of findings found in the given full_content string
 
     Args:
@@ -2519,8 +2545,7 @@ def find_errors(
 ) -> list[YAMLError]:
     """Return list of findings found in the given input_file
 
-    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
-    it is ignored and an empty list is returned.
+    Files beginning with ``# use jinja`` are rendered before validation.
 
     Args:
         input_file (str): Path to the YAML file to check.
@@ -2530,11 +2555,6 @@ def find_errors(
     """
     with open(input_file, "r") as f:
         full_content = f.read()
-
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return []
 
     return find_errors_from_string(
         full_content,

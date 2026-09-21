@@ -1,0 +1,13 @@
+# use jinja
+{% set fruits = ['apple', 'pear'] %}
+{% for fruit in fruits %}
+---
+id: {{ fruit }}
+question: Do you like {{ fruit }}s?
+fields:
+{% include 'fields.yml' %}
+{% endfor %}
+---
+mandatory: true
+code: |
+  likes_both = likes_apple and likes_pear

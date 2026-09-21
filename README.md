@@ -26,6 +26,25 @@ cannot safely rewrite is not itself an error, so it does not fail the run.
 python3 -m dayamlchecker --fix path/to/interview.yml
 ```
 
+## Jinja2 preprocessing
+
+Files beginning with `# use jinja` are rendered before the normal validation
+pass, following docassemble's [YAML preprocessing feature](https://docassemble.org/docs/interviews.html#jinja2).
+Expressions, loops, conditionals, macros, and local includes are supported.
+Include paths are relative to the input file's directory; includes can contain
+partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
+
+This is an offline check: server configuration, `jinja data`, docassemble's
+special context variables, and package-qualified includes are not supplied.
+Missing variables or includes produce `EG105` rather than silently skipping
+validation. Rendering uses Jinja's sandbox and disables HTML escaping.
+
+Findings after preprocessing use a virtual filename ending in `(rendered Jinja)`;
+their line numbers and suppression comments refer to the rendered YAML, not the
+original template. Only the rendered branches are checked. `--fix` skips these
+files because generated line numbers cannot safely identify source edits.
+Template-aware formatting is outside this feature's scope.
+
 ## Suppressing checks
 
 You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `general`). 
