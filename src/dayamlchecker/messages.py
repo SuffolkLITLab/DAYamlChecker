@@ -23,6 +23,7 @@ class MessageId(StrEnum):
     YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
     JINJA_RENDER_ERROR = "jinja_render_error"
+    JINJA_MISSING_INCLUDE = "jinja_missing_include"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
     MAKO_SYNTAX_ERROR = "mako_syntax_error"
@@ -298,6 +299,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Duplicate YAML key",
         template="{error}",
+    ),
+    MessageId.JINJA_MISSING_INCLUDE: MessageDefinition(
+        code="EG106",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Missing Jinja include; validation is partial",
+        template="Included Jinja2 document could not be verified: {missing}. "
+        "Validation is partial: rendered YAML documents containing its placeholder "
+        "were skipped. The missing include may supply document boundaries or "
+        "definitions, so remaining findings are best effort.",
     ),
     MessageId.JINJA_RENDER_ERROR: MessageDefinition(
         code="EG105",

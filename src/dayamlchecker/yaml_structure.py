@@ -2059,6 +2059,19 @@ def _max_screen_visibility_nesting_depth(doc: dict[str, Any]) -> int:
     return max((depth(var) for var in adjacency.keys()), default=0)
 
 
+def _apply_jinja_suppressions(
+    findings: list[Finding], source: str, input_file: str | None
+) -> list[Finding]:
+    """Jinja diagnostics refer to template source, not generated YAML."""
+    result = []
+    for finding in findings:
+        if finding.file_name == input_file:
+            result.extend(_apply_dayc_suppressions([finding], source))
+        else:
+            result.extend(_apply_dayc_suppressions_from_files([finding]))
+    return result
+
+
 def find_errors_from_string(
     full_content: str,
     input_file: Optional[str] = None,
@@ -2066,25 +2079,45 @@ def find_errors_from_string(
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
     """Preprocess opted-in Jinja templates, then run normal YAML validation."""
+    partial_findings: list[YAMLError] = []
     if full_content.startswith("# use jinja"):
         from dayamlchecker._jinja import render_yaml
 
+        source_content = full_content
         try:
-            full_content = render_yaml(full_content, input_file)
+            full_content, missing_includes = render_yaml(full_content, input_file)
         except Exception as exc:
             # Rendering can also raise Python errors (e.g. division by zero).
-            return [
-                make_finding(
-                    MessageId.JINJA_RENDER_ERROR,
-                    file_name=getattr(exc, "filename", None) or input_file,
-                    line_number=getattr(exc, "lineno", None),
-                    error=str(exc),
-                )
-            ]
+            return _apply_jinja_suppressions(
+                [
+                    make_finding(
+                        MessageId.JINJA_RENDER_ERROR,
+                        file_name=getattr(exc, "filename", None) or input_file,
+                        line_number=getattr(exc, "lineno", None),
+                        error=str(exc),
+                    )
+                ],
+                source_content,
+                input_file,
+            )
+        partial_findings = [
+            make_finding(
+                MessageId.JINJA_MISSING_INCLUDE,
+                file_name=missing.file_name or input_file,
+                line_number=missing.line_number,
+                missing=missing.description,
+            )
+            for missing in missing_includes
+        ]
+        partial_findings = _apply_jinja_suppressions(
+            partial_findings, source_content, input_file
+        )
         # Generated lines need not correspond to template lines. A virtual
         # filename also prevents CLI suppressions from re-reading raw source.
         input_file = f"{input_file or '<string input>'} (rendered Jinja)"
-    return _find_errors_from_yaml(full_content, input_file, lint_mode, runtime_options)
+    return partial_findings + _find_errors_from_yaml(
+        full_content, input_file, lint_mode, runtime_options
+    )
 
 
 def _find_errors_from_yaml(

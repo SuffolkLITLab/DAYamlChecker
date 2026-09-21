@@ -36,8 +36,36 @@ partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
 
 This is an offline check: server configuration, `jinja data`, docassemble's
 special context variables, and package-qualified includes are not supplied.
-Missing variables or includes produce `EG105` rather than silently skipping
-validation. Rendering uses Jinja's sandbox and disables HTML escaping.
+Missing variables, imports, and parent templates produce `EG105`. Rendering
+uses Jinja's sandbox and disables HTML escaping.
+
+Missing `{% include %}` files (including unavailable package-qualified paths)
+produce error `EG106`: the included Jinja2 document could not be verified and
+findings are partial. The checker substitutes a marker, skips each rendered YAML
+document containing that marker, and checks the remaining documents. This also
+applies to `ignore missing`; include fallback lists try all candidates first.
+Repeated execution of the same include site produces one diagnostic.
+
+Partial validation is best effort. An unavailable include may itself supply YAML
+document boundaries or Jinja definitions, so the remaining output may differ from
+the real interview. A partial-block include causes its entire containing YAML
+document to be skipped. Findings retain rendered line numbers.
+
+Missing includes fail CI by default. Explicitly accept a known external dependency
+with a source-level suppression:
+
+```yaml
+# use jinja
+{% include "docassemble.framework:data/questions/base.yml" %} # no-dayc: EG106
+---
+code: |
+  downstream_value = 1
+```
+
+`# no-dayc-block: EG106` also works. These suppressions apply to the original
+include location, including includes in local templates; they do not suppress
+errors in the remaining YAML. Jinja rendering errors (`EG105`) also honor source
+suppressions, but a rendering failure prevents validation of the remaining file.
 
 Findings after preprocessing use a virtual filename ending in `(rendered Jinja)`;
 their line numbers and suppression comments refer to the rendered YAML, not the
