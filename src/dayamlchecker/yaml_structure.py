@@ -33,6 +33,7 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from dayamlchecker._jinja import uses_jinja
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import MarkedYAMLError
@@ -2080,7 +2081,7 @@ def find_errors_from_string(
 ) -> list[YAMLError]:
     """Preprocess opted-in Jinja templates, then run normal YAML validation."""
     partial_findings: list[YAMLError] = []
-    if full_content.startswith("# use jinja"):
+    if uses_jinja(full_content):
         from dayamlchecker._jinja import render_yaml
 
         source_content = full_content

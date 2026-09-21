@@ -28,7 +28,8 @@ python3 -m dayamlchecker --fix path/to/interview.yml
 
 ## Jinja2 preprocessing
 
-Files beginning with `# use jinja` are rendered before the normal validation
+Files whose first line is exactly `# use jinja` (LF, CRLF, or end of file) are
+rendered before the normal validation
 pass, following docassemble's [YAML preprocessing feature](https://docassemble.org/docs/interviews.html#jinja2).
 Expressions, loops, conditionals, macros, and local includes are supported.
 Include paths are relative to the input file's directory; includes can contain
@@ -37,7 +38,15 @@ partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
 This is an offline check: server configuration, `jinja data`, docassemble's
 special context variables, and package-qualified includes are not supplied.
 Missing variables, imports, and parent templates produce `EG105`. Rendering
-uses Jinja's sandbox and disables HTML escaping.
+uses Jinja's sandbox and disables HTML escaping. Compilation and rendering run in
+an isolated worker with a 5-second wall timeout, 2-second CPU limit, and 256 MiB
+address-space limit. Source and rendered output are limited to 4 MiB each.
+Exceeding a limit produces `EG105`. Bounded rendering requires Unix resource-limit
+support; other platforms report `EG105` rather than rendering without limits.
+Ordinary YAML checking does not require these limits.
+
+Jinja syntax and runtime errors identify the original template file and line,
+including nested local templates, so their source-level suppressions work.
 
 Missing `{% include %}` files (including unavailable package-qualified paths)
 produce warning `WG106`: the included Jinja2 document could not be verified and

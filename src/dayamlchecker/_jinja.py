@@ -1,9 +1,14 @@
 """The optional docassemble YAML preprocessor, isolated from validation."""
 
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import re
+import subprocess
+import sys
+from tempfile import TemporaryFile
+from typing import Any
 from uuid import uuid4
 
 from jinja2 import (
@@ -16,6 +21,28 @@ from jinja2 import (
 )
 from jinja2.compiler import CodeGenerator, Frame
 from jinja2.sandbox import SandboxedEnvironment
+
+# Applied before any template is compiled, including constant folding.
+_RENDER_TIMEOUT = 5
+_MAX_SOURCE_BYTES = 4 * 1024 * 1024
+_MAX_OUTPUT_BYTES = 4 * 1024 * 1024
+_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+_MEMORY_BYTES = 256 * 1024 * 1024
+_CPU_SECONDS = 2
+
+
+def uses_jinja(source: str) -> bool:
+    """Recognize only the documented first-line directive (LF, CRLF, or EOF)."""
+    return re.match(r"# use jinja(?:\r?\n|$)", source) is not None
+
+
+class JinjaRenderError(Exception):
+    def __init__(
+        self, message: str, filename: str | None = None, lineno: int | None = None
+    ):
+        super().__init__(message)
+        self.filename = filename
+        self.lineno = lineno
 
 
 @dataclass(frozen=True)
@@ -67,7 +94,7 @@ class _PartialEnvironment(SandboxedEnvironment):
             return self.from_string(self.missing_marker)
 
 
-def render_yaml(
+def _render_yaml(
     source: str, input_file: str | None = None
 ) -> tuple[str, list[MissingInclude]]:
     """Render YAML, blanking documents affected by unavailable includes.
@@ -85,7 +112,14 @@ def render_yaml(
     )
     env.missing_includes = []
     env.missing_marker = f"DAYAMLCHECKER_MISSING_{uuid4().hex}"
-    rendered = env.from_string(source).render()
+    chunks = []
+    size = 0
+    for chunk in env.from_string(source).generate():
+        size += len(chunk.encode("utf-8"))
+        if size > _MAX_OUTPUT_BYTES:
+            raise JinjaRenderError("Jinja rendered output exceeds 4 MiB limit")
+        chunks.append(chunk)
+    rendered = "".join(chunks)
     # Match the validator's document boundaries, retaining the separators.
     parts = re.split(r"(^--- *$)", rendered, flags=re.MULTILINE)
     rendered = "".join(
@@ -93,3 +127,95 @@ def render_yaml(
         for part in parts
     )
     return rendered, env.missing_includes
+
+
+def render_yaml(
+    source: str, input_file: str | None = None
+) -> tuple[str, list[MissingInclude]]:
+    """Compile and render in a disposable, resource-limited worker."""
+    if len(source.encode("utf-8")) > _MAX_SOURCE_BYTES:
+        raise JinjaRenderError("Jinja source exceeds 4 MiB limit")
+    # A file bounds parent memory even if the worker fails while serializing.
+    with TemporaryFile() as output:
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-I", str(Path(__file__).resolve())],
+                input=json.dumps({"source": source, "input_file": input_file}).encode(),
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                timeout=_RENDER_TIMEOUT,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise JinjaRenderError(
+                f"Jinja rendering exceeded {_RENDER_TIMEOUT} second time limit"
+            ) from exc
+        if completed.returncode:
+            raise JinjaRenderError(
+                "Jinja rendering worker stopped (CPU, memory, or response limit "
+                f"may have been exceeded; exit {completed.returncode})"
+            )
+        output.seek(0)
+        response = output.read(_MAX_RESPONSE_BYTES + 1)
+    if len(response) > _MAX_RESPONSE_BYTES:
+        raise JinjaRenderError("Jinja worker response exceeded size limit")
+    result = json.loads(response)
+    if "error" in result:
+        raise JinjaRenderError(**result["error"])
+    return result["rendered"], [MissingInclude(**item) for item in result["missing"]]
+
+
+def _set_resource_limits() -> None:
+    # Fail closed on platforms without OS-enforced limits; never fall back to
+    # unbounded in-process rendering. The parent separately enforces wall time.
+    try:
+        import resource
+    except ImportError as exc:
+        raise JinjaRenderError(
+            "Bounded Jinja rendering requires Unix resource limits"
+        ) from exc
+    for kind, limit in (
+        (resource.RLIMIT_AS, _MEMORY_BYTES),
+        (resource.RLIMIT_CPU, _CPU_SECONDS),
+        (resource.RLIMIT_FSIZE, _MAX_RESPONSE_BYTES),
+    ):
+        _, hard = resource.getrlimit(kind)
+        if hard != resource.RLIM_INFINITY:
+            limit = min(limit, hard)
+        resource.setrlimit(kind, (limit, limit))
+
+
+def _worker() -> None:
+    try:
+        _set_resource_limits()
+        request = json.load(sys.stdin)
+        rendered, missing = _render_yaml(request["source"], request["input_file"])
+        result: dict[str, Any] = {
+            "rendered": rendered,
+            "missing": [asdict(item) for item in missing],
+        }
+    except Exception as exc:
+        filename = getattr(exc, "filename", None)
+        lineno = getattr(exc, "lineno", None)
+        if lineno is None:
+            # Jinja rewrites runtime tracebacks into template-source frames.
+            # Keep the innermost such frame, not a later Python library frame.
+            tb = exc.__traceback__
+            while tb is not None:
+                if "__jinja_exception__" in tb.tb_frame.f_globals:
+                    filename = tb.tb_frame.f_code.co_filename
+                    lineno = tb.tb_lineno
+                tb = tb.tb_next
+        if filename == "<template>":
+            filename = None
+        message = (
+            "Jinja rendering exceeded 256 MiB memory limit"
+            if isinstance(exc, MemoryError)
+            else str(exc)[:4096]
+        )
+        result = {"error": {"message": message, "filename": filename, "lineno": lineno}}
+    sys.stdout.write(json.dumps(result))
+
+
+if __name__ == "__main__":
+    _worker()

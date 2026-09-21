@@ -325,3 +325,131 @@ def test_missing_include_does_not_make_downstream_errors_nonbreaking(tmp_path):
     )
     assert main([str(path), "--no-docx-accessibility"]) == 0
     assert [f.code for f in find_errors(str(path))] == ["WG106"]
+
+
+@pytest.mark.parametrize(
+    "header", ["# use jinja2", "# use jinja disabled", " # use jinja", "\n# use jinja"]
+)
+def test_directive_prefixes_remain_ordinary_yaml(tmp_path, header):
+    path = tmp_path / "ordinary.yml"
+    path.write_text(header + '\nquestion: "{{ missing }}"\nfields:\n  - Name: name\n')
+    findings = find_errors(str(path))
+    assert all(f.message_id != MessageId.JINJA_RENDER_ERROR for f in findings)
+    assert all("rendered Jinja" not in (f.file_name or "") for f in findings)
+    plan = plan_file(path)
+    assert plan.skipped_reason is None
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", ""])
+def test_exact_directive_is_shared_by_checker_and_fixer(tmp_path, ending):
+    from dayamlchecker._jinja import uses_jinja
+
+    source = "# use jinja" + ending
+    assert uses_jinja(source)
+    assert find_errors_from_string(source) == []
+    path = tmp_path / "main.yml"
+    path.write_bytes(source.encode())
+    assert (
+        plan_file(path).skipped_reason
+        == "Jinja templates cannot be automatically rewritten"
+    )
+
+
+@pytest.mark.parametrize("expression", ["{{ undefined_value }}", "{{ 1 / 0 }}"])
+@pytest.mark.parametrize("suppression", ["inline", "block"])
+def test_nested_runtime_error_location_and_suppression(
+    tmp_path, expression, suppression
+):
+    inner = tmp_path / "inner.yml"
+    outer = tmp_path / "outer.yml"
+    outer.write_text('{% include "inner.yml" %}\n')
+    source = '# use jinja\n{% include "outer.yml" %}\n'
+    inner.write_text("# comment\n" + expression + "\n")
+    findings = find_errors_from_string(source, input_file=str(tmp_path / "main.yml"))
+    assert len(findings) == 1
+    assert findings[0].code == "EG105"
+    assert findings[0].file_name == str(inner)
+    assert findings[0].line_number == 2
+    if suppression == "inline":
+        inner.write_text("# comment\n" + expression + " # no-dayc: EG105\n")
+    else:
+        inner.write_text("# no-dayc-block: EG105\n" + expression + "\n")
+    assert find_errors_from_string(source, input_file=str(tmp_path / "main.yml")) == []
+
+
+def test_top_level_runtime_error_has_source_line():
+    source = "# use jinja\nquestion: {{ missing }}\n"
+    findings = find_errors_from_string(source, input_file="unsaved.yml")
+    assert findings[0].file_name == "unsaved.yml"
+    assert findings[0].line_number == 2
+    assert (
+        find_errors_from_string(
+            source.rstrip() + " # no-dayc: EG105\n", input_file="unsaved.yml"
+        )
+        == []
+    )
+
+
+def test_rendered_output_limit_is_a_finding():
+    source = '# use jinja\n{% for i in range(10) %}{{ "x" * 1000000 }}{% endfor %}'
+    findings = find_errors_from_string(source)
+    assert len(findings) == 1
+    assert findings[0].code == "EG105"
+    assert "output exceeds" in findings[0].message
+    # A failed worker must not poison subsequent validations.
+    assert render_yaml("code: |\n  valid = 1")[0] == "code: |\n  valid = 1"
+
+
+def test_render_timeout_kills_and_reaps_worker(monkeypatch):
+    from dayamlchecker import _jinja
+
+    processes = []
+    real_popen = _jinja.subprocess.Popen
+
+    def record_process(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(_jinja.subprocess, "Popen", record_process)
+    monkeypatch.setattr(_jinja, "_RENDER_TIMEOUT", 0.2)
+    source = (
+        "# use jinja\n{% for a in range(100000) %}{% for b in range(100000) %}"
+        "{% set value = a + b %}{% endfor %}{% endfor %}"
+    )
+    findings = find_errors_from_string(source)
+    assert findings[0].code == "EG105"
+    assert "time limit" in findings[0].message
+    assert len(processes) == 1
+    assert processes[0].poll() is not None
+
+
+def test_large_allocation_is_confined_to_worker():
+    # A single expression can allocate before generate() yields, even during
+    # compilation/constant folding. The worker's OS memory limit covers both.
+    findings = find_errors_from_string('# use jinja\n{{ "x" * (1024 ** 3) }}')
+    assert len(findings) == 1
+    assert findings[0].code == "EG105"
+    assert "memory" in findings[0].message
+    assert render_yaml("code: |\n  valid = 1")[1] == []
+
+
+def test_source_limit_rejects_before_launching_worker(monkeypatch):
+    from dayamlchecker import _jinja
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("Oversized input should not start a worker")
+
+    monkeypatch.setattr(_jinja.subprocess, "run", unexpected_run)
+    findings = find_errors_from_string("# use jinja\n" + "x" * _jinja._MAX_SOURCE_BYTES)
+    assert findings[0].code == "EG105"
+    assert "source exceeds" in findings[0].message
+
+
+def test_resource_limits_unavailable_fail_closed(monkeypatch):
+    import sys
+    from dayamlchecker import _jinja
+
+    monkeypatch.setitem(sys.modules, "resource", None)
+    with pytest.raises(_jinja.JinjaRenderError, match="requires Unix resource limits"):
+        _jinja._set_resource_limits()

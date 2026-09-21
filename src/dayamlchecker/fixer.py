@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+from dayamlchecker._jinja import uses_jinja
 from ruamel.yaml import YAML
 
 from dayamlchecker.accessibility import (
@@ -915,7 +916,7 @@ def plan_file(path: Path, options: FixOptions | None = None) -> FilePlan:
         plan.skipped_reason = f"could not read file: {exc}"
         return plan
 
-    if text.startswith("# use jinja"):
+    if uses_jinja(text):
         plan.skipped_reason = "Jinja templates cannot be automatically rewritten"
         return plan
 
