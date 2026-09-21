@@ -1804,6 +1804,28 @@ def _find_variable_reference_lines(code: str, variable_expr: str) -> list[int]:
     return [i + 1 for i, line in enumerate(lines) if pattern.search(line)]
 
 
+def _python_reference_lines(code: str) -> dict[str, list[int]]:
+    """Index real Python variable reads, excluding comments and literal text."""
+    references: dict[str, list[int]] = {}
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        # Invalid Python is reported separately; do not interpret it as code.
+        return references
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Name, ast.Attribute, ast.Subscript)) and isinstance(
+            node.ctx, ast.Load
+        ):
+            references.setdefault(ast.unparse(node), []).append(node.lineno)
+        elif isinstance(node, ast.AugAssign):
+            # Augmented assignment reads its target before writing it, although
+            # Python marks that target with Store context.
+            references.setdefault(ast.unparse(node.target), []).append(
+                node.target.lineno
+            )
+    return references
+
+
 def _statement_span(stmts: list[ast.stmt]) -> Optional[tuple[int, int]]:
     if not stmts:
         return None
@@ -1967,6 +1989,7 @@ def _find_unmatched_interview_order_references(
         return []
 
     guards_by_line = _extract_branch_guards_by_line(code)
+    references = _python_reference_lines(code)
     unmatched: list[tuple[str, int]] = []
     seen_fields: set[str] = set()
     for conditional in conditional_fields:
@@ -1974,7 +1997,11 @@ def _find_unmatched_interview_order_references(
         if field_var in seen_fields:
             continue
         expected_guards = conditional["guards"]
-        for ref_line in _find_variable_reference_lines(code, field_var):
+        try:
+            reference_key = ast.unparse(ast.parse(field_var, mode="eval").body)
+        except SyntaxError:
+            continue
+        for ref_line in sorted(set(references.get(reference_key, []))):
             active_guards = guards_by_line.get(ref_line, [])
             if _has_showifdef_guard(active_guards, field_var):
                 continue
