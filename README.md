@@ -37,10 +37,12 @@ partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
 
 This is an offline check: server configuration, `jinja data`, docassemble's
 special context variables, and package-qualified includes are not supplied.
-Unknown variables are treated as empty values, including in arithmetic and
-comparisons, so interviews that use server-side Jinja context can still be
-checked; a branch that tests one is taken as if the value were empty, and only
-that branch is checked. Missing imports and parent templates produce `EG106`.
+Unknown variables are treated as empty values throughout -- in arithmetic and
+comparisons, and through every built-in filter and test -- so interviews that
+use server-side Jinja context can still be checked; a branch that tests one is
+taken as if the value were empty, and only that branch is checked. A value that
+renders away leaves an empty YAML value, so a key whose entire value came from
+the server is checked as if it were blank. Missing imports and parent templates produce `EG106`.
 Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
 and rendering run in an isolated worker with a 5-second wall timeout and 2-second
 CPU limit. Linux and other supported Unix platforms also use a 256 MiB

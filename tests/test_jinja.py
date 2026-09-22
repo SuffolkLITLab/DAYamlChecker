@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from dayamlchecker._jinja import render_yaml
+from dayamlchecker._jinja import JinjaRenderError, render_yaml
 from dayamlchecker.fixer import plan_file
 from dayamlchecker.messages import MESSAGE_DEFINITIONS, MessageId
 from dayamlchecker.yaml_structure import find_errors, find_errors_from_string, main
@@ -188,6 +188,147 @@ def test_sandbox_violations_still_fail_through_offline_operators(expression):
     findings = find_errors_from_string("# use jinja\nquestion: " + expression + "\n")
     assert [f.code for f in findings] == ["EG106"]
     assert "unsafe" in findings[0].message
+
+
+def test_every_failing_undefined_operator_is_covered():
+    """Guard against a future Jinja adding an operator that aborts a render.
+
+    ``Undefined`` routes a fixed set of operators to an error. Each one is a
+    way a real interview could use a value the server supplies, so every one
+    has to be handled here rather than found one failing file at a time.
+    """
+    from jinja2.runtime import Undefined
+
+    from dayamlchecker._jinja import _OfflineUndefined
+
+    raises = Undefined._fail_with_undefined_error
+    uncovered = {
+        name
+        for name, attr in vars(Undefined).items()
+        if attr is raises
+        and getattr(_OfflineUndefined, name, None) is getattr(Undefined, name, None)
+    }
+    # __div__/__rdiv__ are Python 2 spellings that Python 3 never calls, and
+    # _fail_with_undefined_error is the helper itself.
+    assert uncovered == {"__div__", "__rdiv__", "_fail_with_undefined_error"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Protocols that reach an undefined value without going through
+        # Undefined's own operator table.
+        "{{ x | abs }}",
+        "{{ x | round }}",
+        "{{ x | round(2) }}",
+        "{{ x | tojson }}",
+        "{{ {'k': x} | tojson }}",
+        "{% for i in range(x) %}{{ i }}{% endfor %}",
+        "{{ '{:>5}'.format(x) }}",
+        # The compiler binds Jinja's strict Undefined for the implicit else of
+        # an inline if, bypassing the environment's type.
+        "{{ 'A' if x }}",
+        "{{ (1 if x) + 1 }}",
+        "{% if (1 if x) > 0 %}A{% endif %}",
+        "{% block b %}{{ (1 if x) + 1 }}{% endblock %}",
+        "{% macro m() %}{{ (1 if x) + 1 }}{% endmacro %}{{ m() }}",
+    ],
+)
+def test_offline_values_survive_every_reachable_protocol(body):
+    render_yaml("# use jinja\n" + body + "\n")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{{ ''.__class__ | abs }}",
+        "{{ ''.__class__ | round }}",
+        "{{ ''.__class__ | tojson }}",
+        "{% for i in range(''.__class__) %}{{ i }}{% endfor %}",
+        "{{ '{:>5}'.format(''.__class__) }}",
+        "{{ 'abc'[''.__class__] }}",
+        "{{ (1 if ''.__class__.__mro__) + 1 }}",
+    ],
+)
+def test_sandbox_fails_closed_through_every_offline_protocol(body):
+    findings = find_errors_from_string("# use jinja\nquestion: " + body + "\n")
+    assert [f.code for f in findings] == ["EG106"]
+    assert "unsafe" in findings[0].message
+
+
+def test_builtin_filters_and_tests_accept_offline_values():
+    """Every stock filter and test has to tolerate a server-supplied value."""
+    from jinja2.sandbox import SandboxedEnvironment
+
+    env = SandboxedEnvironment()
+
+    def rejects(body):
+        try:
+            render_yaml("# use jinja\n" + body + "\n")
+        except JinjaRenderError as exc:
+            # Arity complaints are about the call, not the undefined value.
+            return "argument" not in str(exc) and "positional" not in str(exc)
+        return False
+
+    failed = []
+    for name in sorted(env.filters):
+        shapes = [
+            f"{{{{ x | {name} }}}}",
+            f"{{{{ x | {name}(1) }}}}",
+            f"{{{{ x | {name}('a') }}}}",
+            f"{{{{ x | {name}('a', 'b') }}}}",
+        ]
+        if all(rejects(shape) for shape in shapes):
+            failed.append(name)
+    for name in sorted(env.tests):
+        if not name.isalpha():
+            continue  # operator aliases such as `>=` are not `is` syntax
+        shapes = [f"{{{{ x is {name} }}}}", f"{{{{ x is {name} 1 }}}}"]
+        if all(rejects(shape) for shape in shapes):
+            failed.append(name)
+    assert failed == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{{ a.b.c.d }}",
+        "{{ a['b'][0] }}",
+        "{{ a.helper(1, k=2) }}",
+        "{% if 0 < x < 10 %}A{% endif %}",
+        "{% for k, v in x %}{{ k }}{% endfor %}",
+        "{% for i in x %}{{ loop.index }}{{ loop.previtem }}{{ loop.nextitem }}{% endfor %}",
+        "{% for i in x recursive %}{{ loop(i) }}{% endfor %}",
+        "{{ x ~ 'y' }}{{ x + 1 }}{{ 1 + x }}{{ x * 2 }}{{ x / 2 }}{{ x % 2 }}{{ x ** 2 }}",
+        "{{ -x }}{{ +x }}{{ not x }}{{ x and 1 }}{{ x or 2 }}",
+        "{{ x == 1 }}{{ x != 1 }}{{ 1 in x }}{{ x is in [1, 2] }}",
+        "{% set y = x %}{{ y }}",
+        "{% set y %}{{ x }}{% endset %}{{ y }}",
+        "{% with y = x %}{{ y }}{% endwith %}",
+        "{% set ns = namespace(v=x) %}{% set ns.v = x %}{{ ns.v }}",
+        "{% filter upper %}{{ x }}{% endfilter %}",
+        "{% macro m(a, b) %}{{ a }}{{ b }}{% endmacro %}{{ m(x) }}",
+        "{% macro m() %}{{ caller() }}{% endmacro %}{% call m() %}{{ x }}{% endcall %}",
+        "{% macro m() %}{{ varargs }}{{ kwargs }}{% endmacro %}{{ m(x) }}",
+        "{% block b %}{{ x }}{% endblock %}{{ self.b() }}",
+        "{{ {'k': x} }}{{ [x, x] }}{{ x[1:3] }}",
+        "{{ lipsum(x) }}",
+        "{%- if x -%}A{%- else -%}B{%- endif -%}",
+    ],
+)
+def test_jinja_constructs_tolerate_offline_values(body):
+    render_yaml("# use jinja\n" + body + "\n")
+
+
+def test_a_server_value_as_a_whole_scalar_does_not_break_validation():
+    # These render to a null YAML value, which reaches checks that expect a
+    # string. The interview is valid on a real server, so it must stay clean.
+    for body in (
+        "question: {{ jinja_data.text }}\n",
+        "question: Hi\nsubquestion: {{ jinja_data.text }}\n",
+    ):
+        source = "# use jinja\nid: q\n" + body + "fields:\n  - Name: name\n"
+        assert find_errors_from_string(source, input_file="i.yml") == []
 
 
 def test_render_error_code_is_not_shared_with_an_unrelated_check():

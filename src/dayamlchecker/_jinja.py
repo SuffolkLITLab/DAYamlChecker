@@ -114,6 +114,25 @@ class _OfflineUndefined(Undefined):
         self._guard_sandbox_violation()
         return 0j
 
+    def __index__(self) -> int:
+        # `range(config.count)` and friends need a real integer.
+        self._guard_sandbox_violation()
+        return 0
+
+    def __abs__(self) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        return self
+
+    def __round__(self, ndigits: int | None = None) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        return self
+
+    def __format__(self, format_spec: str) -> str:
+        # object.__format__ rejects any non-empty spec, so "{:>5}".format()
+        # would fail on a value the server supplies.
+        self._guard_sandbox_violation()
+        return ""
+
     # Undefined maps each of these to _fail_with_undefined_error; an offline
     # value has to survive them instead.  Ordering is unknowable, so every
     # comparison against an absent value is false.
@@ -124,6 +143,14 @@ class _OfflineUndefined(Undefined):
     __lt__ = __le__ = __gt__ = __ge__ = _compare_as_empty  # type: ignore[assignment]
 
 
+def _json_default(value: object) -> str:
+    """Serialize offline values for ``| tojson``, which json cannot encode."""
+    if isinstance(value, _OfflineUndefined):
+        value._guard_sandbox_violation()
+        return ""
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 @dataclass(frozen=True)
 class MissingInclude:
     description: str
@@ -132,6 +159,14 @@ class MissingInclude:
 
 
 class _IncludeCodeGenerator(CodeGenerator):
+    def write_commons(self) -> None:
+        super().write_commons()
+        # The preamble binds `cond_expr_undefined = Undefined`, deliberately
+        # using Jinja's strict type for the implicit else of an inline if.
+        # Offline, `{{ "a" if server_value }}` has to behave like every other
+        # missing value, so rebind it to the environment's type.
+        self.writeline("cond_expr_undefined = environment.undefined")
+
     def visit_Include(self, node: nodes.Include, frame: Frame) -> None:
         # Wrap only include lookups. Imports and inheritance must still fail.
         node = copy(node)
@@ -190,6 +225,10 @@ def _render_yaml(
         undefined=_OfflineUndefined,
         autoescape=False,
     )
+    env.policies["json.dumps_kwargs"] = {
+        **env.policies["json.dumps_kwargs"],
+        "default": _json_default,
+    }
     env.missing_includes = []
     env.missing_marker = f"DAYAMLCHECKER_MISSING_{uuid4().hex}"
     chunks = []
