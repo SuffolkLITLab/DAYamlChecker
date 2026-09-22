@@ -33,7 +33,7 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
-from dayamlchecker._jinja import uses_jinja
+from dayamlchecker._jinja import is_unknown_jinja_value, uses_jinja
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import MarkedYAMLError
@@ -775,6 +775,10 @@ class DAFields:
         def references_screen_variable(var_expr):
             if not isinstance(var_expr, str):
                 return False
+            if is_unknown_jinja_value(var_expr):
+                # A placeholder stands in for a value the server supplies, so
+                # there is no name here to resolve against this screen.
+                return True
             candidates = self._variable_candidates(var_expr)
             if any(candidate in screen_variables for candidate in candidates):
                 return True
@@ -2094,7 +2098,9 @@ def find_errors_from_string(
 
         source_content = full_content
         try:
-            full_content, missing_includes = render_yaml(full_content, input_file)
+            full_content, missing_includes, unknown_values = render_yaml(
+                full_content, input_file
+            )
         except Exception as exc:
             # Rendering can also raise Python errors (e.g. division by zero).
             return _apply_jinja_suppressions(
@@ -2117,6 +2123,14 @@ def find_errors_from_string(
                 missing=missing.description,
             )
             for missing in missing_includes
+        ] + [
+            make_finding(
+                MessageId.JINJA_UNKNOWN_VALUE,
+                file_name=unknown.file_name or input_file,
+                line_number=unknown.line_number,
+                name=unknown.name,
+            )
+            for unknown in unknown_values
         ]
         partial_findings = _apply_jinja_suppressions(
             partial_findings, source_content, input_file

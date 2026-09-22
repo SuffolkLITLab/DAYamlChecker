@@ -14,7 +14,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "jinja"
 
 def test_includes_loops_and_normal_validation():
     path = FIXTURES / "interview.yml"
-    rendered, missing = render_yaml(path.read_text(), str(path))
+    rendered, missing, _unknown = render_yaml(path.read_text(), str(path))
     assert missing == []
     assert "likes_apple" in rendered and "likes_pear" in rendered
     assert "{%" not in rendered
@@ -67,6 +67,7 @@ def test_jinja_is_opt_in_and_preserves_mako():
     source = "question: |\n  {{ literal }} and ${ answer }\n"
     assert render_yaml("# use jinja\n{% raw %}" + source + "{% endraw %}") == (
         "# use jinja\n" + source,
+        [],
         [],
     )
     assert not any(
@@ -150,10 +151,11 @@ def test_server_jinja_data_is_tolerated_when_unavailable_offline():
         "fields:\n  - Value: answer\n"
         "{% if __debug__ %}help: Debug mode{% endif %}\n"
     )
-    rendered, missing = render_yaml(source)
+    rendered, missing, unknown = render_yaml(source)
     assert missing == []
-    assert "question: |\n  \n" in rendered
-    assert find_errors_from_string(source) == []
+    assert [u.name for u in unknown] == ["nested_config"]
+    assert "question: |\n  dayc_unknown_" in rendered
+    assert [f.code for f in find_errors_from_string(source)] == ["WG107"]
 
 
 def test_offline_server_values_survive_arithmetic_and_comparison():
@@ -168,11 +170,11 @@ def test_offline_server_values_survive_arithmetic_and_comparison():
         "fields:\n  - Value: answer\n"
         "{% endif %}\n"
     )
-    rendered, missing = render_yaml(source)
+    rendered, missing, unknown = render_yaml(source)
     assert missing == []
     assert "Configured limit" not in rendered
     assert "question: Answer" in rendered
-    assert find_errors_from_string(source) == []
+    assert all(f.code == "WG107" for f in find_errors_from_string(source))
 
 
 @pytest.mark.parametrize(
@@ -328,7 +330,82 @@ def test_a_server_value_as_a_whole_scalar_does_not_break_validation():
         "question: Hi\nsubquestion: {{ jinja_data.text }}\n",
     ):
         source = "# use jinja\nid: q\n" + body + "fields:\n  - Name: name\n"
-        assert find_errors_from_string(source, input_file="i.yml") == []
+        findings = find_errors_from_string(source, input_file="i.yml")
+        assert [f.code for f in findings] == ["WG107"]
+
+
+def test_unknown_value_becomes_a_unique_placeholder_warned_once_per_site():
+    # One source line rendered three times is one warning, but three distinct
+    # placeholders, so the generated block ids do not collide.
+    source = (
+        "# use jinja\n"
+        "{% for i in [1, 2, 3] %}---\n"
+        "id: q{{ i }}{{ jinja_data.suffix }}\n"
+        "question: Q\nfields:\n  - Name: n{{ i }}\n"
+        "{% endfor %}"
+    )
+    rendered, missing, unknown = render_yaml(source)
+    assert missing == []
+    assert [(u.name, u.line_number) for u in unknown] == [("jinja_data", 3)]
+    ids = sorted(line for line in rendered.splitlines() if line.startswith("id:"))
+    assert len(set(ids)) == 3
+    assert [f.code for f in find_errors_from_string(source)] == ["WG107"]
+
+
+def test_placeholder_keeps_the_surrounding_yaml_checkable():
+    # Each of these renders a server value into a position where an empty
+    # value would break the structure and hide everything after it.
+    for body in (
+        "id: q\nquestion: Hello\nfields:\n  - {{ jinja_data.label }}: name\n",
+        "id: c\ncode: |\n  x = {{ jinja_data.value }}\n",
+        "id: {{ jinja_data.id }}\nquestion: Hi\nfields:\n  - Name: name\n",
+        "id: q\nmandatory: {{ jinja_data.m }}\nquestion: Hi\nfields:\n  - Name: name\n",
+    ):
+        findings = find_errors_from_string("# use jinja\n" + body, input_file="i.yml")
+        assert [f.code for f in findings] == ["WG107"], body
+
+
+def test_placeholder_does_not_hide_a_real_error_in_the_same_file():
+    source = (
+        "# use jinja\n"
+        "id: q\nquestion: {{ jinja_data.title }}\nfields:\n  - Name: name\n"
+        "---\nid: c\ncode: |\n  broken =\n"
+    )
+    codes = [f.code for f in find_errors_from_string(source, input_file="i.yml")]
+    assert "WG107" in codes and "EG122" in codes
+
+
+def test_placeholder_is_not_reported_as_an_unknown_screen_variable():
+    source = (
+        "# use jinja\nid: q\nquestion: Hi\n"
+        "fields:\n  - Name: name\n    show if: {{ jinja_data.cond }}\n"
+    )
+    assert [f.code for f in find_errors_from_string(source, input_file="i.yml")] == [
+        "WG107"
+    ]
+
+
+@pytest.mark.parametrize("suppression", ["inline", "block"])
+def test_unknown_value_warning_suppresses_from_template_source(suppression):
+    source = (
+        "# use jinja\nid: q\nquestion: {{ jinja_data.t }}\nfields:\n  - Name: name\n"
+    )
+    findings = find_errors_from_string(source, input_file="i.yml")
+    assert [(f.code, f.line_number) for f in findings] == [("WG107", 3)]
+    if suppression == "inline":
+        source = source.replace(
+            "{{ jinja_data.t }}", "{{ jinja_data.t }} # no-dayc: WG107"
+        )
+    else:
+        source = source.replace(
+            "# use jinja\n", "# use jinja\n# no-dayc-block: WG107\n"
+        )
+    assert find_errors_from_string(source, input_file="i.yml") == []
+
+
+def test_sandbox_violation_is_an_error_not_a_placeholder():
+    findings = find_errors_from_string("# use jinja\nquestion: {{ ''.__class__ }}\n")
+    assert [f.code for f in findings] == ["EG106"]
 
 
 def test_render_error_code_is_not_shared_with_an_unrelated_check():
@@ -358,7 +435,7 @@ def test_missing_include_skips_affected_document_only(include):
         + include
         + "\n---\ncode: |\n  after =\n"
     )
-    rendered, missing = render_yaml(source)
+    rendered, missing, _unknown = render_yaml(source)
     assert len(missing) == 1
     assert "fields:" not in rendered
     assert rendered.count("\n") == source.count("\n") - 1

@@ -24,6 +24,7 @@ class MessageId(StrEnum):
     YAML_PARSE_ERROR = "yaml_parse_error"
     JINJA_RENDER_ERROR = "jinja_render_error"
     JINJA_MISSING_INCLUDE = "jinja_missing_include"
+    JINJA_UNKNOWN_VALUE = "jinja_unknown_value"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
     MAKO_SYNTAX_ERROR = "mako_syntax_error"
@@ -309,6 +310,15 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         "Validation is partial: rendered YAML documents containing its placeholder "
         "were skipped. The missing include may supply document boundaries or "
         "definitions, so remaining findings are best effort.",
+    ),
+    MessageId.JINJA_UNKNOWN_VALUE: MessageDefinition(
+        code="WG107",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Jinja value came from the server; checked as a placeholder",
+        template="`{name}` is supplied by the server, so this expression was "
+        "replaced with a placeholder and the surrounding YAML checked around "
+        "it. Anything depending on its real value was not checked.",
     ),
     MessageId.JINJA_RENDER_ERROR: MessageDefinition(
         code="EG106",

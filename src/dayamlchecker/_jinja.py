@@ -30,6 +30,24 @@ _MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _MEMORY_BYTES = 256 * 1024 * 1024
 _CPU_SECONDS = 2
+# Substituted for a value only the server can supply. A bare identifier keeps
+# the rendered YAML parseable in every position a value can appear, including
+# as a mapping key and inside a Python code block. The counter makes each one
+# distinct so two unknown block ids do not collide.
+_UNKNOWN_PREFIX = "dayc_unknown_"
+
+
+_UNKNOWN_VALUE_RE = re.compile(rf"\b{_UNKNOWN_PREFIX}\d+\b")
+
+
+def is_unknown_jinja_value(text: str) -> bool:
+    """Report whether a placeholder for a server value appears in ``text``.
+
+    Checks that resolve a name against the rest of the interview have nothing
+    to resolve once a placeholder is involved, so they use this to stay quiet
+    rather than describing our own substitution as an undefined variable.
+    """
+    return bool(_UNKNOWN_VALUE_RE.search(text))
 
 
 def uses_jinja(source: str) -> bool:
@@ -158,7 +176,43 @@ class MissingInclude:
     line_number: int
 
 
+@dataclass(frozen=True)
+class UnknownValue:
+    """A rendered expression that depended on a value the server supplies."""
+
+    name: str
+    file_name: str | None
+    line_number: int
+
+
 class _IncludeCodeGenerator(CodeGenerator):
+    def visit_Output(self, node: nodes.Output, frame: Frame) -> None:
+        # Route each rendered expression through the environment so a value
+        # the server would supply leaves a traceable placeholder instead of
+        # vanishing. Literal text is left alone so it still folds at compile
+        # time.
+        node = copy(node)
+        node.nodes = [
+            (
+                child
+                if isinstance(child, (nodes.TemplateData, nodes.Const))
+                else self._wrap_output(child)
+            )
+            for child in node.nodes
+        ]
+        super().visit_Output(node, frame)
+
+    def _wrap_output(self, child: nodes.Expr) -> nodes.Expr:
+        call = nodes.Call(
+            nodes.EnvironmentAttribute("substitute_unknown"),
+            [child, nodes.Const(self.filename), nodes.Const(child.lineno)],
+            [],
+            None,
+            None,
+        )
+        call.set_lineno(child.lineno)
+        return call
+
     def write_commons(self) -> None:
         super().write_commons()
         # The preamble binds `cond_expr_undefined = Undefined`, deliberately
@@ -189,7 +243,21 @@ class _IncludeCodeGenerator(CodeGenerator):
 class _PartialEnvironment(SandboxedEnvironment):
     code_generator_class = _IncludeCodeGenerator
     missing_includes: list[MissingInclude]
+    unknown_values: list[UnknownValue]
+    unknown_count: int
     missing_marker: str
+
+    def substitute_unknown(self, value: Any, filename: str | None, lineno: int) -> Any:
+        if not isinstance(value, _OfflineUndefined):
+            return value
+        # A sandbox violation is a real finding, not an absent value.
+        value._guard_sandbox_violation()
+        name = value._undefined_name
+        unknown = UnknownValue(str(name) if name else "expression", filename, lineno)
+        if unknown not in self.unknown_values:
+            self.unknown_values.append(unknown)
+        self.unknown_count += 1
+        return f"{_UNKNOWN_PREFIX}{self.unknown_count}"
 
     def load_include(
         self,
@@ -210,7 +278,7 @@ class _PartialEnvironment(SandboxedEnvironment):
 
 def _render_yaml(
     source: str, input_file: str | None = None
-) -> tuple[str, list[MissingInclude]]:
+) -> tuple[str, list[MissingInclude], list[UnknownValue]]:
     """Render YAML, blanking documents affected by unavailable includes.
 
     The result is best effort: missing templates may supply document separators
@@ -230,6 +298,8 @@ def _render_yaml(
         "default": _json_default,
     }
     env.missing_includes = []
+    env.unknown_values = []
+    env.unknown_count = 0
     env.missing_marker = f"DAYAMLCHECKER_MISSING_{uuid4().hex}"
     chunks = []
     size = 0
@@ -245,12 +315,12 @@ def _render_yaml(
         "\n" * part.count("\n") if env.missing_marker in part else part
         for part in parts
     )
-    return rendered, env.missing_includes
+    return rendered, env.missing_includes, env.unknown_values
 
 
 def render_yaml(
     source: str, input_file: str | None = None
-) -> tuple[str, list[MissingInclude]]:
+) -> tuple[str, list[MissingInclude], list[UnknownValue]]:
     """Compile and render in a disposable, resource-limited worker."""
     if len(source.encode("utf-8")) > _MAX_SOURCE_BYTES:
         raise JinjaRenderError("Jinja source exceeds 4 MiB limit")
@@ -281,7 +351,11 @@ def render_yaml(
     result = json.loads(response)
     if "error" in result:
         raise JinjaRenderError(**result["error"])
-    return result["rendered"], [MissingInclude(**item) for item in result["missing"]]
+    return (
+        result["rendered"],
+        [MissingInclude(**item) for item in result["missing"]],
+        [UnknownValue(**item) for item in result["unknown"]],
+    )
 
 
 def _set_resource_limits() -> None:
@@ -314,10 +388,13 @@ def _worker() -> None:
     try:
         _set_resource_limits()
         request = json.load(sys.stdin)
-        rendered, missing = _render_yaml(request["source"], request["input_file"])
+        rendered, missing, unknown = _render_yaml(
+            request["source"], request["input_file"]
+        )
         result: dict[str, Any] = {
             "rendered": rendered,
             "missing": [asdict(item) for item in missing],
+            "unknown": [asdict(item) for item in unknown],
         }
     except Exception as exc:
         filename = getattr(exc, "filename", None)

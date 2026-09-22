@@ -40,9 +40,9 @@ special context variables, and package-qualified includes are not supplied.
 Unknown variables are treated as empty values throughout -- in arithmetic and
 comparisons, and through every built-in filter and test -- so interviews that
 use server-side Jinja context can still be checked; a branch that tests one is
-taken as if the value were empty, and only that branch is checked. A value that
-renders away leaves an empty YAML value, so a key whose entire value came from
-the server is checked as if it were blank. Missing imports and parent templates produce `EG106`.
+taken as if the value were empty, and only that branch is checked. An expression
+that renders to such a value is replaced with a placeholder and reported as
+`WG107`, described below. Missing imports and parent templates produce `EG106`.
 Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
 and rendering run in an isolated worker with a 5-second wall timeout and 2-second
 CPU limit. Linux and other supported Unix platforms also use a 256 MiB
@@ -68,8 +68,25 @@ document boundaries or Jinja definitions, so the remaining output may differ fro
 the real interview. A partial-block include causes its entire containing YAML
 document to be skipped. Findings retain rendered line numbers.
 
-Missing includes are skipped by default and do not fail CI unless a warning
-limit such as `--max-warnings 0` is set. You can suppress the partial-validation
+Expressions that depend on values only the server supplies produce warning
+`WG107`. Rather than rendering to nothing -- which would leave an empty YAML
+value, an invalid Python line, or a block with no `id`, and hide every real
+problem around it -- each one is replaced with a placeholder such as
+`dayc_unknown_1`, so the surrounding document stays parseable and is still
+checked. Each placeholder is distinct, so two unknown block ids do not look
+like duplicates of each other. The warning names the variable and points at the
+line of the original template, and one source site produces one warning however
+many times it renders.
+
+Nothing that depends on the real value is checked, so a later block that relies
+on what an earlier expression produced may be checked against the placeholder
+instead. Checks that resolve a name against the rest of the interview stay quiet
+when a placeholder is involved; anything else can be suppressed with
+`# no-dayc: WG107` on the line or `# no-dayc-block: WG107` in its source block,
+which -- like `WG106` -- refer to the original template, not the rendered YAML.
+
+Missing includes and unknown values are skipped by default and do not fail CI
+unless a warning limit such as `--max-warnings 0` is set. You can suppress the partial-validation
 warning with `# no-dayc: WG106` on the include or `# no-dayc-block: WG106` in its
 source block.
 
