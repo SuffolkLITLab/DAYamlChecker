@@ -1,6 +1,7 @@
 import io
 import sys
 from contextlib import redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -75,6 +76,32 @@ def test_github_finding_format_is_unchanged(capsys):
         "::error "
         "file=docassemble/AssemblyLine/data/questions/al_question_test.yml,"
         "line=125,title=EA510::"
+        "screen uses `yesno` question shorthand; prefer `fields` with an explicit "
+        "datatype\n"
+    )
+
+
+def test_github_annotation_for_rendered_jinja_stays_resolvable(capsys):
+    # GitHub drops an annotation whose file it cannot resolve, so the path must
+    # stay real. Generated line numbers are not lines of that file, so they
+    # belong in the message rather than in the annotation's anchor.
+    finding = replace(
+        make_finding(
+            MessageId.ACCESSIBILITY_YESNO_SHORTCUT,
+            file_name="docassemble/AssemblyLine/data/questions/al_question_test.yml",
+            line_number=125,
+            shortcut="yesno",
+        ),
+        rendered_jinja=True,
+    )
+
+    print_github_annotation(finding)
+
+    assert capsys.readouterr().out == (
+        "::error "
+        "file=docassemble/AssemblyLine/data/questions/al_question_test.yml,"
+        "title=EA510::"
+        "[rendered Jinja line 125] "
         "screen uses `yesno` question shorthand; prefer `fields` with an explicit "
         "datatype\n"
     )

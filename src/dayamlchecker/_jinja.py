@@ -53,11 +53,22 @@ class _OfflineUndefined(Undefined):
     Jinja context.  Treat unknown values as empty instead of rejecting an
     otherwise valid interview.  Chained lookups and calls are supported because
     configuration values may be nested or exposed through helper objects.
+    Arithmetic and comparison are too: a configuration value is often a count
+    or a threshold, so ``{% if jinja_data.limit > 0 %}`` must select a branch
+    rather than abort the whole file.
     """
 
     def _guard_sandbox_violation(self) -> None:
         if self._undefined_exception is SecurityError:
             self._fail_with_undefined_error()
+
+    def _stay_empty(self, *args: object, **kwargs: object) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        return self
+
+    def _compare_as_empty(self, other: object) -> bool:
+        self._guard_sandbox_violation()
+        return False
 
     def __str__(self) -> str:
         self._guard_sandbox_violation()
@@ -81,13 +92,36 @@ class _OfflineUndefined(Undefined):
             raise AttributeError(name)
         return self
 
-    def __getitem__(self, key: object) -> "_OfflineUndefined":
+    def __getitem__(self, key: object) -> "_OfflineUndefined":  # type: ignore[override]
         self._guard_sandbox_violation()
         return self
 
-    def __call__(self, *args: object, **kwargs: object) -> "_OfflineUndefined":
+    def __call__(  # type: ignore[override]
+        self, *args: object, **kwargs: object
+    ) -> "_OfflineUndefined":
         self._guard_sandbox_violation()
         return self
+
+    def __int__(self) -> int:  # type: ignore[override]
+        self._guard_sandbox_violation()
+        return 0
+
+    def __float__(self) -> float:  # type: ignore[override]
+        self._guard_sandbox_violation()
+        return 0.0
+
+    def __complex__(self) -> complex:  # type: ignore[override]
+        self._guard_sandbox_violation()
+        return 0j
+
+    # Undefined maps each of these to _fail_with_undefined_error; an offline
+    # value has to survive them instead.  Ordering is unknowable, so every
+    # comparison against an absent value is false.
+    __add__ = __radd__ = __sub__ = __rsub__ = _stay_empty  # type: ignore[assignment]
+    __mul__ = __rmul__ = __truediv__ = __rtruediv__ = _stay_empty  # type: ignore[assignment]
+    __floordiv__ = __rfloordiv__ = __mod__ = __rmod__ = _stay_empty  # type: ignore[assignment]
+    __pow__ = __rpow__ = __pos__ = __neg__ = _stay_empty  # type: ignore[assignment]
+    __lt__ = __le__ = __gt__ = __ge__ = _compare_as_empty  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -146,7 +180,8 @@ def _render_yaml(
 
     The result is best effort: missing templates may supply document separators
     or definitions. Preserve newlines so unaffected findings keep rendered line
-    numbers. Missing server variables still fail instead of selecting a branch.
+    numbers. Values the server would supply are undefined here, so a branch on
+    one is taken as if it were empty and only that branch is checked.
     """
     env = _PartialEnvironment(
         loader=(

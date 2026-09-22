@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -5,7 +6,7 @@ import pytest
 
 from dayamlchecker._jinja import render_yaml
 from dayamlchecker.fixer import plan_file
-from dayamlchecker.messages import MessageId
+from dayamlchecker.messages import MESSAGE_DEFINITIONS, MessageId
 from dayamlchecker.yaml_structure import find_errors, find_errors_from_string, main
 
 FIXTURES = Path(__file__).parent / "fixtures" / "jinja"
@@ -17,9 +18,9 @@ def test_includes_loops_and_normal_validation():
     assert missing == []
     assert "likes_apple" in rendered and "likes_pear" in rendered
     assert "{%" not in rendered
-    assert find_errors(str(path)) == find_errors_from_string(
-        rendered, input_file=f"{path} (rendered Jinja)"
-    )
+    assert [
+        replace(finding, rendered_jinja=False) for finding in find_errors(str(path))
+    ] == find_errors_from_string(rendered, input_file=str(path))
     assert not any(f.severity == "error" for f in find_errors(str(path)))
 
 
@@ -29,7 +30,8 @@ def test_included_invalid_python_is_validated(tmp_path):
     path.write_text('# use jinja\n{% include "included.yml" %}\n')
     findings = find_errors(str(path))
     finding = next(f for f in findings if f.message_id == MessageId.PYTHON_SYNTAX_ERROR)
-    assert finding.file_name == f"{path} (rendered Jinja)"
+    assert finding.file_name == str(path)
+    assert finding.rendered_jinja
     assert finding.line_number is not None
 
 
@@ -152,6 +154,51 @@ def test_server_jinja_data_is_tolerated_when_unavailable_offline():
     assert missing == []
     assert "question: |\n  \n" in rendered
     assert find_errors_from_string(source) == []
+
+
+def test_offline_server_values_survive_arithmetic_and_comparison():
+    # A `jinja data` value is often a count or a threshold. Comparing or adding
+    # one must pick the empty branch, not abort the file.
+    source = (
+        "# use jinja\n"
+        "{% if jinja_data.limit > 0 %}\n"
+        "question: Configured limit\n"
+        "{% else %}\n"
+        "question: Answer {{ jinja_data.limit + 1 }}{{ -jinja_data.offset }}\n"
+        "fields:\n  - Value: answer\n"
+        "{% endif %}\n"
+    )
+    rendered, missing = render_yaml(source)
+    assert missing == []
+    assert "Configured limit" not in rendered
+    assert "question: Answer" in rendered
+    assert find_errors_from_string(source) == []
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "{{ ''.__class__ > 1 }}",
+        "{{ ''.__class__ + 1 }}",
+        "{{ ''.__class__ | int }}",
+        "{{ -''.__class__ }}",
+    ],
+)
+def test_sandbox_violations_still_fail_through_offline_operators(expression):
+    findings = find_errors_from_string("# use jinja\nquestion: " + expression + "\n")
+    assert [f.code for f in findings] == ["EG106"]
+    assert "unsafe" in findings[0].message
+
+
+def test_render_error_code_is_not_shared_with_an_unrelated_check():
+    # Suppression matches on the code string alone, so a code shared with an
+    # unrelated check would silence that check too.
+    render_error = MESSAGE_DEFINITIONS[MessageId.JINJA_RENDER_ERROR]
+    assert render_error.code not in [
+        definition.code
+        for message_id, definition in MESSAGE_DEFINITIONS.items()
+        if message_id != MessageId.JINJA_RENDER_ERROR
+    ]
 
 
 @pytest.mark.parametrize(
@@ -291,7 +338,7 @@ def test_nested_include_suppression_uses_its_own_source(tmp_path):
 
 
 def test_jinja_syntax_error_suppression_uses_template_source():
-    assert find_errors_from_string("# use jinja\n{% if %} # no-dayc: EG105\n") == []
+    assert find_errors_from_string("# use jinja\n{% if %} # no-dayc: EG106\n") == []
 
 
 def test_include_suppression_is_per_source_site_not_rendered_line():
@@ -320,10 +367,10 @@ def test_other_dependency_errors_require_explicit_suppression(tmp_path, body):
     path.write_text(source)
     assert main(args) == 1
     findings = find_errors(str(path))
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert findings[0].severity == "error"
     path.write_text(
-        source.replace("# use jinja\n", "# use jinja\n# no-dayc-block: EG105\n")
+        source.replace("# use jinja\n", "# use jinja\n# no-dayc-block: EG106\n")
     )
     assert main(args) == 0
     assert find_errors(str(path)) == []
@@ -350,7 +397,7 @@ def test_directive_prefixes_remain_ordinary_yaml(tmp_path, header):
     path.write_text(header + '\nquestion: "{{ missing }}"\nfields:\n  - Name: name\n')
     findings = find_errors(str(path))
     assert all(f.message_id != MessageId.JINJA_RENDER_ERROR for f in findings)
-    assert all("rendered Jinja" not in (f.file_name or "") for f in findings)
+    assert all(not f.rendered_jinja for f in findings)
     plan = plan_file(path)
     assert plan.skipped_reason is None
 
@@ -382,13 +429,13 @@ def test_nested_runtime_error_location_and_suppression(
     inner.write_text("# comment\n" + expression + "\n")
     findings = find_errors_from_string(source, input_file=str(tmp_path / "main.yml"))
     assert len(findings) == 1
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert findings[0].file_name == str(inner)
     assert findings[0].line_number == 2
     if suppression == "inline":
-        inner.write_text("# comment\n" + expression + " # no-dayc: EG105\n")
+        inner.write_text("# comment\n" + expression + " # no-dayc: EG106\n")
     else:
-        inner.write_text("# no-dayc-block: EG105\n" + expression + "\n")
+        inner.write_text("# no-dayc-block: EG106\n" + expression + "\n")
     assert find_errors_from_string(source, input_file=str(tmp_path / "main.yml")) == []
 
 
@@ -399,7 +446,7 @@ def test_top_level_runtime_error_has_source_line():
     assert findings[0].line_number == 2
     assert (
         find_errors_from_string(
-            source.rstrip() + " # no-dayc: EG105\n", input_file="unsaved.yml"
+            source.rstrip() + " # no-dayc: EG106\n", input_file="unsaved.yml"
         )
         == []
     )
@@ -409,7 +456,7 @@ def test_rendered_output_limit_is_a_finding():
     source = '# use jinja\n{% for i in range(10) %}{{ "x" * 1000000 }}{% endfor %}'
     findings = find_errors_from_string(source)
     assert len(findings) == 1
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert "output exceeds" in findings[0].message
     # A failed worker must not poison subsequent validations.
     assert render_yaml("code: |\n  valid = 1")[0] == "code: |\n  valid = 1"
@@ -433,7 +480,7 @@ def test_render_timeout_kills_and_reaps_worker(monkeypatch):
         "{% set value = a + b %}{% endfor %}{% endfor %}"
     )
     findings = find_errors_from_string(source)
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert "time limit" in findings[0].message
     assert len(processes) == 1
     assert processes[0].poll() is not None
@@ -448,7 +495,7 @@ def test_large_allocation_is_confined_to_worker():
     # compilation/constant folding. The worker's OS memory limit covers both.
     findings = find_errors_from_string('# use jinja\n{{ "x" * (1024 ** 3) }}')
     assert len(findings) == 1
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert "memory" in findings[0].message
     assert render_yaml("code: |\n  valid = 1")[1] == []
 
@@ -461,7 +508,7 @@ def test_source_limit_rejects_before_launching_worker(monkeypatch):
 
     monkeypatch.setattr(_jinja.subprocess, "run", unexpected_run)
     findings = find_errors_from_string("# use jinja\n" + "x" * _jinja._MAX_SOURCE_BYTES)
-    assert findings[0].code == "EG105"
+    assert findings[0].code == "EG106"
     assert "source exceeds" in findings[0].message
 
 

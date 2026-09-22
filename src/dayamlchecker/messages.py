@@ -311,7 +311,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         "definitions, so remaining findings are best effort.",
     ),
     MessageId.JINJA_RENDER_ERROR: MessageDefinition(
-        code="EG105",
+        code="EG106",
         severity=Severity.ERROR,
         finding_class=FindingClass.GENERAL,
         summary="Jinja rendering error",
@@ -1645,6 +1645,10 @@ class Finding:
     end_line: int | None = None
     end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
+    # Set when the finding comes from preprocessed Jinja output. ``file_name``
+    # stays the real path so tools can resolve it, but ``line_number`` counts
+    # rendered lines, which need not correspond to lines of that file.
+    rendered_jinja: bool = False
 
     @property
     def definition(self) -> MessageDefinition:
@@ -1676,6 +1680,8 @@ class Finding:
 
     def __str__(self) -> str:
         location = self.file_name or "<unknown>"
+        if self.rendered_jinja:
+            location = f"{location} (rendered Jinja)"
         if self.line_number is not None:
             location = f"{location}:{self.line_number}"
         severity_label = {
@@ -1764,19 +1770,28 @@ def print_github_annotation(d: Finding) -> None:
 
     if getattr(d, "file_name", None):
         props.append(f"file={escape_property(str(d.file_name))}")
-    if getattr(d, "line_number", None):
-        props.append(f"line={d.line_number}")
-    if d.column is not None:
-        props.append(f"col={d.column}")
-    if d.end_line is not None:
-        props.append(f"endLine={d.end_line}")
-    if d.end_column is not None:
-        props.append(f"endColumn={d.end_column}")
+    # Rendered Jinja line numbers count generated lines, so anchoring them in
+    # the source file would point at an unrelated line. Annotate the file as a
+    # whole and keep the generated location in the message instead.
+    if not d.rendered_jinja:
+        if getattr(d, "line_number", None):
+            props.append(f"line={d.line_number}")
+        if d.column is not None:
+            props.append(f"col={d.column}")
+        if d.end_line is not None:
+            props.append(f"endLine={d.end_line}")
+        if d.end_column is not None:
+            props.append(f"endColumn={d.end_column}")
     if getattr(d, "code", None):
         props.append(f"title={escape_property(d.code)}")
 
     prop_text = ",".join(props)
     message = escape_data(d.message)
+    if d.rendered_jinja:
+        location = "rendered Jinja"
+        if d.line_number is not None:
+            location = f"{location} line {d.line_number}"
+        message = f"[{location}] {message}"
 
     if prop_text:
         print(f"::{kind} {prop_text}::{message}")

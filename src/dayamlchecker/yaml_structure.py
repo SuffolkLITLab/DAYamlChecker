@@ -194,7 +194,9 @@ def _apply_dayc_suppressions_from_files(findings: list[Finding]) -> list[Finding
 
     for finding in findings:
         file_name = finding.file_name
-        if not file_name or file_name.startswith("<"):
+        # A rendered-Jinja finding names a real file, but its line numbers are
+        # generated ones: re-reading that source would match the wrong lines.
+        if not file_name or file_name.startswith("<") or finding.rendered_jinja:
             filtered.append(finding)
             continue
 
@@ -2113,9 +2115,15 @@ def find_errors_from_string(
         partial_findings = _apply_jinja_suppressions(
             partial_findings, source_content, input_file
         )
-        # Generated lines need not correspond to template lines. A virtual
-        # filename also prevents CLI suppressions from re-reading raw source.
-        input_file = f"{input_file or '<string input>'} (rendered Jinja)"
+        # Generated lines need not correspond to template lines, so mark these
+        # findings rather than renaming the file they came from: the path stays
+        # usable, while suppression and annotation stay off the source lines.
+        return partial_findings + [
+            replace(finding, rendered_jinja=True)
+            for finding in _find_errors_from_yaml(
+                full_content, input_file, lint_mode, runtime_options
+            )
+        ]
     return partial_findings + _find_errors_from_yaml(
         full_content, input_file, lint_mode, runtime_options
     )

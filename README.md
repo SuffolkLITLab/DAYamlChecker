@@ -37,16 +37,18 @@ partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
 
 This is an offline check: server configuration, `jinja data`, docassemble's
 special context variables, and package-qualified includes are not supplied.
-Unknown variables are treated as empty values so interviews that use server-side
-Jinja context can still be checked. Missing imports and parent templates produce
-`EG105`. Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
+Unknown variables are treated as empty values, including in arithmetic and
+comparisons, so interviews that use server-side Jinja context can still be
+checked; a branch that tests one is taken as if the value were empty, and only
+that branch is checked. Missing imports and parent templates produce `EG106`.
+Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
 and rendering run in an isolated worker with a 5-second wall timeout and 2-second
 CPU limit. Linux and other supported Unix platforms also use a 256 MiB
 address-space limit; macOS skips that limit because Darwin rejects limits below
 the process's existing virtual address space. Source and rendered output are
 limited to 4 MiB each.
-Exceeding a limit produces `EG105`. Bounded rendering requires Unix resource-limit
-support; other platforms report `EG105` rather than rendering without limits.
+Exceeding a limit produces `EG106`. Bounded rendering requires Unix resource-limit
+support; other platforms report `EG106` rather than rendering without limits.
 Ordinary YAML checking does not require these limits.
 
 Jinja syntax and runtime errors identify the original template file and line,
@@ -69,13 +71,13 @@ limit such as `--max-warnings 0` is set. You can suppress the partial-validation
 warning with `# no-dayc: WG106` on the include or `# no-dayc-block: WG106` in its
 source block.
 
-Other errors, including missing Jinja variables, imports, and parent templates
-(`EG105`), still fail by default. Explicitly suppress a known dependency-related
+Other errors, including missing imports and parent templates (`EG106`), still
+fail by default. Explicitly suppress a known dependency-related
 rendering limitation with a source-level suppression, for example:
 
 ```yaml
 # use jinja
-# no-dayc-block: EG105
+# no-dayc-block: EG106
 {% import "external-macros.yml" as framework %}
 ```
 
@@ -83,10 +85,13 @@ Rendering errors also honor source suppressions, but a rendering failure prevent
 validation of the remaining file. Missing includes alone allow partial validation;
 suppressing their warning does not suppress errors in the remaining YAML.
 
-Findings after preprocessing use a virtual filename ending in `(rendered Jinja)`;
-their line numbers and suppression comments refer to the rendered YAML, not the
-original template. Only the rendered branches are checked. `--fix` skips these
-files because generated line numbers cannot safely identify source edits.
+Findings after preprocessing name the original file but are labeled
+`(rendered Jinja)`; their line numbers and suppression comments refer to the
+rendered YAML, not the original template. `--format github` therefore annotates
+the file as a whole and reports the generated line in the message, so the
+annotation resolves without pointing at an unrelated source line. Only the
+rendered branches are checked. `--fix` skips these files because generated line
+numbers cannot safely identify source edits.
 Template-aware formatting is outside this feature's scope.
 
 ## Suppressing checks
