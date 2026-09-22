@@ -335,6 +335,12 @@ class MakoText:
 
     def __init__(self, x):
         self.errors = _malformed_markdown_link_errors(x)
+        if not isinstance(x, str):
+            # A null or structured value holds no Mako to compile, and
+            # MakoTemplate raises RuntimeException rather than reporting it.
+            # `question:` with no text reaches here, as does any key whose
+            # value a Jinja server variable rendered away.
+            return
         try:
             self.template = MakoTemplate(
                 x, strict_undefined=True, input_encoding="utf-8"
