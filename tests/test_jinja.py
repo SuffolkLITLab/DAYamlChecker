@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -36,8 +37,6 @@ def test_included_invalid_python_is_validated(tmp_path):
     "body, expected",
     [
         ("{% if %}", "Expected an expression"),
-        ("question: {{ missing }}", "missing"),
-        ("{% if __debug__ %}question: Debug{% endif %}", "__debug__"),
         ("question: {{ 1 / 0 }}", "division by zero"),
         ("{{ ''.__class__.__mro__ }}", "unsafe"),
     ],
@@ -136,6 +135,23 @@ def test_docassemble_documented_include_pattern(tmp_path):
         f.severity == "error"
         for f in find_errors_from_string(source, input_file=str(tmp_path / "main.yml"))
     )
+
+
+def test_server_jinja_data_is_tolerated_when_unavailable_offline():
+    source = (
+        "# use jinja\n"
+        "{% for category in jinja_config_automatedpleading_document_categories %}\n"
+        "---\nquestion: {{ category.label }}\nfield: {{ category.value }}\n"
+        "{% endfor %}\n"
+        "---\nid: config context\nquestion: |\n"
+        "  {{ nested_config.item.helper() }}\n"
+        "fields:\n  - Value: answer\n"
+        "{% if __debug__ %}help: Debug mode{% endif %}\n"
+    )
+    rendered, missing = render_yaml(source)
+    assert missing == []
+    assert "question: |\n  \n" in rendered
+    assert find_errors_from_string(source) == []
 
 
 @pytest.mark.parametrize(
@@ -295,7 +311,6 @@ def test_include_suppression_is_per_source_site_not_rendered_line():
     [
         '{% import "external.yml" as framework %}',
         '{% extends "external.yml" %}',
-        "question: {{ external_setting }}",
     ],
 )
 def test_other_dependency_errors_require_explicit_suppression(tmp_path, body):
@@ -355,7 +370,7 @@ def test_exact_directive_is_shared_by_checker_and_fixer(tmp_path, ending):
     )
 
 
-@pytest.mark.parametrize("expression", ["{{ undefined_value }}", "{{ 1 / 0 }}"])
+@pytest.mark.parametrize("expression", ["{{ 1 / 0 }}"])
 @pytest.mark.parametrize("suppression", ["inline", "block"])
 def test_nested_runtime_error_location_and_suppression(
     tmp_path, expression, suppression
@@ -378,7 +393,7 @@ def test_nested_runtime_error_location_and_suppression(
 
 
 def test_top_level_runtime_error_has_source_line():
-    source = "# use jinja\nquestion: {{ missing }}\n"
+    source = "# use jinja\nquestion: {{ 1 / 0 }}\n"
     findings = find_errors_from_string(source, input_file="unsaved.yml")
     assert findings[0].file_name == "unsaved.yml"
     assert findings[0].line_number == 2
@@ -424,6 +439,10 @@ def test_render_timeout_kills_and_reaps_worker(monkeypatch):
     assert processes[0].poll() is not None
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Darwin cannot lower RLIMIT_AS below the process's existing virtual size",
+)
 def test_large_allocation_is_confined_to_worker():
     # A single expression can allocate before generate() yields, even during
     # compilation/constant folding. The worker's OS memory limit covers both.
@@ -453,3 +472,18 @@ def test_resource_limits_unavailable_fail_closed(monkeypatch):
     monkeypatch.setitem(sys.modules, "resource", None)
     with pytest.raises(_jinja.JinjaRenderError, match="requires Unix resource limits"):
         _jinja._set_resource_limits()
+
+
+def test_darwin_skips_unsupported_address_space_limit(monkeypatch):
+    import resource
+    from dayamlchecker import _jinja
+
+    applied = []
+    monkeypatch.setattr(_jinja.sys, "platform", "darwin")
+    monkeypatch.setattr(resource, "getrlimit", lambda kind: (0, resource.RLIM_INFINITY))
+    monkeypatch.setattr(
+        resource, "setrlimit", lambda kind, limits: applied.append(kind)
+    )
+    _jinja._set_resource_limits()
+    assert resource.RLIMIT_AS not in applied
+    assert applied == [resource.RLIMIT_CPU, resource.RLIMIT_FSIZE]

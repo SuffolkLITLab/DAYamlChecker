@@ -37,10 +37,14 @@ partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
 
 This is an offline check: server configuration, `jinja data`, docassemble's
 special context variables, and package-qualified includes are not supplied.
-Missing variables, imports, and parent templates produce `EG105`. Rendering
-uses Jinja's sandbox and disables HTML escaping. Compilation and rendering run in
-an isolated worker with a 5-second wall timeout, 2-second CPU limit, and 256 MiB
-address-space limit. Source and rendered output are limited to 4 MiB each.
+Unknown variables are treated as empty values so interviews that use server-side
+Jinja context can still be checked. Missing imports and parent templates produce
+`EG105`. Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
+and rendering run in an isolated worker with a 5-second wall timeout and 2-second
+CPU limit. Linux and other supported Unix platforms also use a 256 MiB
+address-space limit; macOS skips that limit because Darwin rejects limits below
+the process's existing virtual address space. Source and rendered output are
+limited to 4 MiB each.
 Exceeding a limit produces `EG105`. Bounded rendering requires Unix resource-limit
 support; other platforms report `EG105` rather than rendering without limits.
 Ordinary YAML checking does not require these limits.

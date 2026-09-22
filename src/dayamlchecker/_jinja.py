@@ -14,12 +14,13 @@ from uuid import uuid4
 from jinja2 import (
     DictLoader,
     FileSystemLoader,
-    StrictUndefined,
     Template,
     TemplateNotFound,
+    Undefined,
     nodes,
 )
 from jinja2.compiler import CodeGenerator, Frame
+from jinja2.exceptions import SecurityError
 from jinja2.sandbox import SandboxedEnvironment
 
 # Applied before any template is compiled, including constant folding.
@@ -43,6 +44,50 @@ class JinjaRenderError(Exception):
         super().__init__(message)
         self.filename = filename
         self.lineno = lineno
+
+
+class _OfflineUndefined(Undefined):
+    """Stand in for values supplied by docassemble's server configuration.
+
+    Static checking has no access to ``jinja data`` or docassemble's built-in
+    Jinja context.  Treat unknown values as empty instead of rejecting an
+    otherwise valid interview.  Chained lookups and calls are supported because
+    configuration values may be nested or exposed through helper objects.
+    """
+
+    def _guard_sandbox_violation(self) -> None:
+        if self._undefined_exception is SecurityError:
+            self._fail_with_undefined_error()
+
+    def __str__(self) -> str:
+        self._guard_sandbox_violation()
+        return ""
+
+    def __iter__(self):
+        self._guard_sandbox_violation()
+        return iter(())
+
+    def __len__(self) -> int:
+        self._guard_sandbox_violation()
+        return 0
+
+    def __bool__(self) -> bool:
+        self._guard_sandbox_violation()
+        return False
+
+    def __getattr__(self, name: str) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self
+
+    def __getitem__(self, key: object) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        return self
+
+    def __call__(self, *args: object, **kwargs: object) -> "_OfflineUndefined":
+        self._guard_sandbox_violation()
+        return self
 
 
 @dataclass(frozen=True)
@@ -107,7 +152,7 @@ def _render_yaml(
         loader=(
             FileSystemLoader(Path(input_file).parent) if input_file else DictLoader({})
         ),
-        undefined=StrictUndefined,
+        undefined=_OfflineUndefined,
         autoescape=False,
     )
     env.missing_includes = []
@@ -174,11 +219,17 @@ def _set_resource_limits() -> None:
         raise JinjaRenderError(
             "Bounded Jinja rendering requires Unix resource limits"
         ) from exc
-    for kind, limit in (
-        (resource.RLIMIT_AS, _MEMORY_BYTES),
+    limits = [
         (resource.RLIMIT_CPU, _CPU_SECONDS),
         (resource.RLIMIT_FSIZE, _MAX_RESPONSE_BYTES),
-    ):
+    ]
+    # A fresh Darwin process reserves hundreds of GiB of virtual address space.
+    # Lowering RLIMIT_AS below that existing reservation fails with EINVAL, so
+    # retain the CPU, response-size, and parent wall-time bounds on macOS while
+    # using the address-space cap on platforms where it is enforceable.
+    if sys.platform != "darwin":
+        limits.insert(0, (resource.RLIMIT_AS, _MEMORY_BYTES))
+    for kind, limit in limits:
         _, hard = resource.getrlimit(kind)
         if hard != resource.RLIM_INFINITY:
             limit = min(limit, hard)
