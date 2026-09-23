@@ -12,6 +12,45 @@ from dayamlchecker.yaml_structure import find_errors, find_errors_from_string, m
 FIXTURES = Path(__file__).parent / "fixtures" / "jinja"
 
 
+@pytest.mark.parametrize(
+    "filename, expected_codes, exit_status",
+    [
+        ("x_documents_anonymized.yml", ["EG414", "EG414"], 1),
+        ("x_review_anonymized.yml", [], 0),
+    ],
+)
+def test_jpagh_examples(filename, expected_codes, exit_status, capsys):
+    path = FIXTURES / filename
+    rendered, missing, unknown = render_yaml(path.read_text(), str(path))
+    assert missing == []
+    assert unknown == []
+    assert "{%" not in rendered and "{{" not in rendered
+    findings = find_errors(str(path))
+    assert [f.code for f in findings] == expected_codes
+    assert all(f.rendered_jinja for f in findings)
+    if filename == "x_documents_anonymized.yml":
+        assert "category_" not in rendered  # Server config is unavailable offline.
+        assert '${question("Items", "Categories")}' in rendered
+    else:
+        for index, label in [(0, "First item"), (1, "Second item")]:
+            assert f"record.items[{index}].name" in rendered
+            assert f"Item details — {label}" in rendered
+        assert "record.summary.revisit" in rendered
+        assert "% for item in record.items[0]:" in rendered
+        assert "${review_button(" in rendered
+    assert main([str(path), "--no-url-check", "--no-docx-accessibility"]) == exit_status
+    output = capsys.readouterr().out
+    assert "EG106" not in output
+
+
+def test_jpagh_review_macro_output_is_validated():
+    path = FIXTURES / "x_review_anonymized.yml"
+    source = path.read_text().replace("label: Edit", "label: [unclosed", 1)
+    findings = find_errors_from_string(source, input_file=str(path))
+    assert any(f.message_id == MessageId.YAML_PARSE_ERROR for f in findings)
+    assert all(f.rendered_jinja for f in findings)
+
+
 def test_includes_loops_and_normal_validation():
     path = FIXTURES / "interview.yml"
     rendered, missing, _unknown = render_yaml(path.read_text(), str(path))
