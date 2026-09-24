@@ -22,6 +22,9 @@ class MessageId(StrEnum):
     YAML_DUPLICATE_KEY = "yaml_duplicate_key"
     YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
+    JINJA_RENDER_ERROR = "jinja_render_error"
+    JINJA_MISSING_INCLUDE = "jinja_missing_include"
+    JINJA_UNKNOWN_VALUE = "jinja_unknown_value"
     YAML_STRING_REQUIRED = "yaml_string_required"
 
     MAKO_SYNTAX_ERROR = "mako_syntax_error"
@@ -297,6 +300,32 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Duplicate YAML key",
         template="{error}",
+    ),
+    MessageId.JINJA_MISSING_INCLUDE: MessageDefinition(
+        code="WG106",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Missing Jinja include; validation is partial",
+        template="Included Jinja2 document could not be verified: {missing}. "
+        "Validation is partial: rendered YAML documents containing its placeholder "
+        "were skipped. The missing include may supply document boundaries or "
+        "definitions, so remaining findings are best effort.",
+    ),
+    MessageId.JINJA_UNKNOWN_VALUE: MessageDefinition(
+        code="WG107",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Jinja value came from the server; checked as a placeholder",
+        template="`{name}` is supplied by the server, so this expression was "
+        "replaced with a placeholder and the surrounding YAML checked around "
+        "it. Anything depending on its real value was not checked.",
+    ),
+    MessageId.JINJA_RENDER_ERROR: MessageDefinition(
+        code="EG106",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Jinja rendering error",
+        template="Could not render Jinja YAML: {error}",
     ),
     MessageId.YAML_PARSE_ERROR: MessageDefinition(
         code="EG102",
@@ -1626,6 +1655,10 @@ class Finding:
     end_line: int | None = None
     end_column: int | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
+    # Set when the finding comes from preprocessed Jinja output. ``file_name``
+    # stays the real path so tools can resolve it, but ``line_number`` counts
+    # rendered lines, which need not correspond to lines of that file.
+    rendered_jinja: bool = False
 
     @property
     def definition(self) -> MessageDefinition:
@@ -1657,6 +1690,8 @@ class Finding:
 
     def __str__(self) -> str:
         location = self.file_name or "<unknown>"
+        if self.rendered_jinja:
+            location = f"{location} (rendered Jinja)"
         if self.line_number is not None:
             location = f"{location}:{self.line_number}"
         severity_label = {
@@ -1745,19 +1780,28 @@ def print_github_annotation(d: Finding) -> None:
 
     if getattr(d, "file_name", None):
         props.append(f"file={escape_property(str(d.file_name))}")
-    if getattr(d, "line_number", None):
-        props.append(f"line={d.line_number}")
-    if d.column is not None:
-        props.append(f"col={d.column}")
-    if d.end_line is not None:
-        props.append(f"endLine={d.end_line}")
-    if d.end_column is not None:
-        props.append(f"endColumn={d.end_column}")
+    # Rendered Jinja line numbers count generated lines, so anchoring them in
+    # the source file would point at an unrelated line. Annotate the file as a
+    # whole and keep the generated location in the message instead.
+    if not d.rendered_jinja:
+        if getattr(d, "line_number", None):
+            props.append(f"line={d.line_number}")
+        if d.column is not None:
+            props.append(f"col={d.column}")
+        if d.end_line is not None:
+            props.append(f"endLine={d.end_line}")
+        if d.end_column is not None:
+            props.append(f"endColumn={d.end_column}")
     if getattr(d, "code", None):
         props.append(f"title={escape_property(d.code)}")
 
     prop_text = ",".join(props)
     message = escape_data(d.message)
+    if d.rendered_jinja:
+        location = "rendered Jinja"
+        if d.line_number is not None:
+            location = f"{location} line {d.line_number}"
+        message = f"[{location}] {message}"
 
     if prop_text:
         print(f"::{kind} {prop_text}::{message}")

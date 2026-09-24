@@ -3201,6 +3201,18 @@ attachment:
             f"Did not expect attachment content error with attachment-level skip undefined, got: {errs}",
         )
 
+    def test_null_mako_value_is_reported_not_raised(self):
+        # MakoTemplate raises RuntimeException on a non-string, which used to
+        # escape as an unhandled error and end the whole run.
+        for key in ("question", "subquestion"):
+            with self.subTest(key=key):
+                source = f"id: q\nquestion: Hi\n{key}:\nfields:\n  - Name: name\n"
+                errs = find_errors_from_string(source, input_file="<string_valid>")
+                self.assertFalse(
+                    _has_code(errs, "EG111") or _has_code(errs, "EG112"),
+                    f"A null value has no Mako to report on, got: {errs}",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,62 @@
+# use jinja
+---
+include:
+{% for name in config.categories.keys() %}
+  - {{ "category_" ~ name ~ ".yml" }}
+{% endfor %}
+---
+code: |
+  selected = registry[registry.category]
+  for stage in registry.stages:
+    section = registry[stage]
+    section.output.clear()
+    attachments = make_attachments(
+      storage=section.output,
+      category=selected,
+      name=stage,
+      **registry.builders[stage],
+    )
+    section.output.extend(attachments)
+---
+question: |
+  ${question("Items", "Categories")}
+fields:
+  - label: no label
+    field: registry.category
+    input type: radio
+    code: |
+      registry.available() + ([{"extra": "Extra option"}] if registry.include_extra else [])
+  - note: |
+      % if registry.has_saved_data:
+      <span class="text-body-secondary">Saved information is available.</span>
+      % endif
+---
+question: |
+  ${question(registry.labels[registry.category], "Selection")}
+fields:
+  - label: Commonly used sets
+    field: registry.selected_bundle
+    label above field: True
+    code: |
+      [*registry.bundle_builder.keys()]
+    required: False
+  - label: Items to create
+    field: registry.selected_items
+    label above field: True
+    datatype: checkboxes
+    code: |
+      registry.single_builder
+script: |
+  var builders = ${json.dumps(registry.bundle_builder)};
+  var $field = $("#" + ${json.dumps(encode_name("registry.selected_bundle"))});
+  $field.on("change", function() {
+      var selected = val("registry.selected_items");
+      selected.forEach(function(item) {
+        setField("registry.selected_items[" + JSON.stringify(item) + "]", false);
+      });
+      var bundle = builders[val("registry.selected_bundle")] || [];
+      bundle.forEach(function(item) {
+        setField("registry.selected_items[" + JSON.stringify(item) + "]", true);
+      });
+  });
+---

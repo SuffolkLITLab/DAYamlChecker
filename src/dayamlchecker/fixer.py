@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+from dayamlchecker._jinja import uses_jinja
 from ruamel.yaml import YAML
 
 from dayamlchecker.accessibility import (
@@ -913,6 +914,10 @@ def plan_file(path: Path, options: FixOptions | None = None) -> FilePlan:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         plan.skipped_reason = f"could not read file: {exc}"
+        return plan
+
+    if uses_jinja(text):
+        plan.skipped_reason = "Jinja templates cannot be automatically rewritten"
         return plan
 
     documents, parse_error = _load_documents(text)

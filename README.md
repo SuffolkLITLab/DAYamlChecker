@@ -26,6 +26,93 @@ cannot safely rewrite is not itself an error, so it does not fail the run.
 python3 -m dayamlchecker --fix path/to/interview.yml
 ```
 
+## Jinja2 preprocessing
+
+Files whose first line is exactly `# use jinja` (LF, CRLF, or end of file) are
+rendered before the normal validation
+pass, following docassemble's [YAML preprocessing feature](https://docassemble.org/docs/interviews.html#jinja2).
+Expressions, loops, conditionals, macros, and local includes are supported.
+Include paths are relative to the input file's directory; includes can contain
+partial YAML blocks. Ordinary YAML files and Mako expressions are unaffected.
+
+This is an offline check: server configuration, `jinja data`, docassemble's
+special context variables, and package-qualified includes are not supplied.
+Unknown variables are treated as empty values throughout -- in arithmetic and
+comparisons, and through every built-in filter and test -- so interviews that
+use server-side Jinja context can still be checked; a branch that tests one is
+taken as if the value were empty, and only that branch is checked. An expression
+that renders to such a value is replaced with a placeholder and reported as
+`WG107`, described below. Missing imports and parent templates produce `EG106`.
+Rendering uses Jinja's sandbox and disables HTML escaping. Compilation
+and rendering run in an isolated worker with a 5-second wall timeout and 2-second
+CPU limit. Linux and other supported Unix platforms also use a 256 MiB
+address-space limit; macOS skips that limit because Darwin rejects limits below
+the process's existing virtual address space. Source and rendered output are
+limited to 4 MiB each.
+Exceeding a limit produces `EG106`. Bounded rendering requires Unix resource-limit
+support; other platforms report `EG106` rather than rendering without limits.
+Ordinary YAML checking does not require these limits.
+
+Jinja syntax and runtime errors identify the original template file and line,
+including nested local templates, so their source-level suppressions work.
+
+Missing `{% include %}` files (including unavailable package-qualified paths)
+produce warning `WG106`: the included Jinja2 document could not be verified and
+findings are partial. The checker substitutes a marker, skips each rendered YAML
+document containing that marker, and checks the remaining documents. This also
+applies to `ignore missing`; include fallback lists try all candidates first.
+Repeated execution of the same include site produces one diagnostic.
+
+Partial validation is best effort. An unavailable include may itself supply YAML
+document boundaries or Jinja definitions, so the remaining output may differ from
+the real interview. A partial-block include causes its entire containing YAML
+document to be skipped. Findings retain rendered line numbers.
+
+Expressions that depend on values only the server supplies produce warning
+`WG107`. Rather than rendering to nothing -- which would leave an empty YAML
+value, an invalid Python line, or a block with no `id`, and hide every real
+problem around it -- each one is replaced with a placeholder such as
+`dayc_unknown_1`, so the surrounding document stays parseable and is still
+checked. Each placeholder is distinct, so two unknown block ids do not look
+like duplicates of each other. The warning names the variable and points at the
+line of the original template, and one source site produces one warning however
+many times it renders.
+
+Nothing that depends on the real value is checked, so a later block that relies
+on what an earlier expression produced may be checked against the placeholder
+instead. Checks that resolve a name against the rest of the interview stay quiet
+when a placeholder is involved; anything else can be suppressed with
+`# no-dayc: WG107` on the line or `# no-dayc-block: WG107` in its source block,
+which -- like `WG106` -- refer to the original template, not the rendered YAML.
+
+Missing includes and unknown values are skipped by default and do not fail CI
+unless a warning limit such as `--max-warnings 0` is set. You can suppress the partial-validation
+warning with `# no-dayc: WG106` on the include or `# no-dayc-block: WG106` in its
+source block.
+
+Other errors, including missing imports and parent templates (`EG106`), still
+fail by default. Explicitly suppress a known dependency-related
+rendering limitation with a source-level suppression, for example:
+
+```yaml
+# use jinja
+# no-dayc-block: EG106
+{% import "external-macros.yml" as framework %}
+```
+
+Rendering errors also honor source suppressions, but a rendering failure prevents
+validation of the remaining file. Missing includes alone allow partial validation;
+suppressing their warning does not suppress errors in the remaining YAML.
+
+Findings after preprocessing name the original file but are labeled
+`(rendered Jinja)`; their line numbers and suppression comments refer to the
+rendered YAML, not the original template. `--format github` therefore annotates
+the file as a whole and reports the generated line in the message, so the
+annotation resolves without pointing at an unrelated source line. Only the
+rendered branches are checked. `--fix` skips these files because generated line
+numbers cannot safely identify source edits.
+Template-aware formatting is outside this feature's scope.
+
 ## Suppressing checks
 
 You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `general`). 

@@ -33,6 +33,7 @@ from mako.exceptions import (  # type: ignore[import-untyped]
     CompileException,
 )
 import esprima  # type: ignore[import-untyped]
+from dayamlchecker._jinja import is_unknown_jinja_value, uses_jinja
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import MarkedYAMLError
@@ -58,8 +59,6 @@ from dayamlchecker.docx_accessibility import (
 # * is "gathered" a valid attr?
 # * handle "response"
 # * labels above fields?
-# * if "# use jinja" at top, process whole file with Jinja:
-#   https://docassemble.org/docs/interviews.html#jinja2
 
 
 __all__ = [
@@ -195,7 +194,9 @@ def _apply_dayc_suppressions_from_files(findings: list[Finding]) -> list[Finding
 
     for finding in findings:
         file_name = finding.file_name
-        if not file_name or file_name.startswith("<"):
+        # A rendered-Jinja finding names a real file, but its line numbers are
+        # generated ones: re-reading that source would match the wrong lines.
+        if not file_name or file_name.startswith("<") or finding.rendered_jinja:
             filtered.append(finding)
             continue
 
@@ -334,6 +335,12 @@ class MakoText:
 
     def __init__(self, x):
         self.errors = _malformed_markdown_link_errors(x)
+        if not isinstance(x, str):
+            # A null or structured value holds no Mako to compile, and
+            # MakoTemplate raises RuntimeException rather than reporting it.
+            # `question:` with no text reaches here, as does any key whose
+            # value a Jinja server variable rendered away.
+            return
         try:
             self.template = MakoTemplate(
                 x, strict_undefined=True, input_encoding="utf-8"
@@ -768,6 +775,10 @@ class DAFields:
         def references_screen_variable(var_expr):
             if not isinstance(var_expr, str):
                 return False
+            if is_unknown_jinja_value(var_expr):
+                # A placeholder stands in for a value the server supplies, so
+                # there is no name here to resolve against this screen.
+                return True
             candidates = self._variable_candidates(var_expr)
             if any(candidate in screen_variables for candidate in candidates):
                 return True
@@ -2061,7 +2072,84 @@ def _max_screen_visibility_nesting_depth(doc: dict[str, Any]) -> int:
     return max((depth(var) for var in adjacency.keys()), default=0)
 
 
+def _apply_jinja_suppressions(
+    findings: list[Finding], source: str, input_file: str | None
+) -> list[Finding]:
+    """Jinja diagnostics refer to template source, not generated YAML."""
+    result = []
+    for finding in findings:
+        if finding.file_name == input_file:
+            result.extend(_apply_dayc_suppressions([finding], source))
+        else:
+            result.extend(_apply_dayc_suppressions_from_files([finding]))
+    return result
+
+
 def find_errors_from_string(
+    full_content: str,
+    input_file: Optional[str] = None,
+    lint_mode: str = DEFAULT_LINT_MODE,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> list[YAMLError]:
+    """Preprocess opted-in Jinja templates, then run normal YAML validation."""
+    partial_findings: list[YAMLError] = []
+    if uses_jinja(full_content):
+        from dayamlchecker._jinja import render_yaml
+
+        source_content = full_content
+        try:
+            full_content, missing_includes, unknown_values = render_yaml(
+                full_content, input_file
+            )
+        except Exception as exc:
+            # Rendering can also raise Python errors (e.g. division by zero).
+            return _apply_jinja_suppressions(
+                [
+                    make_finding(
+                        MessageId.JINJA_RENDER_ERROR,
+                        file_name=getattr(exc, "filename", None) or input_file,
+                        line_number=getattr(exc, "lineno", None),
+                        error=str(exc),
+                    )
+                ],
+                source_content,
+                input_file,
+            )
+        partial_findings = [
+            make_finding(
+                MessageId.JINJA_MISSING_INCLUDE,
+                file_name=missing.file_name or input_file,
+                line_number=missing.line_number,
+                missing=missing.description,
+            )
+            for missing in missing_includes
+        ] + [
+            make_finding(
+                MessageId.JINJA_UNKNOWN_VALUE,
+                file_name=unknown.file_name or input_file,
+                line_number=unknown.line_number,
+                name=unknown.name,
+            )
+            for unknown in unknown_values
+        ]
+        partial_findings = _apply_jinja_suppressions(
+            partial_findings, source_content, input_file
+        )
+        # Generated lines need not correspond to template lines, so mark these
+        # findings rather than renaming the file they came from: the path stays
+        # usable, while suppression and annotation stay off the source lines.
+        return partial_findings + [
+            replace(finding, rendered_jinja=True)
+            for finding in _find_errors_from_yaml(
+                full_content, input_file, lint_mode, runtime_options
+            )
+        ]
+    return partial_findings + _find_errors_from_yaml(
+        full_content, input_file, lint_mode, runtime_options
+    )
+
+
+def _find_errors_from_yaml(
     full_content: str,
     input_file: Optional[str] = None,
     lint_mode: str = DEFAULT_LINT_MODE,
@@ -2519,8 +2607,7 @@ def find_errors(
 ) -> list[YAMLError]:
     """Return list of findings found in the given input_file
 
-    If the file has Docassemble's optional Jinja2 preprocessor directive at the top,
-    it is ignored and an empty list is returned.
+    Files beginning with ``# use jinja`` are rendered before validation.
 
     Args:
         input_file (str): Path to the YAML file to check.
@@ -2530,11 +2617,6 @@ def find_errors(
     """
     with open(input_file, "r") as f:
         full_content = f.read()
-
-    if full_content[:12] == "# use jinja\n":
-        print()
-        print(f"Ah Jinja! ignoring {input_file}")
-        return []
 
     return find_errors_from_string(
         full_content,

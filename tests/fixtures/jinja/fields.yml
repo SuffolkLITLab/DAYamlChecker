@@ -1,0 +1,2 @@
+  - Like {{ fruit }}s: likes_{{ fruit }}
+    datatype: yesno

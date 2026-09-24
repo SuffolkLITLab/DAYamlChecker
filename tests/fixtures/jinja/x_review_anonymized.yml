@@ -1,0 +1,83 @@
+# use jinja
+---
+{% macro item_review(item_index, item_label) -%}
+  - fields:
+      - record.items[{{ item_index }}].name
+      - record.items[{{ item_index }}].details.revisit
+    label: Edit
+    button: |
+      ${review_button(
+        question = """Item details — {{ item_label }}""",
+        dict = {
+          """Name""": record.items[{{ item_index }}].name,
+          """Kind""": record.items[{{ item_index }}].details.kind,
+          """Enabled""": yes_or_no(record.items[{{ item_index }}].details.enabled),
+        },
+      ) + review_button(
+        subquestion = """Additional entries""",
+        list = record.items[{{ item_index }}].details.entries,
+        attributes = {
+          "value": dict(label="Value", format="currency"),
+        },
+      )}
+  - fields:
+      - record.items[{{ item_index }}].details.members.revisit
+    show if: record.items[{{ item_index }}].details.enabled
+    label: Edit
+    button: |
+      ${review_button(
+        question = """Members of {{ item_label }}""",
+        list = record.items[{{ item_index }}].details.members,
+        attributes = {
+          "role": dict(label="Role"),
+        },
+      )}
+{%- endmacro %}
+---
+{% macro section_review(section_name) -%}
+  - note: |
+      <hr><h4>{{ section_name }}</h4>
+    show if: defined("record.{{ section_name }}")
+  - fields:
+      - record.{{ section_name }}.revisit
+    label: Edit
+    button: |
+      ${review_button(
+        question = """{{ section_name }}""",
+        list = record.{{ section_name }},
+      )}
+{%- endmacro %}
+---
+breadcrumb: Review & Edit
+question: |
+  <i class="fa-solid fa-pen-to-square"></i> Review &amp; Edit answers
+review:
+  - note: |
+      <h4>Items</h4>
+    show if: record.items.item(0) or record.items.item(1)
+  {{ item_review(0, "First item") }}
+  {{ item_review(1, "Second item") }}
+  {{ section_review("summary") }}
+  - fields:
+      - record.items[0]
+    label: Edit
+    button: |
+      % for item in record.items[0]:
+      ${review_button(
+        question = f"""Entry — {item}""",
+        dict = {
+          """Value""": getattr(item, "value", ""),
+          """Visible""": yes_or_no(getattr(item, "visible", False)),
+        },
+      )}
+      % endfor
+  - fields:
+      - record.items[1].details.choice
+    show if: record.items.item(1) and record.items[1].details.choice
+    label: Edit
+    button: |
+      ${review_button(
+        question = """Selected option""",
+        value = record.items[1].details.choice,
+      )}
+---
