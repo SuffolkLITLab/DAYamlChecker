@@ -3,6 +3,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+
 import dayamlchecker
 import dayamlchecker.style as style_module
 from dayamlchecker.messages import FindingClass, MessageId, Severity
@@ -770,3 +772,173 @@ def test_style_checks_report_binary_only_gender_choices():
     assert any(
         finding.message_id == MessageId.STYLE_GENDER_BINARY_ONLY for finding in findings
     )
+
+
+def test_overlong_question_label_not_flagged_when_branches_individually_under_threshold():
+    # Naïve concatenation would be ~180 chars, but each branch is ~50-60 chars.
+    yaml_text = (
+        "question: |\n"
+        "  % if user_is_defendant:\n"
+        "  Are you asking the court to dismiss the case against you?\n"
+        "  % elif user_is_plaintiff:\n"
+        "  Are you asking the court to rule in your favor on the complaint?\n"
+        "  % else:\n"
+        "  Are you the party seeking relief in this matter?\n"
+        "  % endif\n"
+        "field: confirm_party\n"
+    )
+
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    message_ids = {finding.message_id for finding in findings}
+    assert MessageId.STYLE_OVERLONG_QUESTION_LABEL not in message_ids
+
+
+def test_overlong_question_label_flagged_when_single_branch_exceeds_threshold():
+    # One branch is clearly over 120 characters on its own.
+    yaml_text = (
+        "question: |\n"
+        "  % if user_is_defendant:\n"
+        "  Are you asking the court to dismiss this case against you given all of the detailed evidence that has been presented so far?\n"
+        "  % else:\n"
+        "  Short question?\n"
+        "  % endif\n"
+        "field: dismiss_case\n"
+    )
+
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    message_ids = {finding.message_id for finding in findings}
+    assert MessageId.STYLE_OVERLONG_QUESTION_LABEL in message_ids
+
+
+def test_overlong_question_label_evaluates_prefix_branch_and_suffix():
+    # Prefix (53) + branch (70) + suffix (1) = ~124 chars (>120), so it should be flagged.
+    yaml_text = (
+        "question: |\n"
+        "  What is your spouse's monthly income from all sources\n"
+        "  % if is_spouse_employed:\n"
+        "  including all gross employment earnings and any ongoing freelance work\n"
+        "  % else:\n"
+        "  from pensions or disability\n"
+        "  % endif\n"
+        "  ?\n"
+        "field: spouse_income\n"
+    )
+
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    message_ids = {finding.message_id for finding in findings}
+    assert MessageId.STYLE_OVERLONG_QUESTION_LABEL in message_ids
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_title"),
+    [
+        (
+            f"% if first:\n{'A' * 65}\n% endif\n"
+            f"% if second:\n{'B' * 65}\n% endif\n",
+            f"{'A' * 65} {'B' * 65}",
+        ),
+        (
+            f"Prefix\n% if first:\n{'A' * 55}\n% else:\nShort\n% endif\n"
+            f"Middle\n% if second:\nShort\n% elif third:\n{'B' * 55}\n"
+            "% else:\nTiny\n% endif\nSuffix\n",
+            f"Prefix {'A' * 55} Middle {'B' * 55} Suffix",
+        ),
+        (
+            f"% if outer:\n{'A' * 65}\n% if inner:\n{'B' * 65}\n"
+            "% endif\n% else:\nShort\n% endif\n",
+            f"{'A' * 65} {'B' * 65}",
+        ),
+        (
+            "% if outer:\nShort\n% else:\nPrefix\n% if inner:\n"
+            f"{'A' * 65}\n% else:\nTiny\n% endif\n{'B' * 65}\n"
+            "% endif\nSuffix\n",
+            f"Prefix {'A' * 65} {'B' * 65} Suffix",
+        ),
+        (
+            f"% if outer:\n{'A' * 40}\n% if inner:\n{'B' * 40}\n"
+            f"% else:\n{'C' * 40}\n% endif\n% else:\n{'D' * 90}\n% endif\n",
+            "D" * 90,
+        ),
+        (
+            f"% if first:\n{'A' * 60}\n% else:\nShort\n% endif\n"
+            f"% if second:\n\n% else:\n{'B' * 59}\n% endif\n",
+            f"{'A' * 60} {'B' * 59}",
+        ),
+        (
+            "% if outer:\n% if inner:\n\n% else:\n\n% endif\n"
+            "% else:\n\n% endif\nSuffix\n",
+            "Suffix",
+        ),
+    ],
+    ids=[
+        "sequential-if",
+        "sequential-alternatives-with-shared-text",
+        "nested-if",
+        "nested-else-with-shared-text",
+        "nested-alternatives-remain-exclusive",
+        "sequential-at-threshold",
+        "empty-nested-branches",
+    ],
+)
+def test_overlong_question_label_preserves_conditional_structure(
+    question, expected_title
+):
+    length, candidate = style_module._question_longest_line(question)
+    assert length == len(expected_title)
+    assert style_module._plain_text(candidate) == expected_title
+
+    yaml_text = (
+        "question: |\n"
+        + "".join(f"  {line}\n" for line in question.splitlines())
+        + "field: dummy_field\n"
+    )
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    message_ids = {finding.message_id for finding in findings}
+    assert (MessageId.STYLE_OVERLONG_QUESTION_LABEL in message_ids) == (
+        len(expected_title) > 120
+    )
+
+
+def test_overlong_question_label_assumes_mako_variable_adds_about_eight_chars():
+    # 115 chars of text + 1 mako variable (assumed ~8 chars) = ~123 chars > 120.
+    prefix = "A" * 115
+    yaml_over = f"question: {prefix} ${{ user_name }}\n" "field: dummy_field\n"
+    findings_over = find_errors_from_string(
+        yaml_over,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    assert MessageId.STYLE_OVERLONG_QUESTION_LABEL in {
+        f.message_id for f in findings_over
+    }
+
+    # 110 chars of text + 1 mako variable (assumed ~8 chars) = ~118 chars <= 120.
+    prefix_ok = "A" * 110
+    yaml_ok = f"question: {prefix_ok} ${{ user_name }}\n" "field: dummy_field\n"
+    findings_ok = find_errors_from_string(
+        yaml_ok,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    assert MessageId.STYLE_OVERLONG_QUESTION_LABEL not in {
+        f.message_id for f in findings_ok
+    }

@@ -30,6 +30,8 @@ _DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 _MAKO_EXPR_RE = re.compile(r"\$\{.*?\}", re.DOTALL)
 _MAKO_BLOCK_RE = re.compile(r"<%[\s\S]*?%>")
 _MAKO_CONTROL_RE = re.compile(r"(?m)^\s*%.*$")
+# Matches lines that introduce a new Mako branch (if/elif/else) or close one (endif).
+_MAKO_BRANCH_SPLIT_RE = re.compile(r"(?m)^[ \t]*%\s*(if|elif|else|endif)\b.*$")
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -662,8 +664,10 @@ def _check_compound_questions(
 def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
-        question = _plain_text(_stringify(parsed_doc.doc.get("question")))
-        if len(question) > 120:
+        raw_question = _stringify(parsed_doc.doc.get("question"))
+        effective_len, longest_candidate = _question_longest_line(raw_question)
+        if effective_len > 120:
+            question = _plain_text(longest_candidate)
             findings.append(
                 _style_draft(
                     MessageId.STYLE_OVERLONG_QUESTION_LABEL,
@@ -1706,9 +1710,10 @@ def _variable_name_matches(left: str, right: str) -> bool:
     return left_text.split(".")[0] == right_text.split(".")[0]
 
 
-def _plain_text(text: str) -> str:
-    rendered = _strip_mako(text)
-    rendered = _FILE_TAG_RE.sub(" ", rendered)
+def _apply_plain_text_transforms(text: str) -> str:
+    """Apply markdown / HTML stripping transforms shared by _plain_text and the
+    branch-length helper (everything except _strip_mako itself)."""
+    rendered = _FILE_TAG_RE.sub(" ", text)
     rendered = _MARKDOWN_IMAGE_RE.sub(r" \1 ", rendered)
     rendered = _MARKDOWN_LINK_RE.sub(r" \1 ", rendered)
     rendered = _MARKDOWN_CODE_RE.sub(r" \1 ", rendered)
@@ -1719,11 +1724,79 @@ def _plain_text(text: str) -> str:
     return re.sub(r"\s+", " ", rendered).strip()
 
 
+def _plain_text(text: str) -> str:
+    return _apply_plain_text_transforms(_strip_mako(text))
+
+
 def _strip_mako(text: str) -> str:
     rendered = _MAKO_BLOCK_RE.sub(" ", text)
     rendered = _MAKO_EXPR_RE.sub(" ", rendered)
     rendered = _MAKO_CONTROL_RE.sub(" ", rendered)
     return rendered
+
+
+_MAKO_EXPR_PLACEHOLDER = "x" * 8  # assume a Mako expression renders to ~8 chars
+
+
+def _question_longest_line(raw: str) -> tuple[int, str]:
+    """Evaluate the effective length and candidate text of a question title.
+
+    Select the longest alternative within each Mako if/elif/else conditional.
+    Preserve nested conditionals and combine sequential conditionals with the
+    surrounding text, so fragments that can render together count toward the
+    same title without summing mutually exclusive alternatives.
+
+    Mako ``${}`` expressions are replaced by a fixed-width placeholder (~8 chars)
+    instead of a single space so that variable-interpolated titles are not
+    under-counted.
+    """
+
+    def effective_length(candidate: str) -> int:
+        text = _MAKO_BLOCK_RE.sub(" ", candidate)
+        text = _MAKO_EXPR_RE.sub(_MAKO_EXPR_PLACEHOLDER, text)
+        text = _MAKO_CONTROL_RE.sub(" ", text)
+        return len(_apply_plain_text_transforms(text))
+
+    # Remove code blocks before splitting so control-like lines inside Python
+    # code do not affect the visible title's conditional structure.
+    parts = _MAKO_BRANCH_SPLIT_RE.split(_MAKO_BLOCK_RE.sub(" ", raw))
+    if len(parts) == 1:
+        return effective_length(raw), raw
+
+    fragments = [parts[0]]
+    # Each frame holds the enclosing fragments and completed alternatives of
+    # this conditional. A nested endif resumes its immediate enclosing branch.
+    stack: list[tuple[list[str], list[str]]] = []
+    for i in range(1, len(parts), 2):
+        kw = parts[i]
+        body = parts[i + 1]
+        if kw == "if":
+            stack.append((fragments, []))
+            fragments = [body]
+        else:
+            if not stack:
+                return effective_length(raw), raw
+            parent, alternatives = stack[-1]
+            alternatives.append("".join(fragments))
+            if kw == "endif":
+                stack.pop()
+                parent.append(max(alternatives, key=effective_length))
+                parent.append(body)
+                fragments = parent
+            else:
+                fragments = [body]
+
+    if stack:
+        # Incomplete conditionals should not silently discard title fragments.
+        return effective_length(raw), raw
+
+    candidate = "".join(fragments)
+    return effective_length(candidate), candidate
+
+
+def _question_label_length(raw: str) -> int:
+    """Return the effective length of a question label for the overlong-label check."""
+    return _question_longest_line(raw)[0]
 
 
 def _stringify(item: Any) -> str:
