@@ -262,6 +262,8 @@ class MessageId(StrEnum):
     # Preserve the historical message ID for API consumers and suppressions.
     TRANSLATABILITY_COMPLEX_CONTRACTION = "style_contraction"
     STYLE_FIELD_COUNT_UNCERTAIN = "style_field_count_uncertain"
+    STYLE_EXIT_COVERAGE_UNCERTAIN = "style_exit_coverage_uncertain"
+    STYLE_THEME_COVERAGE_UNCERTAIN = "style_theme_coverage_uncertain"
     STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
     STYLE_FIELD_LABEL_INSTRUCTION_VERB = "style_field_label_instruction_verb"
     STYLE_TITLE_CASE_LABEL = "style_title_case_label"
@@ -1442,7 +1444,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Root interview may be missing a custom theme",
         template=(
-            "metadata suggests a root interview file, but no explicit custom theme or CSS dependency was detected"
+            "a custom theme was requested, but no explicit theme or CSS dependency was detected"
         ),
     ),
     MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS: MessageDefinition(
@@ -1492,6 +1494,20 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Conditional or generated input count needs review",
         template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
+    ),
+    MessageId.STYLE_EXIT_COVERAGE_UNCERTAIN: MessageDefinition(
+        code="IS743",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Eligibility exit coverage could not be verified",
+        template="eligibility screening was detected but no clear rejection screen was found in available source; unresolved includes may provide one, so verify them before adding an exit screen",
+    ),
+    MessageId.STYLE_THEME_COVERAGE_UNCERTAIN: MessageDefinition(
+        code="IS744",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Required theme coverage could not be verified",
+        template="a custom theme was requested, but none was found in available source; inspect unresolved includes for a theme or CSS dependency",
     ),
     MessageId.STYLE_SLASH_ALTERNATIVE: MessageDefinition(
         code="WS728",

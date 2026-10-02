@@ -10,7 +10,9 @@ def codes(source, *, path=None, theme=False):
         for finding in find_errors_from_string(
             source,
             input_file=str(path) if path else "<string input>",
-            runtime_options=RuntimeOptions(style_enabled=True),
+            runtime_options=RuntimeOptions(
+                style_enabled=True, style_require_custom_theme=theme
+            ),
         )
     }
 
@@ -87,6 +89,19 @@ def test_formatted_prose_still_has_length_limits():
     assert "IS741" not in codes(paragraphs)
     assert "WS719" not in codes(paragraphs)
     assert "WS719" in codes(source + "  * " + "word " * 125 + "\n")
+
+
+def test_unknown_includes_are_visible_but_known_positive_evidence_wins(tmp_path):
+    source = "metadata:\n  title: Example\n  can_I_use_this_form: Only eligible people\n---\ninclude:\n  - missing-theme.yml\n"
+    path = tmp_path / "main.yml"
+    assert {"IS743", "IS744"}.issubset(codes(source, path=path, theme=True))
+    complete = (
+        source
+        + "---\nfeatures:\n  css: styles.css\n---\nquestion: You do not qualify\nbuttons:\n  - Exit: exit\n"
+    )
+    assert {"IS721", "IS722", "IS743", "IS744"}.isdisjoint(
+        codes(complete, path=path, theme=True)
+    )
 
 
 def test_address_exception_still_preserves_overload_signal():

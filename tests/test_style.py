@@ -601,7 +601,9 @@ def test_style_checks_report_missing_theme_and_review_edits():
     findings = find_errors_from_string(
         yaml_text,
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_require_custom_theme=True
+        ),
     )
 
     message_ids = {finding.message_id for finding in findings}
@@ -617,7 +619,9 @@ def test_style_theme_rule_allows_explicit_theme_configuration():
         "features:\n"
         "  bootstrap theme: example-theme.css\n",
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_require_custom_theme=True
+        ),
     )
 
     assert all(

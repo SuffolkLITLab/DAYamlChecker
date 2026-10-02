@@ -15,7 +15,9 @@ def codes(source: str, *, path: Path | None = None, theme: bool = False) -> set[
         for finding in find_errors_from_string(
             source,
             input_file=str(path) if path else "<string input>",
-            runtime_options=RuntimeOptions(style_enabled=True),
+            runtime_options=RuntimeOptions(
+                style_enabled=True, style_require_custom_theme=theme
+            ),
         )
     }
 
@@ -267,6 +269,39 @@ def test_formatting_only_ternaries_are_allowed_but_language_alternatives_warn():
     )
 
 
+def test_theme_requirement_is_optional_and_features_css_is_recognized():
+    source = "metadata:\n  title: Example\n---\nquestion: Hello\nfield: answer\n"
+    assert "IS722" not in codes(source)
+    assert "IS722" in codes(source, theme=True)
+    assert "IS722" not in codes(
+        source + "---\nfeatures:\n  css:\n    - styles.css\n", theme=True
+    )
+
+
+def test_include_evidence_and_unresolved_dependencies(tmp_path):
+    source = "metadata:\n  title: Example\n  can_I_use_this_form: Only qualified people\n---\ninclude:\n  - shared.yml\n"
+    path = tmp_path / "main.yml"
+    path.write_text(source)
+    (tmp_path / "shared.yml").write_text(
+        "features:\n  css: styles.css\n---\nquestion: You do not qualify\nbuttons:\n  - Exit: exit\n"
+    )
+    assert {"IS721", "IS722"}.isdisjoint(codes(source, path=path, theme=True))
+    (tmp_path / "shared.yml").write_text("question: Hello\nfield: answer\n")
+    assert {"IS721", "IS722"}.issubset(codes(source, path=path, theme=True))
+    assert {"IS721", "IS722"}.isdisjoint(
+        codes(source.replace("shared.yml", "missing.yml"), path=path, theme=True)
+    )
+
+
+def test_eligibility_exit_controls_and_negative_qualify_text_are_recognized():
+    source = "question: Can I use this form?\nbuttons:\n  - Exit: exit\n"
+    assert "IS721" not in codes(source)
+    assert "IS721" in codes("question: Are you eligible?\nfield: answer\n")
+    assert "IS721" not in codes(
+        "question: Are you eligible?\nfield: answer\n---\nquestion: You don't qualify\nfield: rejected\n"
+    )
+
+
 def test_capitalized_heading_key_keeps_its_source_line():
     findings = find_errors_from_string(
         "id: long_heading\nmandatory: True\nQuestion: "
@@ -300,3 +335,18 @@ def test_paired_acronyms_are_allowed_but_and_or_stays_flagged():
     assert "WS728" not in codes("question: Do you work with DOR/CSE?\nfield: answer\n")
     assert "WS728" in codes("question: Do you rent and/or own?\nfield: answer\n")
     assert "WS728" in codes("question: Do you rent AND/OR own?\nfield: answer\n")
+
+
+def test_theme_cli_flag_implies_style(tmp_path, capsys):
+    path = tmp_path / "main.yml"
+    path.write_text(
+        "metadata:\n  title: Example\n---\nquestion: Hello\nfield: answer\n"
+    )
+    main(
+        [
+            str(path),
+            "--style-require-custom-theme",
+            "--no-url-check",
+        ]
+    )
+    assert "is722" in capsys.readouterr().out.lower()

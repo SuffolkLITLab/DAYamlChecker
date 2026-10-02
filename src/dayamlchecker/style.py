@@ -222,6 +222,7 @@ class TextEntry:
 class StyleLintOptions:
     enabled: bool = False
     include_llm: bool = False
+    require_custom_theme: bool = False
     openai_base_url: str | None = None
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -275,6 +276,7 @@ def find_style_findings(
         for doc in docs
     ]
     deterministic: list[Finding] = []
+    evidence_docs, includes_resolved = _include_evidence(parsed_docs, input_file)
 
     for check in (
         _check_choices_without_invariant_values,
@@ -301,8 +303,6 @@ def find_style_findings(
         _check_wall_of_text,
         _check_question_level_help,
         _check_missing_help_on_complex_screens,
-        _check_exit_criteria_and_screen,
-        _check_theme_usage,
         _check_review_screen_editability,
         _check_prefer_person_objects,
     ):
@@ -310,6 +310,33 @@ def find_style_findings(
             finding.to_finding(file_name=input_file or "<string input>")
             for finding in check(parsed_docs)
         )
+
+    file_checks = _check_exit_criteria_and_screen(evidence_docs)
+    if not includes_resolved and file_checks:
+        file_checks = [
+            _style_draft(
+                MessageId.STYLE_EXIT_COVERAGE_UNCERTAIN,
+                line_number=parsed_docs[0].default_line(),
+                screen_id=parsed_docs[0].screen_id,
+            )
+        ]
+    if resolved_options.require_custom_theme and any(
+        isinstance(doc.doc.get("metadata"), dict) for doc in parsed_docs
+    ):
+        theme_checks = _check_theme_usage(evidence_docs)
+        if not includes_resolved and theme_checks:
+            theme_checks = [
+                _style_draft(
+                    MessageId.STYLE_THEME_COVERAGE_UNCERTAIN,
+                    line_number=parsed_docs[0].default_line(),
+                    screen_id=parsed_docs[0].screen_id,
+                )
+            ]
+        file_checks.extend(theme_checks)
+    deterministic.extend(
+        finding.to_finding(file_name=input_file or "<string input>")
+        for finding in file_checks
+    )
 
     if not resolved_options.llm_enabled():
         return _dedupe_findings(deterministic)
@@ -1451,10 +1478,19 @@ def _check_exit_criteria_and_screen(
                 "may not be able",
                 "cannot help",
                 "can't help",
+                "don't qualify",
+                "do not qualify",
+                "not for you",
                 "wrong form",
                 "stop here",
-                "exit",
             )
+        ):
+            return []
+        if re.search(
+            r"\b(?:eligib|qualif|can i use|right form|screening)", combined
+        ) and any(
+            isinstance(button, dict) and "exit" in button.values()
+            for button in parsed_doc.doc.get("buttons", [])
         ):
             return []
     line_number = docs[0].default_line() if docs else 1
@@ -1475,26 +1511,18 @@ def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft
     ]
     if not metadata_docs:
         return []
-    theme_references: set[str] = set()
     for parsed_doc in docs:
-        include_value = parsed_doc.doc.get("include")
-        theme_references.update(_iter_include_values(include_value))
-        css_value = _stringify(parsed_doc.doc.get("css")).strip().lower()
-        if css_value:
-            theme_references.add(css_value)
+        if parsed_doc.doc.get("css"):
+            return []
         features = parsed_doc.doc.get("features")
         if isinstance(features, dict):
+            if features.get("css"):
+                return []
             bootstrap_theme = (
                 _stringify(features.get("bootstrap theme")).strip().lower()
             )
             if bootstrap_theme:
-                theme_references.add(bootstrap_theme)
-    if any(
-        marker in reference
-        for reference in theme_references
-        for marker in ("theme", "css", "bootstrap")
-    ):
-        return []
+                return []
     metadata_doc = metadata_docs[0]
     return [
         _style_draft(
@@ -2116,16 +2144,112 @@ def _find_metadata(docs: list[ParsedInterviewDocument]) -> dict[str, Any]:
     return metadata
 
 
-def _iter_include_values(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [_stringify(value).strip().lower()]
-    if isinstance(value, list):
-        return [
-            _stringify(item).strip().lower()
-            for item in value
-            if _stringify(item).strip()
-        ]
-    return []
+def _include_evidence(
+    docs: list[ParsedInterviewDocument], input_file: str | None
+) -> tuple[list[ParsedInterviewDocument], bool]:
+    """Read local include dependencies for absence and review-control checks.
+
+    Missing, dynamic, malformed, or excessively deep dependencies make absence
+    unknown. Include contents never execute and never acquire findings attributed
+    to the entrypoint. Keep entrypoint documents first for diagnostic locations.
+    """
+    evidence = list(docs)
+    visited: set[Path] = set()
+    complete = True
+    start = (
+        Path(input_file).resolve()
+        if input_file and Path(input_file).is_file()
+        else None
+    )
+    if start:
+        visited.add(start)
+
+    def visit(
+        current: list[ParsedInterviewDocument], source: Path | None, depth: int
+    ) -> None:
+        nonlocal complete
+        for parsed in current:
+            includes = parsed.doc.get("include")
+            if includes is None:
+                continue
+            values = [includes] if isinstance(includes, str) else includes
+            if not isinstance(values, list):
+                complete = False
+                continue
+            for reference in values:
+                if (
+                    not isinstance(reference, str)
+                    or source is None
+                    or depth >= 20
+                    or len(visited) >= 64
+                ):
+                    complete = False
+                    continue
+                candidates: list[Path] = []
+                if ":" in reference:
+                    package, filename = reference.split(":", 1)
+                    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
+                        complete = False
+                        continue
+                    name = package.split(".")[1]
+                    for ancestor in source.parents:
+                        candidates.append(
+                            ancestor
+                            / "docassemble"
+                            / name
+                            / "data"
+                            / "questions"
+                            / filename
+                        )
+                        candidates.append(
+                            ancestor
+                            / ("docassemble-" + name)
+                            / "docassemble"
+                            / name
+                            / "data"
+                            / "questions"
+                            / filename
+                        )
+                else:
+                    candidates.append(source.parent / reference)
+                target = next(
+                    (
+                        candidate.resolve()
+                        for candidate in candidates
+                        if candidate.is_file()
+                    ),
+                    None,
+                )
+                if target is None:
+                    complete = False
+                    continue
+                if target in visited:
+                    continue
+                visited.add(target)
+                try:
+                    loaded = list(
+                        YAML(typ="safe").load_all(
+                            target.read_text(encoding="utf-8").replace("\t", "  ")
+                        )
+                    )
+                except (OSError, ValueError, UnicodeError, YAMLError):
+                    complete = False
+                    continue
+                dependency_docs = [
+                    ParsedInterviewDocument(
+                        doc={str(key).lower(): value for key, value in item.items()},
+                        source_code="",
+                        document_start_line=1,
+                        index=i,
+                    )
+                    for i, item in enumerate(loaded)
+                    if isinstance(item, dict)
+                ]
+                evidence.extend(dependency_docs)
+                visit(dependency_docs, target, depth + 1)
+
+    visit(docs, start, 0)
+    return evidence, complete
 
 
 def _is_review_screen(parsed_doc: ParsedInterviewDocument) -> bool:
