@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from dayamlchecker.messages import FindingClass, MessageId
+from dayamlchecker.style import _longest_prose_span
 from dayamlchecker.yaml_structure import RuntimeOptions, find_errors_from_string, main
 
 
@@ -81,6 +82,89 @@ def test_unsafe_plain_language_mappings_are_removed():
     )
 
 
+def test_field_label_measures_visible_conditional_alternatives_and_links():
+    source = "question: Choose\nfields:\n  - label: |\n      % if person_answering == 'helper':\n      What is the tenant's name?\n      % elif person_answering == 'attorney':\n      What is your client's name?\n      % else:\n      What is your name?\n      % endif\n    field: answer\n"
+    assert "WS717" not in codes(source)
+    assert "WS717" not in codes(
+        f"question: Choose\nfields:\n  - label: '[Court website](https://example.com/{'x' * 150})'\n    field: answer\n"
+    )
+    assert "WS717" in codes(
+        f"question: Choose\nfields:\n  - label: {'Long ' * 20}\n    field: answer\n"
+    )
+
+
+def test_long_sentence_in_shorter_branch_is_retained():
+    source = (
+        "% if option:\n"
+        + "Short sentence. " * 15
+        + "\n% else:\n"
+        + "word " * 24
+        + ".\n% endif\n"
+    )
+    count, snippet = _longest_prose_span(source, sentences=True)
+    assert count == 24
+    assert snippet.count("word") == 24
+
+
+def test_sequential_and_nested_conditional_prose_spans():
+    source = (
+        "word " * 5
+        + "\n% if option:\n% if another:\n"
+        + "word " * 10
+        + "\n% else:\nword\n% endif\n% else:\nword\n% endif\n% if third:\n"
+        + "word " * 10
+        + "\n% endif\n."
+    )
+    assert _longest_prose_span(source, sentences=True)[0] == 25
+    assert _longest_prose_span(source, sentences=False)[0] == 25
+
+
+def test_paragraphs_and_lists_do_not_concatenate_into_sentences_or_walls():
+    short = "word " * 15
+    source = f"question: Read\nsubquestion: |\n  {short}\n\n  {short}.\n\n" + "".join(
+        f"  {i}. {short}\n" for i in range(1, 12)
+    )
+    assert {"WS714", "WS719"}.isdisjoint(codes(source))
+
+
+def test_soft_wrapped_and_genuinely_long_paragraphs_still_warn():
+    source = (
+        "question: Read\nsubquestion: |\n  "
+        + "word " * 12
+        + "\n  "
+        + "word " * 12
+        + ".\n"
+    )
+    assert "WS714" in codes(source)
+    source = (
+        "question: Read\nsubquestion: |\n  "
+        + "word " * 125
+        + ".\n\n  - A short list item.\n"
+    )
+    assert "WS719" in codes(source)
+
+
+def test_html_lists_and_table_rows_form_prose_boundaries():
+    items = "".join("<li>" + "word " * 15 + "</li>" for _ in range(12))
+    assert "WS719" not in codes(
+        "question: Read\nsubquestion: '<ul>" + items + "</ul>'\n"
+    )
+    assert (
+        _longest_prose_span("<p>" + "word " * 125 + "</p>", sentences=False)[0] == 125
+    )
+
+
+def test_conditional_control_and_table_boundaries_are_not_sentence_fragments():
+    source = "question: Read\nsubquestion: |\n  % if first:\n  This is complete.\n  % endif\n  % if second:\n  This is also complete.\n  % endif\n"
+    assert "WT704" not in codes(source)
+    assert "WT704" not in codes(
+        "question: Read\nsubquestion: |\n  |Name|Value|\n  % if second:\n  |Joe|One|\n  % endif\n"
+    )
+    assert "WT704" in codes(
+        "question: |\n  What is\n  % if helper:\n  the tenant's\n  % else:\n  your\n  % endif\n  name?\nfield: answer\n"
+    )
+
+
 @pytest.mark.parametrize(
     "question", ["${ heading }", "![Organization logo](logo.png)", "A real heading"]
 )
@@ -120,3 +204,27 @@ def test_capitalized_heading_key_keeps_its_source_line():
     )
     finding = next(f for f in findings if f.code == "WS716")
     assert finding.line_number == 3
+
+
+def test_single_role_selection_and_explanatory_sentences_are_not_compound_questions():
+    assert "IS715" not in codes(
+        "question: Are you an attorney or are you filling this out yourself?\nfield: answer\n"
+    )
+    assert "IS715" not in codes(
+        "question: Do you need help?\nsubquestion: Explain when and how you need help.\nfield: answer\n"
+    )
+    assert "IS715" in codes(
+        "question: Do you rent and do you have a lease?\nfield: answer\n"
+    )
+    assert "IS715" not in codes(
+        "question: Do you and ${ partner } have the same address?\nfield: answer\n"
+    )
+    assert "IS715" not in codes(
+        "question: Do you understand that this lasts 90 days and can be extended?\nfield: answer\n"
+    )
+
+
+def test_paired_acronyms_are_allowed_but_and_or_stays_flagged():
+    assert "WS728" not in codes("question: Do you work with DOR/CSE?\nfield: answer\n")
+    assert "WS728" in codes("question: Do you rent and/or own?\nfield: answer\n")
+    assert "WS728" in codes("question: Do you rent AND/OR own?\nfield: answer\n")

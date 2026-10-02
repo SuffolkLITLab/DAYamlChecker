@@ -47,9 +47,9 @@ _FILE_TAG_RE = re.compile(
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]")
 _WORD_RE = re.compile(r"\b\w+\b")
 _COMPOUND_QUESTION_RE = re.compile(
-    r"\b(?:and|or)\s+"
-    r"(?:who|what|when|where|why|how|do|does|did|is|are|am|was|were|"
-    r"can|could|will|would|should|have|has|had)\b",
+    r"\b(?:and|or)\s+(?:who|what|when|where|why|how|"
+    r"(?:do|does|did|is|are|am|was|were|can|could|will|would|should|have|has|had)"
+    r"\s+(?:you|we|they|he|she|it|i))\b",
     re.IGNORECASE,
 )
 _NEGATIVE_CONTRACTIONS = {
@@ -494,8 +494,12 @@ def _find_conditional_sentence_fragment(text: str) -> str | None:
 
 
 def _is_sentence_fragment_context(before: str, after: str) -> bool:
+    if re.match(r"^%", before):
+        before = ""
+    if re.match(r"^%", after):
+        after = ""
     before_is_markdown_boundary = bool(
-        re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", before)
+        re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\||<(?:tr|td|li)\b)", before)
     )
     if (
         before
@@ -506,7 +510,9 @@ def _is_sentence_fragment_context(before: str, after: str) -> bool:
     after_with_expressions = _MAKO_EXPR_RE.sub("value", after)
     return bool(
         after
-        and not re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", after)
+        and not re.match(
+            r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\||<(?:tr|td|li)\b)", after
+        )
         and re.match(r"^[a-z0-9]", _plain_text(after_with_expressions).lstrip())
     )
 
@@ -653,6 +659,10 @@ def _check_slash_alternatives(
             matched = match.group(0)
             if matched.lower() in _ALLOWED_SLASH_ALTERNATIVES:
                 continue
+            if matched.lower() != "and/or" and all(
+                part.isupper() and 2 <= len(part) <= 6 for part in matched.split("/")
+            ):
+                continue
             if _looks_like_url_path_fragment(plain, match.start(), match.end()):
                 continue
             findings.append(
@@ -695,10 +705,8 @@ def _check_variable_conventions(
 def _check_long_sentences(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for entry in _user_facing_text_entries(docs):
-        plain = _plain_text(entry.text)
-        for sentence in _SENTENCE_RE.findall(plain):
-            if len(_WORD_RE.findall(sentence)) <= 20:
-                continue
+        word_count, sentence = _longest_prose_span(entry.text, sentences=True)
+        if word_count > 20:
             findings.append(
                 _style_draft(
                     MessageId.STYLE_LONG_SENTENCE,
@@ -708,7 +716,6 @@ def _check_long_sentences(docs: list[ParsedInterviewDocument]) -> list[FindingDr
                     snippet=_shorten(sentence),
                 )
             )
-            break
     return findings
 
 
@@ -717,10 +724,21 @@ def _check_compound_questions(
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for entry in _question_text_entries(docs):
-        plain = _plain_text(entry.text).lower()
+        plain = _plain_text(_MAKO_EXPR_RE.sub("value", entry.text)).lower()
         if "?" not in plain:
             continue
-        if "and/or" not in plain and not _COMPOUND_QUESTION_RE.search(plain):
+        offending = next(
+            (
+                sentence
+                for sentence in _SENTENCE_RE.findall(plain)
+                if sentence.endswith("?")
+                and (match := _COMPOUND_QUESTION_RE.search(sentence))
+                and re.search(r"[a-z]", sentence[: match.start()])
+                and not _is_single_answer_alternative(sentence)
+            ),
+            None,
+        )
+        if offending is None:
             continue
         findings.append(
             _style_draft(
@@ -728,10 +746,39 @@ def _check_compound_questions(
                 line_number=entry.line_number,
                 screen_id=entry.screen_id,
                 location=entry.location,
-                snippet=_shorten(_plain_text(entry.text)),
+                snippet=_shorten(offending),
             )
         )
     return findings
+
+
+def _is_single_answer_alternative(sentence: str) -> bool:
+    """Alternatives in participant role or action tense can share one answer."""
+    if re.search(
+        r"\b(?:did|do|does|will|would|can|could|have|has|had)\s+or\s+"
+        r"(?:did|do|does|will|would|can|could)\s+(?:you|they|we|he|she|it)\b",
+        sentence,
+    ):
+        return True
+    same_action = re.search(
+        r"\b(?:have|has|had)\s+(you|they|we|he|she|it)\s+(\w+)\s+or\s+"
+        r"(?:will|would|did|do|does|can|could)\s+\1\s+(\w+)\b",
+        sentence,
+    )
+    if same_action:
+        past, present = same_action[2], same_action[3]
+        if (
+            past in {present, present + "d", present + "ed"}
+            or {"sent": "send", "paid": "pay", "made": "make"}.get(past) == present
+        ):
+            return True
+    return bool(
+        re.search(r"\b(?:attorney|lawyer|helper)\b", sentence)
+        and re.search(r"\bor are you\b", sentence)
+        and re.search(r"\b(?:yourself|on your own behalf)\b", sentence)
+        or re.search(r"\bdid you (?:start this case|file the first forms)\b", sentence)
+        and re.search(r"\bor (?:did|are) you respond", sentence)
+    )
 
 
 def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
@@ -751,14 +798,15 @@ def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingD
             )
         for field in _iter_fields(parsed_doc.doc):
             field_label = _extract_field_label(field)
-            if len(field_label) <= 90:
+            length, candidate = _question_longest_line(field_label)
+            if length <= 90:
                 continue
             findings.append(
                 _style_draft(
                     MessageId.STYLE_OVERLONG_FIELD_LABEL,
                     line_number=parsed_doc.line_for_field(field),
                     screen_id=parsed_doc.screen_id,
-                    snippet=_shorten(field_label),
+                    snippet=_shorten(_plain_text(candidate)),
                 )
             )
             break
@@ -933,6 +981,119 @@ def _is_object_choice(value: dict[str, Any]) -> bool:
     }
 
 
+def _longest_prose_span(
+    raw: str, *, sentences: bool, total: bool = False
+) -> tuple[int, str]:
+    """Find the longest visible sentence/paragraph without enumerating renders.
+
+    At a branch join, retain the largest open span and largest completed span
+    independently. Either can witness a violation, so mutually exclusive text
+    is never added together and shorter branches' long sentences are retained.
+    Soft wraps stay together; paragraphs, lists and table rows form boundaries.
+    No Mako code or expressions are executed.
+    """
+    # State: open span, maximum completed word count, completed span text.
+    state: tuple[str, int, str] = ("", 0, "")
+    stack: list[tuple[tuple[str, int, str], list[tuple[str, int, str]], bool]] = []
+
+    def finish(
+        value: tuple[str, int, str], *, record: bool = True
+    ) -> tuple[str, int, str]:
+        if total:
+            return value
+        current, maximum, best = value
+        count = len(_WORD_RE.findall(current))
+        if record and count > maximum:
+            maximum, best = count, current.strip()
+        return "", maximum, best
+
+    text = _MAKO_BLOCK_RE.sub(" ", raw)
+    text = _MAKO_EXPR_RE.sub("value", text)
+    text = re.sub(
+        r"</?(?:p|div|ul|ol|table)\b[^>]*>", "\n\n", text, flags=re.IGNORECASE
+    )
+    text = re.sub(r"<br\b[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<h[1-6]\b[^>]*>", "\n## ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</h[1-6]\s*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(?:tr|li)\b[^>]*>", "\n- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:tr|li)\s*>", "\n\n", text, flags=re.IGNORECASE)
+    # Cells are separate reading chunks; a row of many short cells is not prose.
+    text = re.sub(r"<(?:td|th)\b[^>]*>", "\n- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:td|th)\s*>", "\n\n", text, flags=re.IGNORECASE)
+    lines: list[str] = []
+    raw_lines = text.splitlines()
+    table_active = False
+    separator = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$")
+    for index, line in enumerate(raw_lines):
+        if not re.match(r"^\s*%", line):
+            if separator.match(line) or (
+                "|" in line
+                and index + 1 < len(raw_lines)
+                and separator.match(raw_lines[index + 1])
+            ):
+                table_active = True
+            elif not line.strip() or "|" not in line:
+                table_active = False
+        if re.match(r"^\s*\|", line) or table_active and "|" in line:
+            cells = re.split(r"(?<!\\)\|", line.strip().strip("|"))
+            lines.extend("- " + cell.strip() for cell in cells)
+            lines.append("")
+        else:
+            lines.append(line)
+    for line in lines:
+        control = re.match(r"^\s*%\s*(if|elif|else|endif)\b", line)
+        if control:
+            keyword = control[1]
+            if keyword == "if":
+                stack.append((state, [], False))
+            elif stack:
+                parent, alternatives, has_else = stack[-1]
+                alternatives.append(state)
+                if keyword == "endif":
+                    stack.pop()
+                    if not has_else:
+                        alternatives.append(parent)
+                    open_state = max(
+                        alternatives, key=lambda item: len(_WORD_RE.findall(item[0]))
+                    )
+                    completed = max(alternatives, key=lambda item: item[1])
+                    state = open_state[0], completed[1], completed[2]
+                else:
+                    stack[-1] = parent, alternatives, has_else or keyword == "else"
+                    state = parent
+            continue
+        if re.match(r"^\s*%", line):
+            # Loops/control boundaries are not unfinished prose.
+            state = finish(state, record=not sentences)
+            continue
+        structured = bool(
+            re.match(r"^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|\||</?(?:tr|td|li)\b)", line)
+        )
+        if not line.strip() or structured:
+            state = finish(state, record=not sentences)
+        if structured and not sentences and (total or re.match(r"^\s*#{1,6}\s", line)):
+            continue
+        plain = _apply_plain_text_transforms(re.sub(r"^\s*\d+[.)]\s+", "", line))
+        if sentences:
+            for piece in re.split(r"([.!?])", plain):
+                state = (state[0] + " " + piece, state[1], state[2])
+                if piece in {".", "!", "?"}:
+                    state = finish(state)
+        else:
+            state = (state[0] + " " + plain, state[1], state[2])
+        # A soft-wrapped list item continues until a blank line or next item.
+        # Finishing after its first source line would miss a long wrapped item.
+        if re.match(r"^\s*#{1,6}\s", line):
+            state = finish(state, record=not sentences)
+    if stack:
+        # Malformed controls cannot prove a visible prose-length violation.
+        return 0, ""
+    if total:
+        return len(_WORD_RE.findall(state[0])), state[0].strip()
+    state = finish(state, record=not sentences)
+    return state[1], state[2]
+
+
 def _check_too_many_fields(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
@@ -954,20 +1115,15 @@ def _check_wall_of_text(docs: list[ParsedInterviewDocument]) -> list[FindingDraf
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
         subquestion = _stringify(parsed_doc.doc.get("subquestion"))
-        plain = _plain_text(subquestion)
-        word_count = len(_WORD_RE.findall(plain))
-        has_structure = bool(
-            re.search(r"(?m)^\s*[-*]\s+", subquestion)
-            or re.search(r"(?m)^\s*#{2,6}\s+", subquestion)
-        )
-        if word_count <= 120 or has_structure:
+        word_count, paragraph = _longest_prose_span(subquestion, sentences=False)
+        if word_count <= 120:
             continue
         findings.append(
             _style_draft(
                 MessageId.STYLE_WALL_OF_TEXT,
                 line_number=parsed_doc.line_for_key("subquestion"),
                 screen_id=parsed_doc.screen_id,
-                snippet=_shorten(plain),
+                snippet=_shorten(paragraph),
             )
         )
     return findings
