@@ -46,6 +46,8 @@ _FILE_TAG_RE = re.compile(
 )
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]")
 _WORD_RE = re.compile(r"\b\w+\b")
+_CONTEXTUAL_VOCABULARY = frozenset({"request", "report", "benefit", "following"})
+_VOCABULARY_TRIAGE_TERMS = _CONTEXTUAL_VOCABULARY | {"please", "select", "option"}
 _COMPOUND_QUESTION_RE = re.compile(
     r"\b(?:and|or)\s+(?:who|what|when|where|why|how|"
     r"(?:do|does|did|is|are|am|was|were|can|could|will|would|should|have|has|had)"
@@ -362,6 +364,12 @@ def find_style_findings(
         )
         return _dedupe_findings(deterministic)
 
+    deterministic = _triage_vocabulary_candidates(
+        findings=deterministic,
+        parsed_docs=parsed_docs,
+        input_file=input_file,
+        options=resolved_options,
+    )
     deterministic.extend(
         _run_llm_rules(
             parsed_docs=parsed_docs,
@@ -643,14 +651,27 @@ def _check_plain_language_replacements(
             if key in seen:
                 continue
             seen.add(key)
+            triage_context = (
+                {
+                    "vocabulary_triage_candidate": True,
+                    "vocabulary_triage_status": "not_reviewed",
+                }
+                if matched_text.lower() in _VOCABULARY_TRIAGE_TERMS
+                else {}
+            )
             findings.append(
                 _style_draft(
-                    MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT,
+                    (
+                        MessageId.STYLE_CONTEXTUAL_VOCABULARY
+                        if matched_text.lower() in _CONTEXTUAL_VOCABULARY
+                        else MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT
+                    ),
                     line_number=entry.line_number,
                     screen_id=entry.screen_id,
                     location=entry.location,
                     matched_text=matched_text,
                     replacement=_format_plain_language_replacement(replacement),
+                    **triage_context,
                 )
             )
     return findings
@@ -1780,6 +1801,190 @@ def _check_prefer_person_objects(
     ]
 
 
+def _triage_vocabulary_candidates(
+    *,
+    findings: list[Finding],
+    parsed_docs: list[ParsedInterviewDocument],
+    input_file: str | None,
+    options: StyleLintOptions,
+) -> list[Finding]:
+    """Filter only enumerated vocabulary candidates; preserve recall on failure."""
+    entries = {
+        (entry.screen_id, entry.location, entry.line_number): entry.text
+        for entry in _iter_doc_texts(parsed_docs)
+    }
+    questions = {
+        doc.screen_id: _stringify(doc.doc.get("question")) for doc in parsed_docs
+    }
+    candidates: list[dict[str, Any]] = []
+    for index, finding in enumerate(findings):
+        if not finding.context.get("vocabulary_triage_candidate"):
+            continue
+        screen_id = _stringify(finding.context.get("screen_id"))
+        location = _stringify(finding.context.get("location"))
+        if finding.line_number is None:
+            continue
+        key = (
+            screen_id,
+            location,
+            finding.line_number,
+        )
+        text = entries.get(key)
+        if text is None:
+            continue
+        candidates.append(
+            {
+                "candidate_id": f"vocabulary-{index}",
+                "index": index,
+                "term": finding.context["matched_text"],
+                "suggestion": finding.context["replacement"],
+                "screen_id": finding.context.get("screen_id"),
+                "location": finding.context.get("location"),
+                "text": _shorten(text, limit=6000) if len(text) > 6000 else text,
+                "question_template": _shorten(questions.get(screen_id, ""), limit=1200),
+                "context_truncated": len(text) > 6000
+                or len(questions.get(screen_id, "")) > 1200,
+            }
+        )
+    if not candidates:
+        return findings
+    config = _load_llm_prompt_templates().get("vocabulary_triage", {})
+    system_prompt = (
+        _stringify(config.get("system_prompt")) if isinstance(config, dict) else ""
+    )
+    if not system_prompt.strip():
+        return findings + [
+            make_finding(
+                MessageId.STYLE_LLM_REQUEST_FAILED,
+                file_name=input_file,
+                line_number=findings[candidates[0]["index"]].line_number,
+                screen_id=candidates[0]["screen_id"],
+                rule_id="vocabulary-triage",
+                detail="missing vocabulary triage prompt; candidates retained",
+            )
+        ]
+    result = list(findings)
+    dismissed: set[int] = set()
+    errors: list[Finding] = []
+    # Do not reuse the broad review's first-40-screen/800-character limit.
+    for offset in range(0, len(candidates), 20):
+        batch = candidates[offset : offset + 20]
+        payload = [
+            {key: value for key, value in candidate.items() if key != "index"}
+            for candidate in batch
+        ]
+        raw, error = _call_openai_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt="Triage every vocabulary candidate in this JSON data:\n"
+            + json.dumps(payload, ensure_ascii=False),
+            base_url=options.resolved_openai_base_url(),
+            api_key=options.resolved_openai_api_key(),
+            model=options.resolved_openai_model(),
+        )
+        decisions = (
+            _validated_vocabulary_decisions(raw, batch) if error is None else None
+        )
+        if decisions is None:
+            errors.append(
+                make_finding(
+                    MessageId.STYLE_LLM_REQUEST_FAILED,
+                    file_name=input_file,
+                    line_number=findings[batch[0]["index"]].line_number,
+                    screen_id=batch[0]["screen_id"],
+                    rule_id="vocabulary-triage",
+                    detail=error
+                    or "invalid or incomplete vocabulary triage response; candidates retained",
+                )
+            )
+            continue
+        for candidate in batch:
+            decision = decisions[candidate["candidate_id"]]
+            index = candidate["index"]
+            confident = (
+                decision["confidence"] == "high" and not candidate["context_truncated"]
+            )
+            if decision["decision"] == "dismiss" and confident:
+                dismissed.add(index)
+                continue
+            context = dict(result[index].context)
+            context["vocabulary_triage_status"] = (
+                "confirmed"
+                if decision["decision"] == "keep" and confident
+                else "uncertain"
+            )
+            context["vocabulary_triage_reason"] = decision["reason"]
+            context["vocabulary_triage_evidence"] = decision["evidence"]
+            if (
+                decision["decision"] == "keep"
+                and confident
+                and decision.get("replacement")
+            ):
+                context["replacement"] = decision["replacement"]
+            result[index] = replace(result[index], context=context)
+    return [
+        finding for index, finding in enumerate(result) if index not in dismissed
+    ] + errors
+
+
+def _validated_vocabulary_decisions(
+    raw: Any, candidates: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]] | None:
+    """Require one grounded, unambiguous decision for each candidate in the batch."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("decisions"), list):
+        return None
+    expected = {candidate["candidate_id"]: candidate for candidate in candidates}
+    decisions: dict[str, dict[str, Any]] = {}
+    for decision in raw["decisions"]:
+        if not isinstance(decision, dict):
+            return None
+        identity = decision.get("candidate_id")
+        if (
+            not isinstance(identity, str)
+            or identity not in expected
+            or identity in decisions
+        ):
+            return None
+        candidate = expected[identity]
+        if not isinstance(decision.get("decision"), str) or not isinstance(
+            decision.get("confidence"), str
+        ):
+            return None
+        if decision.get("decision") not in {
+            "keep",
+            "dismiss",
+            "uncertain",
+        } or decision.get("confidence") not in {"high", "medium", "low"}:
+            return None
+        reason, evidence = decision.get("reason"), decision.get("evidence")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or not isinstance(evidence, str)
+            or not evidence.strip()
+        ):
+            return None
+        if evidence not in candidate["text"] or not re.search(
+            rf"(?<!\w){re.escape(candidate['term'])}(?!\w)", evidence, re.IGNORECASE
+        ):
+            return None
+        if len(_WORD_RE.findall(evidence)) < min(
+            3, len(_WORD_RE.findall(candidate["text"]))
+        ):
+            return None
+        replacement = decision.get("replacement")
+        if replacement is not None and (
+            not isinstance(replacement, str) or len(replacement) > 400
+        ):
+            return None
+        decisions[identity] = decision
+    return decisions if decisions.keys() == expected.keys() else None
+
+
 def _run_llm_rules(
     *,
     parsed_docs: list[ParsedInterviewDocument],
@@ -2699,9 +2904,17 @@ def _find_plain_language_suggestions(
     occupied: list[tuple[int, int]] = []
     seen_terms: set[str] = set()
     matches: list[tuple[int, str, str]] = []
-    for _, replacement, pattern in _compiled_plain_language_patterns():
-        if len(matches) >= max_matches:
-            break
+    # Candidates get a separate, bounded budget of seven distinct terms. They
+    # must not displace stronger suggestions from the existing match budget.
+    patterns = _compiled_plain_language_patterns()
+    ordered = [p for p in patterns if p[0] not in _VOCABULARY_TRIAGE_TERMS] + [
+        p for p in patterns if p[0] in _VOCABULARY_TRIAGE_TERMS
+    ]
+    ordinary_matches = 0
+    for term, replacement, pattern in ordered:
+        contextual = term in _VOCABULARY_TRIAGE_TERMS
+        if not contextual and ordinary_matches >= max_matches:
+            continue
         for found in pattern.finditer(plain):
             span = (found.start(), found.end())
             overlaps = any(
@@ -2716,6 +2929,8 @@ def _find_plain_language_suggestions(
             seen_terms.add(seen_key)
             occupied.append(span)
             matches.append((found.start(), found.group(0), replacement))
+            if not contextual:
+                ordinary_matches += 1
             break
     matches.sort(key=lambda item: item[0])
     return [(match_text, replacement) for _, match_text, replacement in matches]

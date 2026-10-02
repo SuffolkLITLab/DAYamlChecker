@@ -242,6 +242,7 @@ class MessageId(StrEnum):
     STYLE_MISSING_SCREEN_TITLE = "style_missing_screen_title"
     STYLE_PLACEHOLDER_LANGUAGE = "style_placeholder_language"
     STYLE_PLAIN_LANGUAGE_REPLACEMENT = "style_plain_language_replacement"
+    STYLE_CONTEXTUAL_VOCABULARY = "style_contextual_vocabulary"
     STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE = "style_variable_root_not_snake_case"
     STYLE_LONG_SENTENCE = "style_long_sentence"
     STYLE_COMPOUND_QUESTION = "style_compound_question"
@@ -1495,6 +1496,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Conditional or generated input count needs review",
         template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
+    ),
+    MessageId.STYLE_CONTEXTUAL_VOCABULARY: MessageDefinition(
+        code="IS746",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Contextual word simplification candidate",
+        template="review {matched_text!r} in {location} for simpler wording if the meaning permits: {replacement}",
     ),
     MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE: MessageDefinition(
         code="IS742",
