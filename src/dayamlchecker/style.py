@@ -303,7 +303,6 @@ def find_style_findings(
         _check_wall_of_text,
         _check_question_level_help,
         _check_missing_help_on_complex_screens,
-        _check_review_screen_editability,
         _check_prefer_person_objects,
     ):
         deterministic.extend(
@@ -311,6 +310,12 @@ def find_style_findings(
             for finding in check(parsed_docs)
         )
 
+    deterministic.extend(
+        finding.to_finding(file_name=input_file or "<string input>")
+        for finding in _check_review_screen_editability(
+            parsed_docs, evidence_docs=evidence_docs
+        )
+    )
     file_checks = _check_exit_criteria_and_screen(evidence_docs)
     if not includes_resolved and file_checks:
         file_checks = [
@@ -1535,27 +1540,15 @@ def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft
 
 def _check_review_screen_editability(
     docs: list[ParsedInterviewDocument],
+    *,
+    evidence_docs: list[ParsedInterviewDocument] | None = None,
 ) -> list[FindingDraft]:
+    evidence = docs if evidence_docs is None else evidence_docs
     review_docs = [parsed_doc for parsed_doc in docs if _is_review_screen(parsed_doc)]
     if not review_docs:
         return []
 
-    editable_variables: set[str] = set()
-    for parsed_doc in review_docs:
-        editable_variables.update(_review_edit_variables(parsed_doc.doc.get("review")))
-
     findings: list[FindingDraft] = []
-    if not editable_variables:
-        review_doc = review_docs[0]
-        findings.append(
-            _style_draft(
-                MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS,
-                line_number=review_doc.default_line(),
-                screen_id=review_doc.screen_id,
-            )
-        )
-        return findings
-
     key_choice_variables = sorted(
         {
             field_var
@@ -1566,21 +1559,183 @@ def _check_review_screen_editability(
             if field_var
         }
     )
-    if key_choice_variables and not any(
-        _variable_name_matches(edit_name, key_choice)
-        for edit_name in editable_variables
-        for key_choice in key_choice_variables
-    ):
-        review_doc = review_docs[0]
-        findings.append(
-            _style_draft(
-                MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS,
-                line_number=review_doc.default_line(),
-                screen_id=review_doc.screen_id,
-                snippet=", ".join(key_choice_variables[:4]),
+    for review_doc in review_docs:
+        # A document preview normally has docassemble's built-in Back route.
+        # Only flag absence when that route is explicitly disabled. Native
+        # answer-review blocks still receive their own edit-control checks.
+        if (
+            _is_document_preview(review_doc)
+            and review_doc.doc.get("review") is None
+            and not _preview_back_is_disabled(review_doc, evidence)
+        ):
+            continue
+        editable_variables = _review_edit_variables(review_doc.doc.get("review"))
+        text = _review_text(review_doc)
+        action_targets = _review_action_targets(text)
+        editable_variables.update(action_targets)
+        widget_targets, unknown_widgets = _review_widget_targets(text, evidence)
+        editable_variables.update(widget_targets)
+        routes_unknown = bool(re.search(r"\bsection_links\s*\(", text))
+        for target in action_targets:
+            destinations = [doc for doc in evidence if doc.doc.get("event") == target]
+            for destination in destinations:
+                editable_variables.update(
+                    _review_edit_variables(destination.doc.get("review"))
+                )
+                editable_variables.update(
+                    _extract_field_variable(field)
+                    for field in _iter_fields(destination.doc)
+                )
+            if not destinations and target not in key_choice_variables:
+                routes_unknown = True
+        explicit_back = bool(
+            re.search(
+                r"\b(?:go|click|press|use)\b[^.!?\n]*\bback\b", text, re.IGNORECASE
             )
         )
+        if _is_document_preview(review_doc) and _preview_back_is_disabled(
+            review_doc, evidence
+        ):
+            explicit_back = False
+        routes_unknown = routes_unknown or explicit_back
+        generated_controls = bool(re.search(r"\.add_action\s*\(", text))
+        if not editable_variables and (
+            routes_unknown
+            or unknown_widgets
+            or generated_controls
+            and not re.search(r"\.table\b", text)
+        ):
+            # Unresolved controls alone are not evidence of a usability defect.
+            continue
+        if not editable_variables and not explicit_back:
+            findings.append(
+                _style_draft(
+                    (
+                        MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE
+                        if _is_document_preview(review_doc)
+                        and review_doc.doc.get("review") is None
+                        else MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS
+                    ),
+                    line_number=review_doc.default_line(),
+                    screen_id=review_doc.screen_id,
+                )
+            )
+        elif key_choice_variables and not any(
+            _variable_name_matches(edit_name, key_choice)
+            for edit_name in editable_variables
+            for key_choice in key_choice_variables
+        ):
+            if routes_unknown or any(
+                _variable_name_matches(prefix, key_choice)
+                for prefix in unknown_widgets
+                for key_choice in key_choice_variables
+            ):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS,
+                    line_number=review_doc.default_line(),
+                    screen_id=review_doc.screen_id,
+                    snippet=", ".join(key_choice_variables[:4]),
+                )
+            )
     return findings
+
+
+def _normalize_reference(value: str) -> str:
+    return re.sub(r"\[(?:\d+|[ijkxy])\]", "[]", value)
+
+
+def _review_widget_targets(
+    text: str, docs: list[ParsedInterviewDocument]
+) -> tuple[set[str], set[str]]:
+    """A table's presence does not establish that it permits editing."""
+    targets: set[str] = set()
+    unknown: set[str] = set()
+    for reference in re.finditer(r"[A-Za-z_][\w.\[\]'\"]*\.table\b", text):
+        table_name = reference[0]
+        call = re.match(r"\s*\.show\(([^)]*)\)", text[reference.end() :])
+        hidden_controls = bool(call and re.search(r"\beditable\s*=\s*False\b", call[1]))
+        dynamic_controls = bool(
+            call
+            and re.search(r"\beditable\s*=", call[1])
+            and not re.search(r"\beditable\s*=\s*(?:True|False)\b", call[1])
+        )
+        definitions = [
+            doc
+            for doc in docs
+            if _normalize_reference(_stringify(doc.doc.get("table")))
+            == _normalize_reference(table_name)
+        ]
+        if not definitions:
+            unknown.add(table_name[:-6])
+        for definition in definitions:
+            collection = table_name[:-6]
+            row_restrictions = bool(definition.doc.get("read only"))
+            if dynamic_controls or row_restrictions:
+                unknown.add(collection)
+            editable = not (hidden_controls or dynamic_controls or row_restrictions)
+            if (
+                editable
+                and definition.doc.get("delete buttons") is True
+                and re.search(re.escape(collection) + r"\.add_action\s*\(", text)
+            ):
+                targets.add(collection)
+            edit = definition.doc.get("edit")
+            if editable and edit is True:
+                # Native editing of scalar DAList/DADict elements.
+                targets.add(collection)
+            values = (
+                (edit if isinstance(edit, list) else [edit])
+                if editable and edit is not True
+                else []
+            )
+            for value in values:
+                if isinstance(value, str) and re.fullmatch(r"[A-Za-z_][\w.]*", value):
+                    targets.add(table_name[:-6] + "[i]." + value)
+                elif value is not None:
+                    unknown.add(table_name[:-6])
+            # Some tables provide custom cell-level edit links instead of `edit`.
+            columns = definition.doc.get("columns", [])
+            for column in columns if isinstance(columns, list) else []:
+                if not isinstance(column, dict):
+                    continue
+                for content in column.values():
+                    if not isinstance(content, str):
+                        continue
+                    for target in _review_action_targets(content):
+                        targets.add(target)
+                        destinations = [
+                            doc for doc in docs if doc.doc.get("event") == target
+                        ]
+                        if not destinations:
+                            unknown.add(table_name[:-6])
+                        for destination in destinations:
+                            targets.update(
+                                _review_edit_variables(destination.doc.get("review"))
+                            )
+                            targets.update(
+                                _extract_field_variable(field)
+                                for field in _iter_fields(destination.doc)
+                            )
+    return targets, unknown
+
+
+def _preview_back_is_disabled(
+    preview: ParsedInterviewDocument, docs: list[ParsedInterviewDocument]
+) -> bool:
+    """Recognize explicit configuration, without evaluating runtime expressions."""
+    if preview.doc.get("prevent going back") is True:
+        return True
+    navigation_back: Any = True
+    question_back: Any = False
+    for parsed_doc in docs:
+        features = parsed_doc.doc.get("features")
+        if isinstance(features, dict):
+            navigation_back = features.get("navigation back button", navigation_back)
+            question_back = features.get("question back button", question_back)
+    question_back = preview.doc.get("back button", question_back)
+    return navigation_back is False and question_back is False
 
 
 def _check_prefer_person_objects(
@@ -2255,29 +2410,98 @@ def _include_evidence(
 def _is_review_screen(parsed_doc: ParsedInterviewDocument) -> bool:
     if parsed_doc.doc.get("review") is not None:
         return True
-    combined = " ".join(
-        _stringify(parsed_doc.doc.get(key)) for key in ("question", "id", "event")
+    question = _plain_text(_stringify(parsed_doc.doc.get("question"))).lower()
+    identity = " ".join(_stringify(parsed_doc.doc.get(key)) for key in ("id", "event"))
+    identity = re.sub(r"[_-]", " ", identity).lower()
+    return bool(
+        re.search(
+            r"\b(?:review|check|edit) (?:your |the )?(?:answers|responses|information|details|expenses|income|names|addresses)\b",
+            question,
+        )
+        or re.search(r"\breview (?:answers|screen)\b", identity)
+        or _is_document_preview(parsed_doc)
+    )
+
+
+def _is_document_preview(parsed_doc: ParsedInterviewDocument) -> bool:
+    question = _plain_text(_stringify(parsed_doc.doc.get("question"))).lower()
+    identity = re.sub(
+        r"[_-]",
+        " ",
+        " ".join(_stringify(parsed_doc.doc.get(key)) for key in ("id", "event")),
     ).lower()
     return bool(
         re.search(
-            r"\b(?:review|check your answers|edit your answers)\b",
-            combined,
+            r"\b(?:review|preview|check) (?:your |the )?(?:form|document|work)\b",
+            question,
+        )
+        or re.search(
+            r"\b(?:preview (?:pdf|screen)|review before signature)\b", identity
         )
     )
 
 
+def _review_text(parsed_doc: ParsedInterviewDocument) -> str:
+    texts = [entry.text for entry in _iter_doc_texts([parsed_doc])]
+    review = parsed_doc.doc.get("review")
+    for item in review if isinstance(review, list) else [review]:
+        if isinstance(item, dict):
+            texts.extend(
+                _stringify(item.get(key)) for key in ("button", "note", "html", "help")
+            )
+    return " ".join(texts)
+
+
+def _review_action_targets(text: str) -> set[str]:
+    targets: set[str] = set()
+    call = re.compile(r"(?:url_action|action_button_html)\(\s*['\"]([^'\"]+)['\"]")
+    for expression in _MAKO_EXPR_RE.finditer(text):
+        before = text[max(0, expression.start() - 120) : expression.start()]
+        has_edit_label = bool(
+            re.search(
+                r"\[(?:edit|update|change|make changes)[^\]]*\]\(\s*$",
+                before,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"(?:label\s*=\s*(?:word\s*\(\s*)?['\"](?:edit|update|change|make changes)|icon\s*=\s*['\"]edit['\"])",
+                expression[0],
+                re.IGNORECASE,
+            )
+        )
+        for target in call.findall(expression[0]):
+            if has_edit_label or re.search(
+                r"(?:^|[_ .])(?:edit|update|change|review)(?:[_ .]|$)",
+                target,
+                re.IGNORECASE,
+            ):
+                targets.add(target)
+    return targets
+
+
 def _review_edit_variables(review_value: Any) -> set[str]:
     variables: set[str] = set()
-    if isinstance(review_value, list):
-        for item in review_value:
-            if isinstance(item, dict):
-                edit_value = _stringify(item.get("Edit")).strip()
-                if edit_value:
-                    variables.add(edit_value)
-    elif isinstance(review_value, dict):
-        edit_value = _stringify(review_value.get("Edit")).strip()
-        if edit_value:
-            variables.add(edit_value)
+    reserved = FIELD_NON_LABEL_KEYS | {
+        "button",
+        "css class",
+        "skip undefined",
+        "recompute",
+        "undefine",
+    }
+    for item in review_value if isinstance(review_value, list) else [review_value]:
+        if not isinstance(item, dict):
+            continue
+        explicit_field = item.get("field")
+        if isinstance(explicit_field, str) and explicit_field.strip():
+            variables.add(explicit_field.strip())
+        for label, targets in item.items():
+            if str(label).lower() in reserved:
+                continue
+            for target in targets if isinstance(targets, list) else [targets]:
+                if isinstance(target, str) and re.fullmatch(
+                    r"[A-Za-z_][\w.\[\]'\"]*", target.strip()
+                ):
+                    variables.add(target.strip())
     return variables
 
 
@@ -2290,13 +2514,15 @@ def _field_looks_like_key_choice(field: dict[str, Any]) -> bool:
 
 
 def _variable_name_matches(left: str, right: str) -> bool:
-    left_text = _stringify(left).strip()
-    right_text = _stringify(right).strip()
+    left_text = _normalize_reference(_stringify(left).strip())
+    right_text = _normalize_reference(_stringify(right).strip())
     if not left_text or not right_text:
         return False
     if left_text == right_text:
         return True
-    return left_text.split(".")[0] == right_text.split(".")[0]
+    return left_text.startswith(right_text + ".") or right_text.startswith(
+        left_text + "."
+    )
 
 
 def _apply_plain_text_transforms(text: str) -> str:

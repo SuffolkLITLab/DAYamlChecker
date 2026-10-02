@@ -302,6 +302,46 @@ def test_eligibility_exit_controls_and_negative_qualify_text_are_recognized():
     )
 
 
+def test_reviews_are_checked_per_screen():
+    source = "question: Review your answers\nreview:\n  - Edit: name\n    button: ${name}\n---\nquestion: Check your answers\nreview:\n  - label: Details\n"
+    findings = find_errors_from_string(
+        source, runtime_options=RuntimeOptions(style_enabled=True)
+    )
+    edit_findings = [
+        f
+        for f in findings
+        if f.message_id == MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS
+    ]
+    assert len(edit_findings) == 1
+    assert edit_findings[0].line_number == 6
+
+
+def test_native_review_labels_and_target_lists_are_edit_controls():
+    source = "question: Review your answers\nreview:\n  - Update name: user.name.first\n    button: ${user.name}\n  - Edit age:\n      - user.birthdate\n      - recompute:\n          - user_is_adult\n    button: Age\n"
+    assert "WS723" not in codes(source)
+    assert "WS723" not in codes(
+        "question: Review your answers\nreview:\n  - label: Edit\n    field: user_name\n    button: ${user_name}\n"
+    )
+
+
+def test_unrelated_uses_of_review_do_not_imply_answer_review():
+    assert "WS723" not in codes(
+        "id: authorize ssa to review accounts\nquestion: Do you give permission to get your records?\nfield: permission\n"
+    )
+    assert "WS723" not in codes(
+        "question: Petition for Single Justice Review\nfield: continue\n"
+    )
+
+
+def test_continue_action_is_not_an_edit_link():
+    assert "WS723" in codes(
+        "question: Review your answers\nsubquestion: '[Continue](${ url_action(\"next_screen\") })'\nfield: reviewed\n"
+    )
+    assert "WS723" not in codes(
+        "question: Review your answers\nsubquestion: '[Update name](${ url_action(\"user_name\") })'\nfield: reviewed\n"
+    )
+
+
 def test_capitalized_heading_key_keeps_its_source_line():
     findings = find_errors_from_string(
         "id: long_heading\nmandatory: True\nQuestion: "
@@ -311,6 +351,20 @@ def test_capitalized_heading_key_keeps_its_source_line():
     )
     finding = next(f for f in findings if f.code == "WS716")
     assert finding.line_number == 3
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "${ users.table }",
+        "${ users.add_action() }",
+        "[Make changes](${ url_action('edit_answers') })",
+    ],
+)
+def test_existing_edit_controls_do_not_trigger_missing_edit_warning(text):
+    assert "WS723" not in codes(
+        f"question: Review your answers\nsubquestion: {text}\nfield: reviewed\n"
+    )
 
 
 def test_single_role_selection_and_explanatory_sentences_are_not_compound_questions():

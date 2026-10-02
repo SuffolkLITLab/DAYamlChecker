@@ -262,6 +262,7 @@ class MessageId(StrEnum):
     # Preserve the historical message ID for API consumers and suppressions.
     TRANSLATABILITY_COMPLEX_CONTRACTION = "style_contraction"
     STYLE_FIELD_COUNT_UNCERTAIN = "style_field_count_uncertain"
+    STYLE_PREVIEW_MISSING_CORRECTION_ROUTE = "style_preview_missing_correction_route"
     STYLE_EXIT_COVERAGE_UNCERTAIN = "style_exit_coverage_uncertain"
     STYLE_THEME_COVERAGE_UNCERTAIN = "style_theme_coverage_uncertain"
     STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
@@ -1494,6 +1495,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Conditional or generated input count needs review",
         template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
+    ),
+    MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE: MessageDefinition(
+        code="IS742",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Document preview needs a way to correct answers",
+        template="document preview explicitly disables Back and has no detected edit route; provide a way to correct answers before signing or filing",
     ),
     MessageId.STYLE_EXIT_COVERAGE_UNCERTAIN: MessageDefinition(
         code="IS743",

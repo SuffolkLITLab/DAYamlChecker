@@ -91,6 +91,42 @@ def test_formatted_prose_still_has_length_limits():
     assert "WS719" in codes(source + "  * " + "word " * 125 + "\n")
 
 
+def test_pdf_preview_requires_evidence_of_correction_route():
+    source = "id: review before signature\nquestion: Preview your form\nfield: reviewed\nsubquestion: |\n  [FILE document.pdf]\n"
+    assert {"IS742", "WS723", "IS724", "IS745"}.isdisjoint(codes(source))
+    assert "IS742" in codes("prevent going back: True\n" + source)
+    assert {"IS742", "WS723"}.isdisjoint(
+        codes(
+            "prevent going back: True\n"
+            + source
+            + "  [Edit answers](${ url_action('edit_answers') })\n"
+        )
+    )
+
+
+def test_table_edit_definitions_distinguish_read_only_tables():
+    review = "question: Review your answers\nfield: reviewed\nsubquestion: ${ users.table }\n---\ntable: users.table\nrows: users\ncolumns:\n  - Name: row_item.name\n"
+    assert "WS723" in codes(review)
+    assert {"WS723", "IS745"}.isdisjoint(codes(review + "edit:\n  - name\n"))
+    assert {"IS745", "WS723"}.isdisjoint(codes(review.split("---")[0]))
+
+
+def test_unrelated_edit_does_not_establish_key_choice_correction():
+    choice = "question: Type of case\nfields:\n  - Type of case: case_type\n    choices:\n      - Civil: civil\n      - Criminal: criminal\n---\n"
+    review = "question: Review your answers\nreview:\n  - Edit: user.name\n    button: Name\n"
+    assert "IS724" in codes(choice + review)
+    assert "IS724" in codes(
+        choice + review + "subquestion: ${ exhibits.add_action() }\n"
+    )
+    assert not _variable_name_matches("users[0].name", "users[0].gender")
+    assert _variable_name_matches("users[i].gender", "users[0].gender")
+
+
+def test_action_destination_establishes_key_choice_correction():
+    source = "question: Type of case\nfields:\n  - Type of case: case_type\n    choices:\n      - Civil: civil\n      - Criminal: criminal\n---\nquestion: Review your answers\nfield: reviewed\nsubquestion: '[Edit choices](${ url_action(\"edit_choices\") })'\n---\nevent: edit_choices\nquestion: Correct your case\nfields:\n  - Type: case_type\n"
+    assert {"WS723", "IS724", "IS745"}.isdisjoint(codes(source))
+
+
 def test_unknown_includes_are_visible_but_known_positive_evidence_wins(tmp_path):
     source = "metadata:\n  title: Example\n  can_I_use_this_form: Only eligible people\n---\ninclude:\n  - missing-theme.yml\n"
     path = tmp_path / "main.yml"
