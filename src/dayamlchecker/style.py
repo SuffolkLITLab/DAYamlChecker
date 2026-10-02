@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 import html
 import importlib.resources
+import itertools
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any, Iterable, Optional
 
 from dayamlchecker.accessibility import (
+    FIELD_NON_LABEL_KEYS,
     _absolute_line_number,
     _extract_field_label,
     _extract_field_variable,
@@ -20,6 +23,7 @@ from dayamlchecker.accessibility import (
 from dayamlchecker.messages import Finding, FindingDraft, MessageId, draft, make_finding
 import requests
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 VISIBLE_TEXT_KEYS = ("question", "subquestion", "under", "help", "note", "html")
 _OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
@@ -42,17 +46,62 @@ _FILE_TAG_RE = re.compile(
 )
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]")
 _WORD_RE = re.compile(r"\b\w+\b")
+_CONTEXTUAL_VOCABULARY = frozenset({"request", "report", "benefit", "following"})
+_VOCABULARY_TRIAGE_TERMS = _CONTEXTUAL_VOCABULARY | {"please", "select", "option"}
 _COMPOUND_QUESTION_RE = re.compile(
-    r"\b(?:and|or)\s+"
-    r"(?:who|what|when|where|why|how|do|does|did|is|are|am|was|were|"
-    r"can|could|will|would|should|have|has|had)\b",
+    r"\b(?:and|or)\s+(?:who|what|when|where|why|how|"
+    r"(?:do|does|did|is|are|am|was|were|can|could|will|would|should|have|has|had)"
+    r"\s+(?:you|we|they|he|she|it|i))\b",
     re.IGNORECASE,
 )
+_NEGATIVE_CONTRACTIONS = {
+    "can't": "cannot",
+    "won't": "will not",
+    "don't": "do not",
+    "doesn't": "does not",
+    "didn't": "did not",
+    "isn't": "is not",
+    "aren't": "are not",
+    "wasn't": "was not",
+    "weren't": "were not",
+    "haven't": "have not",
+    "hasn't": "has not",
+    "hadn't": "had not",
+    "couldn't": "could not",
+    "shouldn't": "should not",
+    "wouldn't": "would not",
+    "mustn't": "must not",
+    "needn't": "need not",
+    "shan't": "shall not",
+    "ain't": "am not / is not / are not",
+    "mightn't": "might not",
+    "oughtn't": "ought not",
+    "daren't": "dare not",
+}
+_COMPLEX_CONTRACTIONS = {
+    "could've": "could have",
+    "should've": "should have",
+    "would've": "would have",
+    "might've": "might have",
+    "must've": "must have",
+    "they've": "they have",
+}
+_CONTRACTION_REPLACEMENTS = _NEGATIVE_CONTRACTIONS | _COMPLEX_CONTRACTIONS
+_CONTRACTION_REPLACEMENTS.update(
+    {
+        contraction + "'ve": expansion + " have"
+        for contraction, expansion in _NEGATIVE_CONTRACTIONS.items()
+        if contraction
+        in {"couldn't", "shouldn't", "wouldn't", "can't", "won't", "mightn't"}
+    }
+)
 _CONTRACTION_RE = re.compile(
-    r"\b(?:can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|"
-    r"haven't|hasn't|hadn't|couldn't|shouldn't|wouldn't|mustn't|"
-    r"I'm|you're|we're|they're|it's|that's|there's|what's|who's|"
-    r"I'll|you'll|we'll|they'll|I'll|I'd|you'd|we'd|they'd)\b",
+    r"\b(?:"
+    + "|".join(
+        re.escape(word).replace("'", "['’]")
+        for word in sorted(_CONTRACTION_REPLACEMENTS, key=len, reverse=True)
+    )
+    + r")\b",
     re.IGNORECASE,
 )
 _SLASH_ALTERNATIVE_RE = re.compile(r"\b[A-Za-z]+/[A-Za-z]+(?:/[A-Za-z]+)*\b")
@@ -132,6 +181,14 @@ class ParsedInterviewDocument:
 
     def line_for_key(self, key: str) -> int:
         key_line = _find_top_level_key_line(self.source_code, key)
+        if key_line is None:
+            match = re.search(
+                rf"^{re.escape(key)}\s*:",
+                self.source_code,
+                re.MULTILINE | re.IGNORECASE,
+            )
+            if match:
+                key_line = self.source_code.count("\n", 0, match.start()) + 1
         if key_line is not None:
             return _absolute_line_number(
                 self.source_code,
@@ -167,6 +224,7 @@ class TextEntry:
 class StyleLintOptions:
     enabled: bool = False
     include_llm: bool = False
+    require_custom_theme: bool = False
     openai_base_url: str | None = None
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -215,8 +273,12 @@ def find_style_findings(
     options: Optional[StyleLintOptions] = None,
 ) -> list[Finding]:
     resolved_options = options or StyleLintOptions()
-    parsed_docs = list(docs)
+    parsed_docs = [
+        replace(doc, doc={str(key).lower(): value for key, value in doc.doc.items()})
+        for doc in docs
+    ]
     deterministic: list[Finding] = []
+    evidence_docs, includes_resolved = _include_evidence(parsed_docs, input_file)
 
     for check in (
         _check_choices_without_invariant_values,
@@ -243,15 +305,45 @@ def find_style_findings(
         _check_wall_of_text,
         _check_question_level_help,
         _check_missing_help_on_complex_screens,
-        _check_exit_criteria_and_screen,
-        _check_theme_usage,
-        _check_review_screen_editability,
         _check_prefer_person_objects,
     ):
         deterministic.extend(
             finding.to_finding(file_name=input_file or "<string input>")
             for finding in check(parsed_docs)
         )
+
+    deterministic.extend(
+        finding.to_finding(file_name=input_file or "<string input>")
+        for finding in _check_review_screen_editability(
+            parsed_docs, evidence_docs=evidence_docs
+        )
+    )
+    file_checks = _check_exit_criteria_and_screen(evidence_docs)
+    if not includes_resolved and file_checks:
+        file_checks = [
+            _style_draft(
+                MessageId.STYLE_EXIT_COVERAGE_UNCERTAIN,
+                line_number=parsed_docs[0].default_line(),
+                screen_id=parsed_docs[0].screen_id,
+            )
+        ]
+    if resolved_options.require_custom_theme and any(
+        isinstance(doc.doc.get("metadata"), dict) for doc in parsed_docs
+    ):
+        theme_checks = _check_theme_usage(evidence_docs)
+        if not includes_resolved and theme_checks:
+            theme_checks = [
+                _style_draft(
+                    MessageId.STYLE_THEME_COVERAGE_UNCERTAIN,
+                    line_number=parsed_docs[0].default_line(),
+                    screen_id=parsed_docs[0].screen_id,
+                )
+            ]
+        file_checks.extend(theme_checks)
+    deterministic.extend(
+        finding.to_finding(file_name=input_file or "<string input>")
+        for finding in file_checks
+    )
 
     if not resolved_options.llm_enabled():
         return _dedupe_findings(deterministic)
@@ -272,6 +364,12 @@ def find_style_findings(
         )
         return _dedupe_findings(deterministic)
 
+    deterministic = _triage_vocabulary_candidates(
+        findings=deterministic,
+        parsed_docs=parsed_docs,
+        input_file=input_file,
+        options=resolved_options,
+    )
     deterministic.extend(
         _run_llm_rules(
             parsed_docs=parsed_docs,
@@ -304,6 +402,8 @@ def _check_choices_without_invariant_values(
 
     for parsed_doc in docs:
         for key in ("choices", "dropdown", "buttons"):
+            if _is_object_choice(parsed_doc.doc):
+                continue
             value = parsed_doc.doc.get(key)
             if not has_noninvariant_choices(value):
                 continue
@@ -317,6 +417,8 @@ def _check_choices_without_invariant_values(
                 )
             )
         for field in _iter_fields(parsed_doc.doc):
+            if _is_object_choice(field):
+                continue
             choices = field.get("choices")
             if not has_noninvariant_choices(choices):
                 continue
@@ -366,7 +468,17 @@ def _check_ternary_conditional_text(
                 parsed = ast.parse(source, mode="eval")
             except SyntaxError:
                 continue
-            if not any(isinstance(node, ast.IfExp) for node in ast.walk(parsed)):
+            if not any(
+                isinstance(node, ast.IfExp)
+                and any(
+                    isinstance(part, ast.Constant)
+                    and isinstance(part.value, str)
+                    and re.search(r"[^\W\d_]", part.value)
+                    for branch in (node.body, node.orelse)
+                    for part in ast.walk(branch)
+                )
+                for node in ast.walk(parsed)
+            ):
                 continue
             findings.append(
                 _style_draft(
@@ -422,8 +534,12 @@ def _find_conditional_sentence_fragment(text: str) -> str | None:
 
 
 def _is_sentence_fragment_context(before: str, after: str) -> bool:
+    if re.match(r"^%", before):
+        before = ""
+    if re.match(r"^%", after):
+        after = ""
     before_is_markdown_boundary = bool(
-        re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", before)
+        re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\||<(?:tr|td|li)\b)", before)
     )
     if (
         before
@@ -434,7 +550,9 @@ def _is_sentence_fragment_context(before: str, after: str) -> bool:
     after_with_expressions = _MAKO_EXPR_RE.sub("value", after)
     return bool(
         after
-        and not re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", after)
+        and not re.match(
+            r"^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\||<(?:tr|td|li)\b)", after
+        )
         and re.match(r"^[a-z0-9]", _plain_text(after_with_expressions).lstrip())
     )
 
@@ -477,9 +595,8 @@ def _check_empty_screen_title(
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
-        question_text = _plain_text(
-            _visible_text(parsed_doc.doc.get("question"))
-        ).strip()
+        raw_question = _visible_text(parsed_doc.doc.get("question"))
+        question_text = _plain_text(_MAKO_EXPR_RE.sub("value", raw_question)).strip()
         if question_text:
             continue
         has_fields = len(_iter_fields(parsed_doc.doc)) > 0
@@ -534,14 +651,27 @@ def _check_plain_language_replacements(
             if key in seen:
                 continue
             seen.add(key)
+            triage_context = (
+                {
+                    "vocabulary_triage_candidate": True,
+                    "vocabulary_triage_status": "not_reviewed",
+                }
+                if matched_text.lower() in _VOCABULARY_TRIAGE_TERMS
+                else {}
+            )
             findings.append(
                 _style_draft(
-                    MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT,
+                    (
+                        MessageId.STYLE_CONTEXTUAL_VOCABULARY
+                        if matched_text.lower() in _CONTEXTUAL_VOCABULARY
+                        else MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT
+                    ),
                     line_number=entry.line_number,
                     screen_id=entry.screen_id,
                     location=entry.location,
                     matched_text=matched_text,
                     replacement=_format_plain_language_replacement(replacement),
+                    **triage_context,
                 )
             )
     return findings
@@ -554,17 +684,19 @@ def _check_contractions(docs: list[ParsedInterviewDocument]) -> list[FindingDraf
         match = _CONTRACTION_RE.search(plain)
         if not match:
             continue
-        if match.group(0).lower() == "don't" and re.search(
-            r"\bi\s+don't\s+know\b", plain, re.IGNORECASE
-        ):
-            continue
+        replacement = _CONTRACTION_REPLACEMENTS[
+            match.group(0).lower().replace("’", "'")
+        ]
+        if match.group(0)[0].isupper():
+            replacement = replacement[0].upper() + replacement[1:]
         findings.append(
             _style_draft(
-                MessageId.STYLE_CONTRACTION,
+                MessageId.TRANSLATABILITY_COMPLEX_CONTRACTION,
                 line_number=entry.line_number,
                 screen_id=entry.screen_id,
                 location=entry.location,
                 matched_text=match.group(0),
+                replacement=replacement,
             )
         )
     return findings
@@ -579,6 +711,10 @@ def _check_slash_alternatives(
         for match in _SLASH_ALTERNATIVE_RE.finditer(plain):
             matched = match.group(0)
             if matched.lower() in _ALLOWED_SLASH_ALTERNATIVES:
+                continue
+            if matched.lower() != "and/or" and all(
+                part.isupper() and 2 <= len(part) <= 6 for part in matched.split("/")
+            ):
                 continue
             if _looks_like_url_path_fragment(plain, match.start(), match.end()):
                 continue
@@ -622,10 +758,8 @@ def _check_variable_conventions(
 def _check_long_sentences(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for entry in _user_facing_text_entries(docs):
-        plain = _plain_text(entry.text)
-        for sentence in _SENTENCE_RE.findall(plain):
-            if len(_WORD_RE.findall(sentence)) <= 20:
-                continue
+        word_count, sentence = _longest_prose_span(entry.text, sentences=True)
+        if word_count > 20:
             findings.append(
                 _style_draft(
                     MessageId.STYLE_LONG_SENTENCE,
@@ -635,7 +769,6 @@ def _check_long_sentences(docs: list[ParsedInterviewDocument]) -> list[FindingDr
                     snippet=_shorten(sentence),
                 )
             )
-            break
     return findings
 
 
@@ -644,10 +777,21 @@ def _check_compound_questions(
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for entry in _question_text_entries(docs):
-        plain = _plain_text(entry.text).lower()
+        plain = _plain_text(_MAKO_EXPR_RE.sub("value", entry.text)).lower()
         if "?" not in plain:
             continue
-        if "and/or" not in plain and not _COMPOUND_QUESTION_RE.search(plain):
+        offending = next(
+            (
+                sentence
+                for sentence in _SENTENCE_RE.findall(plain)
+                if sentence.endswith("?")
+                and (match := _COMPOUND_QUESTION_RE.search(sentence))
+                and re.search(r"[a-z]", sentence[: match.start()])
+                and not _is_single_answer_alternative(sentence)
+            ),
+            None,
+        )
+        if offending is None:
             continue
         findings.append(
             _style_draft(
@@ -655,10 +799,39 @@ def _check_compound_questions(
                 line_number=entry.line_number,
                 screen_id=entry.screen_id,
                 location=entry.location,
-                snippet=_shorten(_plain_text(entry.text)),
+                snippet=_shorten(offending),
             )
         )
     return findings
+
+
+def _is_single_answer_alternative(sentence: str) -> bool:
+    """Alternatives in participant role or action tense can share one answer."""
+    if re.search(
+        r"\b(?:did|do|does|will|would|can|could|have|has|had)\s+or\s+"
+        r"(?:did|do|does|will|would|can|could)\s+(?:you|they|we|he|she|it)\b",
+        sentence,
+    ):
+        return True
+    same_action = re.search(
+        r"\b(?:have|has|had)\s+(you|they|we|he|she|it)\s+(\w+)\s+or\s+"
+        r"(?:will|would|did|do|does|can|could)\s+\1\s+(\w+)\b",
+        sentence,
+    )
+    if same_action:
+        past, present = same_action[2], same_action[3]
+        if (
+            past in {present, present + "d", present + "ed"}
+            or {"sent": "send", "paid": "pay", "made": "make"}.get(past) == present
+        ):
+            return True
+    return bool(
+        re.search(r"\b(?:attorney|lawyer|helper)\b", sentence)
+        and re.search(r"\bor are you\b", sentence)
+        and re.search(r"\b(?:yourself|on your own behalf)\b", sentence)
+        or re.search(r"\bdid you (?:start this case|file the first forms)\b", sentence)
+        and re.search(r"\bor (?:did|are) you respond", sentence)
+    )
 
 
 def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
@@ -678,14 +851,15 @@ def _check_overlong_labels(docs: list[ParsedInterviewDocument]) -> list[FindingD
             )
         for field in _iter_fields(parsed_doc.doc):
             field_label = _extract_field_label(field)
-            if len(field_label) <= 90:
+            length, candidate = _question_longest_line(field_label)
+            if length <= 90:
                 continue
             findings.append(
                 _style_draft(
                     MessageId.STYLE_OVERLONG_FIELD_LABEL,
                     line_number=parsed_doc.line_for_field(field),
                     screen_id=parsed_doc.screen_id,
-                    snippet=_shorten(field_label),
+                    snippet=_shorten(_plain_text(candidate)),
                 )
             )
             break
@@ -852,11 +1026,357 @@ def _check_pronoun_and_gender_fields(
     return findings
 
 
+def _is_object_choice(value: dict[str, Any]) -> bool:
+    return _stringify(value.get("datatype")).lower() in {
+        "object",
+        "object_radio",
+        "object_checkboxes",
+    }
+
+
+@dataclass(frozen=True)
+class FieldCount:
+    known: int
+    possible: int | None
+
+
+def _static_variable(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute) and _static_variable(node.value):
+        return ast.unparse(node)
+    if isinstance(node, ast.Subscript) and _static_variable(node.value):
+        if isinstance(node.slice, ast.Name) or (
+            isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, (str, int))
+        ):
+            return ast.unparse(node)
+    return None
+
+
+def _simple_visibility(value: Any, *, hidden: bool) -> tuple[str, str, Any] | None:
+    """Parse references and literal comparisons, never evaluate interview code."""
+    if isinstance(value, dict):
+        if "variable" in value and "is" in value:
+            expected = value["is"]
+            if expected is not None and not isinstance(
+                expected, (str, int, float, bool)
+            ):
+                return None
+            try:
+                variable = _static_variable(
+                    ast.parse(_stringify(value["variable"]), mode="eval").body
+                )
+            except SyntaxError:
+                return None
+            return (variable, "ne" if hidden else "eq", expected) if variable else None
+        value = value.get("code")
+    if not isinstance(value, str):
+        return None
+    js = re.fullmatch(
+        r"\s*val\(\s*['\"]([^'\"]+)['\"]\s*\)\s*(===?|!==?)\s*(true|false)\s*", value
+    )
+    if js:
+        value = f"{js[1]} {'!=' if js[2].startswith('!') else '=='} {js[3].title()}"
+    try:
+        node = ast.parse(value.strip(), mode="eval").body
+    except SyntaxError:
+        return None
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        hidden = not hidden
+        node = node.operand
+    variable = _static_variable(node)
+    if variable:
+        return variable, "truth", not hidden
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and len(node.comparators) == 1
+    ):
+        variable = _static_variable(node.left)
+        literal = node.comparators[0]
+        if (
+            variable
+            and isinstance(literal, ast.Constant)
+            and isinstance(node.ops[0], (ast.Eq, ast.NotEq, ast.Is, ast.IsNot))
+        ):
+            expected = literal.value
+            if expected is not None and not isinstance(
+                expected, (str, int, float, bool)
+            ):
+                return None
+            unequal = isinstance(node.ops[0], (ast.NotEq, ast.IsNot)) != hidden
+            identity = isinstance(node.ops[0], (ast.Is, ast.IsNot))
+            return (
+                variable,
+                (
+                    ("isnot" if unequal else "is")
+                    if identity
+                    else ("ne" if unequal else "eq")
+                ),
+                expected,
+            )
+    return None
+
+
+def _field_count_bounds(
+    doc: dict[str, Any], *, group_names: bool = False
+) -> FieldCount:
+    """Bound logical input count, preserving unknown conditional/generated inputs."""
+    inputs: list[tuple[str, tuple[str, str, Any] | None, bool]] = []
+    generated = False
+    for field in _iter_fields(doc):
+        variable = _extract_field_variable(field)
+        if not variable:
+            generated = generated or bool(field.get("code"))
+            continue
+        condition = None
+        unknown = excluded = False
+        for key in ("show if", "hide if", "js show if", "js hide if"):
+            if key not in field:
+                continue
+            value = field[key]
+            hidden = "hide" in key
+            if isinstance(value, bool):
+                excluded = excluded or value == hidden
+                continue
+            parsed = _simple_visibility(value, hidden=hidden)
+            if parsed is None or condition is not None:
+                unknown = True
+            else:
+                condition = parsed
+        if not excluded:
+            inputs.append((variable, condition, unknown))
+
+    groups: dict[str, list[str]] = {}
+    for variable, _, _ in inputs:
+        match = re.fullmatch(
+            r"(?:(.*)[._])?(address|address2|street|unit|city|state|zip|zip_code|postal_code|country|county)",
+            variable,
+        )
+        if match:
+            prefix = (match[1] or "").rstrip("._")
+            prefix = re.sub(r"(?:[._])address$", "", prefix)
+            groups.setdefault("address:" + prefix, []).append(variable)
+        elif group_names:
+            match = re.fullmatch(r"(?:(.*)[._])?(first|middle|last)_name", variable)
+            if match:
+                groups.setdefault("name:" + (match[1] or "").rstrip("._"), []).append(
+                    variable
+                )
+    grouped = {
+        variable: group
+        for group, variables in groups.items()
+        if len(set(variables)) >= 2
+        for variable in variables
+    }
+    units: dict[str, list[tuple[tuple[str, str, Any] | None, bool]]] = {}
+    domains: dict[str, list[Any]] = {}
+    other_value = object()
+    for variable, condition, unknown in inputs:
+        units.setdefault(grouped.get(variable, variable), []).append(
+            (condition, unknown)
+        )
+        if condition and not unknown:
+            values = domains.setdefault(condition[0], [False, True])
+            if condition[1] != "truth":
+                if None not in values:
+                    values.append(None)
+                if other_value not in values:
+                    values.append(other_value)
+            if not any(
+                type(value) is type(condition[2]) and value == condition[2]
+                for value in values
+            ):
+                values.append(condition[2])
+    combinations = 1
+    for values in domains.values():
+        combinations *= len(values)
+    if combinations > 4096:
+        known = sum(
+            any(condition is None and not unknown for condition, unknown in options)
+            for options in units.values()
+        )
+        return FieldCount(known, None if generated else len(units))
+
+    def visible(
+        condition: tuple[str, str, Any] | None, assignment: dict[str, Any]
+    ) -> bool:
+        if condition is None:
+            return True
+        variable, operator, expected = condition
+        actual = assignment[variable]
+        if operator == "truth":
+            return bool(actual) == expected
+        if operator == "is":
+            return actual is expected
+        if operator == "isnot":
+            return actual is not expected
+        return (actual == expected) == (operator == "eq")
+
+    known = possible = 0
+    for combination in itertools.product(*domains.values()):
+        assignment = dict(zip(domains, combination))
+        known = max(
+            known,
+            sum(
+                any(
+                    not unknown and visible(condition, assignment)
+                    for condition, unknown in options
+                )
+                for options in units.values()
+            ),
+        )
+        possible = max(
+            possible,
+            sum(
+                any(
+                    unknown or visible(condition, assignment)
+                    for condition, unknown in options
+                )
+                for options in units.values()
+            ),
+        )
+    return FieldCount(known, None if generated else possible)
+
+
+def _logical_field_count(doc: dict[str, Any], *, group_names: bool = False) -> int:
+    return _field_count_bounds(doc, group_names=group_names).known
+
+
+def _longest_prose_span(
+    raw: str, *, sentences: bool, total: bool = False
+) -> tuple[int, str]:
+    """Find the longest visible sentence/paragraph without enumerating renders.
+
+    At a branch join, retain the largest open span and largest completed span
+    independently. Either can witness a violation, so mutually exclusive text
+    is never added together and shorter branches' long sentences are retained.
+    Soft wraps stay together; paragraphs, lists and table rows form boundaries.
+    No Mako code or expressions are executed.
+    """
+    # State: open span, maximum completed word count, completed span text.
+    state: tuple[str, int, str] = ("", 0, "")
+    stack: list[tuple[tuple[str, int, str], list[tuple[str, int, str]], bool]] = []
+
+    def finish(
+        value: tuple[str, int, str], *, record: bool = True
+    ) -> tuple[str, int, str]:
+        if total:
+            return value
+        current, maximum, best = value
+        count = len(_WORD_RE.findall(current))
+        if record and count > maximum:
+            maximum, best = count, current.strip()
+        return "", maximum, best
+
+    text = _MAKO_BLOCK_RE.sub(" ", raw)
+    text = _MAKO_EXPR_RE.sub("value", text)
+    text = re.sub(
+        r"</?(?:p|div|ul|ol|table)\b[^>]*>", "\n\n", text, flags=re.IGNORECASE
+    )
+    text = re.sub(r"<br\b[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<h[1-6]\b[^>]*>", "\n## ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</h[1-6]\s*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(?:tr|li)\b[^>]*>", "\n- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:tr|li)\s*>", "\n\n", text, flags=re.IGNORECASE)
+    # Cells are separate reading chunks; a row of many short cells is not prose.
+    text = re.sub(r"<(?:td|th)\b[^>]*>", "\n- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:td|th)\s*>", "\n\n", text, flags=re.IGNORECASE)
+    lines: list[str] = []
+    raw_lines = text.splitlines()
+    table_active = False
+    separator = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$")
+    for index, line in enumerate(raw_lines):
+        if not re.match(r"^\s*%", line):
+            if separator.match(line) or (
+                "|" in line
+                and index + 1 < len(raw_lines)
+                and separator.match(raw_lines[index + 1])
+            ):
+                table_active = True
+            elif not line.strip() or "|" not in line:
+                table_active = False
+        if re.match(r"^\s*\|", line) or table_active and "|" in line:
+            cells = re.split(r"(?<!\\)\|", line.strip().strip("|"))
+            lines.extend("- " + cell.strip() for cell in cells)
+            lines.append("")
+        else:
+            lines.append(line)
+    for line in lines:
+        control = re.match(r"^\s*%\s*(if|elif|else|endif)\b", line)
+        if control:
+            keyword = control[1]
+            if keyword == "if":
+                stack.append((state, [], False))
+            elif stack:
+                parent, alternatives, has_else = stack[-1]
+                alternatives.append(state)
+                if keyword == "endif":
+                    stack.pop()
+                    if not has_else:
+                        alternatives.append(parent)
+                    open_state = max(
+                        alternatives, key=lambda item: len(_WORD_RE.findall(item[0]))
+                    )
+                    completed = max(alternatives, key=lambda item: item[1])
+                    state = open_state[0], completed[1], completed[2]
+                else:
+                    stack[-1] = parent, alternatives, has_else or keyword == "else"
+                    state = parent
+            continue
+        if re.match(r"^\s*%", line):
+            # Loops/control boundaries are not unfinished prose.
+            state = finish(state, record=not sentences)
+            continue
+        structured = bool(
+            re.match(r"^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|\||</?(?:tr|td|li)\b)", line)
+        )
+        if not line.strip() or structured:
+            state = finish(state, record=not sentences)
+        if structured and not sentences and (total or re.match(r"^\s*#{1,6}\s", line)):
+            continue
+        plain = _apply_plain_text_transforms(re.sub(r"^\s*\d+[.)]\s+", "", line))
+        if sentences:
+            for piece in re.split(r"([.!?])", plain):
+                state = (state[0] + " " + piece, state[1], state[2])
+                if piece in {".", "!", "?"}:
+                    state = finish(state)
+        else:
+            state = (state[0] + " " + plain, state[1], state[2])
+        # A soft-wrapped list item continues until a blank line or next item.
+        # Finishing after its first source line would miss a long wrapped item.
+        if re.match(r"^\s*#{1,6}\s", line):
+            state = finish(state, record=not sentences)
+    if stack:
+        # Malformed controls cannot prove a visible prose-length violation.
+        return 0, ""
+    if total:
+        return len(_WORD_RE.findall(state[0])), state[0].strip()
+    state = finish(state, record=not sentences)
+    return state[1], state[2]
+
+
 def _check_too_many_fields(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
-        field_count = len(_iter_fields(parsed_doc.doc))
+        bounds = _field_count_bounds(parsed_doc.doc)
+        field_count = bounds.known
         if field_count <= 6:
+            if bounds.possible is None or bounds.possible > 6:
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_FIELD_COUNT_UNCERTAIN,
+                        line_number=parsed_doc.default_line(),
+                        screen_id=parsed_doc.screen_id,
+                        field_count=field_count,
+                        possible_count=(
+                            bounds.possible
+                            if bounds.possible is not None
+                            else "unknown (generated fields)"
+                        ),
+                    )
+                )
             continue
         findings.append(
             _style_draft(
@@ -873,20 +1393,15 @@ def _check_wall_of_text(docs: list[ParsedInterviewDocument]) -> list[FindingDraf
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
         subquestion = _stringify(parsed_doc.doc.get("subquestion"))
-        plain = _plain_text(subquestion)
-        word_count = len(_WORD_RE.findall(plain))
-        has_structure = bool(
-            re.search(r"(?m)^\s*[-*]\s+", subquestion)
-            or re.search(r"(?m)^\s*#{2,6}\s+", subquestion)
-        )
-        if word_count <= 120 or has_structure:
+        word_count, paragraph = _longest_prose_span(subquestion, sentences=False)
+        if word_count <= 120:
             continue
         findings.append(
             _style_draft(
                 MessageId.STYLE_WALL_OF_TEXT,
                 line_number=parsed_doc.line_for_key("subquestion"),
                 screen_id=parsed_doc.screen_id,
-                snippet=_shorten(plain),
+                snippet=_shorten(paragraph),
             )
         )
     return findings
@@ -923,9 +1438,12 @@ def _check_missing_help_on_complex_screens(
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
         fields = _iter_fields(parsed_doc.doc)
-        if len(fields) < 5:
+        if _logical_field_count(parsed_doc.doc, group_names=True) < 5:
             continue
-        has_help = bool(parsed_doc.doc.get("help"))
+        has_help = any(
+            "collapse_template(" in entry.text
+            for entry in _iter_doc_texts([parsed_doc])
+        )
         for field in fields:
             if field.get("help") or field.get("hint") or field.get("note"):
                 has_help = True
@@ -986,10 +1504,19 @@ def _check_exit_criteria_and_screen(
                 "may not be able",
                 "cannot help",
                 "can't help",
+                "don't qualify",
+                "do not qualify",
+                "not for you",
                 "wrong form",
                 "stop here",
-                "exit",
             )
+        ):
+            return []
+        if re.search(
+            r"\b(?:eligib|qualif|can i use|right form|screening)", combined
+        ) and any(
+            isinstance(button, dict) and "exit" in button.values()
+            for button in parsed_doc.doc.get("buttons", [])
         ):
             return []
     line_number = docs[0].default_line() if docs else 1
@@ -1010,26 +1537,18 @@ def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft
     ]
     if not metadata_docs:
         return []
-    theme_references: set[str] = set()
     for parsed_doc in docs:
-        include_value = parsed_doc.doc.get("include")
-        theme_references.update(_iter_include_values(include_value))
-        css_value = _stringify(parsed_doc.doc.get("css")).strip().lower()
-        if css_value:
-            theme_references.add(css_value)
+        if parsed_doc.doc.get("css"):
+            return []
         features = parsed_doc.doc.get("features")
         if isinstance(features, dict):
+            if features.get("css"):
+                return []
             bootstrap_theme = (
                 _stringify(features.get("bootstrap theme")).strip().lower()
             )
             if bootstrap_theme:
-                theme_references.add(bootstrap_theme)
-    if any(
-        marker in reference
-        for reference in theme_references
-        for marker in ("theme", "css", "bootstrap")
-    ):
-        return []
+                return []
     metadata_doc = metadata_docs[0]
     return [
         _style_draft(
@@ -1042,27 +1561,15 @@ def _check_theme_usage(docs: list[ParsedInterviewDocument]) -> list[FindingDraft
 
 def _check_review_screen_editability(
     docs: list[ParsedInterviewDocument],
+    *,
+    evidence_docs: list[ParsedInterviewDocument] | None = None,
 ) -> list[FindingDraft]:
+    evidence = docs if evidence_docs is None else evidence_docs
     review_docs = [parsed_doc for parsed_doc in docs if _is_review_screen(parsed_doc)]
     if not review_docs:
         return []
 
-    editable_variables: set[str] = set()
-    for parsed_doc in review_docs:
-        editable_variables.update(_review_edit_variables(parsed_doc.doc.get("review")))
-
     findings: list[FindingDraft] = []
-    if not editable_variables:
-        review_doc = review_docs[0]
-        findings.append(
-            _style_draft(
-                MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS,
-                line_number=review_doc.default_line(),
-                screen_id=review_doc.screen_id,
-            )
-        )
-        return findings
-
     key_choice_variables = sorted(
         {
             field_var
@@ -1073,21 +1580,183 @@ def _check_review_screen_editability(
             if field_var
         }
     )
-    if key_choice_variables and not any(
-        _variable_name_matches(edit_name, key_choice)
-        for edit_name in editable_variables
-        for key_choice in key_choice_variables
-    ):
-        review_doc = review_docs[0]
-        findings.append(
-            _style_draft(
-                MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS,
-                line_number=review_doc.default_line(),
-                screen_id=review_doc.screen_id,
-                snippet=", ".join(key_choice_variables[:4]),
+    for review_doc in review_docs:
+        # A document preview normally has docassemble's built-in Back route.
+        # Only flag absence when that route is explicitly disabled. Native
+        # answer-review blocks still receive their own edit-control checks.
+        if (
+            _is_document_preview(review_doc)
+            and review_doc.doc.get("review") is None
+            and not _preview_back_is_disabled(review_doc, evidence)
+        ):
+            continue
+        editable_variables = _review_edit_variables(review_doc.doc.get("review"))
+        text = _review_text(review_doc)
+        action_targets = _review_action_targets(text)
+        editable_variables.update(action_targets)
+        widget_targets, unknown_widgets = _review_widget_targets(text, evidence)
+        editable_variables.update(widget_targets)
+        routes_unknown = bool(re.search(r"\bsection_links\s*\(", text))
+        for target in action_targets:
+            destinations = [doc for doc in evidence if doc.doc.get("event") == target]
+            for destination in destinations:
+                editable_variables.update(
+                    _review_edit_variables(destination.doc.get("review"))
+                )
+                editable_variables.update(
+                    _extract_field_variable(field)
+                    for field in _iter_fields(destination.doc)
+                )
+            if not destinations and target not in key_choice_variables:
+                routes_unknown = True
+        explicit_back = bool(
+            re.search(
+                r"\b(?:go|click|press|use)\b[^.!?\n]*\bback\b", text, re.IGNORECASE
             )
         )
+        if _is_document_preview(review_doc) and _preview_back_is_disabled(
+            review_doc, evidence
+        ):
+            explicit_back = False
+        routes_unknown = routes_unknown or explicit_back
+        generated_controls = bool(re.search(r"\.add_action\s*\(", text))
+        if not editable_variables and (
+            routes_unknown
+            or unknown_widgets
+            or generated_controls
+            and not re.search(r"\.table\b", text)
+        ):
+            # Unresolved controls alone are not evidence of a usability defect.
+            continue
+        if not editable_variables and not explicit_back:
+            findings.append(
+                _style_draft(
+                    (
+                        MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE
+                        if _is_document_preview(review_doc)
+                        and review_doc.doc.get("review") is None
+                        else MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS
+                    ),
+                    line_number=review_doc.default_line(),
+                    screen_id=review_doc.screen_id,
+                )
+            )
+        elif key_choice_variables and not any(
+            _variable_name_matches(edit_name, key_choice)
+            for edit_name in editable_variables
+            for key_choice in key_choice_variables
+        ):
+            if routes_unknown or any(
+                _variable_name_matches(prefix, key_choice)
+                for prefix in unknown_widgets
+                for key_choice in key_choice_variables
+            ):
+                continue
+            findings.append(
+                _style_draft(
+                    MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS,
+                    line_number=review_doc.default_line(),
+                    screen_id=review_doc.screen_id,
+                    snippet=", ".join(key_choice_variables[:4]),
+                )
+            )
     return findings
+
+
+def _normalize_reference(value: str) -> str:
+    return re.sub(r"\[(?:\d+|[ijkxy])\]", "[]", value)
+
+
+def _review_widget_targets(
+    text: str, docs: list[ParsedInterviewDocument]
+) -> tuple[set[str], set[str]]:
+    """A table's presence does not establish that it permits editing."""
+    targets: set[str] = set()
+    unknown: set[str] = set()
+    for reference in re.finditer(r"[A-Za-z_][\w.\[\]'\"]*\.table\b", text):
+        table_name = reference[0]
+        call = re.match(r"\s*\.show\(([^)]*)\)", text[reference.end() :])
+        hidden_controls = bool(call and re.search(r"\beditable\s*=\s*False\b", call[1]))
+        dynamic_controls = bool(
+            call
+            and re.search(r"\beditable\s*=", call[1])
+            and not re.search(r"\beditable\s*=\s*(?:True|False)\b", call[1])
+        )
+        definitions = [
+            doc
+            for doc in docs
+            if _normalize_reference(_stringify(doc.doc.get("table")))
+            == _normalize_reference(table_name)
+        ]
+        if not definitions:
+            unknown.add(table_name[:-6])
+        for definition in definitions:
+            collection = table_name[:-6]
+            row_restrictions = bool(definition.doc.get("read only"))
+            if dynamic_controls or row_restrictions:
+                unknown.add(collection)
+            editable = not (hidden_controls or dynamic_controls or row_restrictions)
+            if (
+                editable
+                and definition.doc.get("delete buttons") is True
+                and re.search(re.escape(collection) + r"\.add_action\s*\(", text)
+            ):
+                targets.add(collection)
+            edit = definition.doc.get("edit")
+            if editable and edit is True:
+                # Native editing of scalar DAList/DADict elements.
+                targets.add(collection)
+            values = (
+                (edit if isinstance(edit, list) else [edit])
+                if editable and edit is not True
+                else []
+            )
+            for value in values:
+                if isinstance(value, str) and re.fullmatch(r"[A-Za-z_][\w.]*", value):
+                    targets.add(table_name[:-6] + "[i]." + value)
+                elif value is not None:
+                    unknown.add(table_name[:-6])
+            # Some tables provide custom cell-level edit links instead of `edit`.
+            columns = definition.doc.get("columns", [])
+            for column in columns if isinstance(columns, list) else []:
+                if not isinstance(column, dict):
+                    continue
+                for content in column.values():
+                    if not isinstance(content, str):
+                        continue
+                    for target in _review_action_targets(content):
+                        targets.add(target)
+                        destinations = [
+                            doc for doc in docs if doc.doc.get("event") == target
+                        ]
+                        if not destinations:
+                            unknown.add(table_name[:-6])
+                        for destination in destinations:
+                            targets.update(
+                                _review_edit_variables(destination.doc.get("review"))
+                            )
+                            targets.update(
+                                _extract_field_variable(field)
+                                for field in _iter_fields(destination.doc)
+                            )
+    return targets, unknown
+
+
+def _preview_back_is_disabled(
+    preview: ParsedInterviewDocument, docs: list[ParsedInterviewDocument]
+) -> bool:
+    """Recognize explicit configuration, without evaluating runtime expressions."""
+    if preview.doc.get("prevent going back") is True:
+        return True
+    navigation_back: Any = True
+    question_back: Any = False
+    for parsed_doc in docs:
+        features = parsed_doc.doc.get("features")
+        if isinstance(features, dict):
+            navigation_back = features.get("navigation back button", navigation_back)
+            question_back = features.get("question back button", question_back)
+    question_back = preview.doc.get("back button", question_back)
+    return navigation_back is False and question_back is False
 
 
 def _check_prefer_person_objects(
@@ -1130,6 +1799,190 @@ def _check_prefer_person_objects(
             snippet=first_reference,
         )
     ]
+
+
+def _triage_vocabulary_candidates(
+    *,
+    findings: list[Finding],
+    parsed_docs: list[ParsedInterviewDocument],
+    input_file: str | None,
+    options: StyleLintOptions,
+) -> list[Finding]:
+    """Filter only enumerated vocabulary candidates; preserve recall on failure."""
+    entries = {
+        (entry.screen_id, entry.location, entry.line_number): entry.text
+        for entry in _iter_doc_texts(parsed_docs)
+    }
+    questions = {
+        doc.screen_id: _stringify(doc.doc.get("question")) for doc in parsed_docs
+    }
+    candidates: list[dict[str, Any]] = []
+    for index, finding in enumerate(findings):
+        if not finding.context.get("vocabulary_triage_candidate"):
+            continue
+        screen_id = _stringify(finding.context.get("screen_id"))
+        location = _stringify(finding.context.get("location"))
+        if finding.line_number is None:
+            continue
+        key = (
+            screen_id,
+            location,
+            finding.line_number,
+        )
+        text = entries.get(key)
+        if text is None:
+            continue
+        candidates.append(
+            {
+                "candidate_id": f"vocabulary-{index}",
+                "index": index,
+                "term": finding.context["matched_text"],
+                "suggestion": finding.context["replacement"],
+                "screen_id": finding.context.get("screen_id"),
+                "location": finding.context.get("location"),
+                "text": _shorten(text, limit=6000) if len(text) > 6000 else text,
+                "question_template": _shorten(questions.get(screen_id, ""), limit=1200),
+                "context_truncated": len(text) > 6000
+                or len(questions.get(screen_id, "")) > 1200,
+            }
+        )
+    if not candidates:
+        return findings
+    config = _load_llm_prompt_templates().get("vocabulary_triage", {})
+    system_prompt = (
+        _stringify(config.get("system_prompt")) if isinstance(config, dict) else ""
+    )
+    if not system_prompt.strip():
+        return findings + [
+            make_finding(
+                MessageId.STYLE_LLM_REQUEST_FAILED,
+                file_name=input_file,
+                line_number=findings[candidates[0]["index"]].line_number,
+                screen_id=candidates[0]["screen_id"],
+                rule_id="vocabulary-triage",
+                detail="missing vocabulary triage prompt; candidates retained",
+            )
+        ]
+    result = list(findings)
+    dismissed: set[int] = set()
+    errors: list[Finding] = []
+    # Do not reuse the broad review's first-40-screen/800-character limit.
+    for offset in range(0, len(candidates), 20):
+        batch = candidates[offset : offset + 20]
+        payload = [
+            {key: value for key, value in candidate.items() if key != "index"}
+            for candidate in batch
+        ]
+        raw, error = _call_openai_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt="Triage every vocabulary candidate in this JSON data:\n"
+            + json.dumps(payload, ensure_ascii=False),
+            base_url=options.resolved_openai_base_url(),
+            api_key=options.resolved_openai_api_key(),
+            model=options.resolved_openai_model(),
+        )
+        decisions = (
+            _validated_vocabulary_decisions(raw, batch) if error is None else None
+        )
+        if decisions is None:
+            errors.append(
+                make_finding(
+                    MessageId.STYLE_LLM_REQUEST_FAILED,
+                    file_name=input_file,
+                    line_number=findings[batch[0]["index"]].line_number,
+                    screen_id=batch[0]["screen_id"],
+                    rule_id="vocabulary-triage",
+                    detail=error
+                    or "invalid or incomplete vocabulary triage response; candidates retained",
+                )
+            )
+            continue
+        for candidate in batch:
+            decision = decisions[candidate["candidate_id"]]
+            index = candidate["index"]
+            confident = (
+                decision["confidence"] == "high" and not candidate["context_truncated"]
+            )
+            if decision["decision"] == "dismiss" and confident:
+                dismissed.add(index)
+                continue
+            context = dict(result[index].context)
+            context["vocabulary_triage_status"] = (
+                "confirmed"
+                if decision["decision"] == "keep" and confident
+                else "uncertain"
+            )
+            context["vocabulary_triage_reason"] = decision["reason"]
+            context["vocabulary_triage_evidence"] = decision["evidence"]
+            if (
+                decision["decision"] == "keep"
+                and confident
+                and decision.get("replacement")
+            ):
+                context["replacement"] = decision["replacement"]
+            result[index] = replace(result[index], context=context)
+    return [
+        finding for index, finding in enumerate(result) if index not in dismissed
+    ] + errors
+
+
+def _validated_vocabulary_decisions(
+    raw: Any, candidates: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]] | None:
+    """Require one grounded, unambiguous decision for each candidate in the batch."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("decisions"), list):
+        return None
+    expected = {candidate["candidate_id"]: candidate for candidate in candidates}
+    decisions: dict[str, dict[str, Any]] = {}
+    for decision in raw["decisions"]:
+        if not isinstance(decision, dict):
+            return None
+        identity = decision.get("candidate_id")
+        if (
+            not isinstance(identity, str)
+            or identity not in expected
+            or identity in decisions
+        ):
+            return None
+        candidate = expected[identity]
+        if not isinstance(decision.get("decision"), str) or not isinstance(
+            decision.get("confidence"), str
+        ):
+            return None
+        if decision.get("decision") not in {
+            "keep",
+            "dismiss",
+            "uncertain",
+        } or decision.get("confidence") not in {"high", "medium", "low"}:
+            return None
+        reason, evidence = decision.get("reason"), decision.get("evidence")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or not isinstance(evidence, str)
+            or not evidence.strip()
+        ):
+            return None
+        if evidence not in candidate["text"] or not re.search(
+            rf"(?<!\w){re.escape(candidate['term'])}(?!\w)", evidence, re.IGNORECASE
+        ):
+            return None
+        if len(_WORD_RE.findall(evidence)) < min(
+            3, len(_WORD_RE.findall(candidate["text"]))
+        ):
+            return None
+        replacement = decision.get("replacement")
+        if replacement is not None and (
+            not isinstance(replacement, str) or len(replacement) > 400
+        ):
+            return None
+        decisions[identity] = decision
+    return decisions if decisions.keys() == expected.keys() else None
 
 
 def _run_llm_rules(
@@ -1651,44 +2504,209 @@ def _find_metadata(docs: list[ParsedInterviewDocument]) -> dict[str, Any]:
     return metadata
 
 
-def _iter_include_values(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [_stringify(value).strip().lower()]
-    if isinstance(value, list):
-        return [
-            _stringify(item).strip().lower()
-            for item in value
-            if _stringify(item).strip()
-        ]
-    return []
+def _include_evidence(
+    docs: list[ParsedInterviewDocument], input_file: str | None
+) -> tuple[list[ParsedInterviewDocument], bool]:
+    """Read local include dependencies for absence and review-control checks.
+
+    Missing, dynamic, malformed, or excessively deep dependencies make absence
+    unknown. Include contents never execute and never acquire findings attributed
+    to the entrypoint. Keep entrypoint documents first for diagnostic locations.
+    """
+    evidence = list(docs)
+    visited: set[Path] = set()
+    complete = True
+    start = (
+        Path(input_file).resolve()
+        if input_file and Path(input_file).is_file()
+        else None
+    )
+    if start:
+        visited.add(start)
+
+    def visit(
+        current: list[ParsedInterviewDocument], source: Path | None, depth: int
+    ) -> None:
+        nonlocal complete
+        for parsed in current:
+            includes = parsed.doc.get("include")
+            if includes is None:
+                continue
+            values = [includes] if isinstance(includes, str) else includes
+            if not isinstance(values, list):
+                complete = False
+                continue
+            for reference in values:
+                if (
+                    not isinstance(reference, str)
+                    or source is None
+                    or depth >= 20
+                    or len(visited) >= 64
+                ):
+                    complete = False
+                    continue
+                candidates: list[Path] = []
+                if ":" in reference:
+                    package, filename = reference.split(":", 1)
+                    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
+                        complete = False
+                        continue
+                    name = package.split(".")[1]
+                    for ancestor in source.parents:
+                        candidates.append(
+                            ancestor
+                            / "docassemble"
+                            / name
+                            / "data"
+                            / "questions"
+                            / filename
+                        )
+                        candidates.append(
+                            ancestor
+                            / ("docassemble-" + name)
+                            / "docassemble"
+                            / name
+                            / "data"
+                            / "questions"
+                            / filename
+                        )
+                else:
+                    candidates.append(source.parent / reference)
+                target = next(
+                    (
+                        candidate.resolve()
+                        for candidate in candidates
+                        if candidate.is_file()
+                    ),
+                    None,
+                )
+                if target is None:
+                    complete = False
+                    continue
+                if target in visited:
+                    continue
+                visited.add(target)
+                try:
+                    loaded = list(
+                        YAML(typ="safe").load_all(
+                            target.read_text(encoding="utf-8").replace("\t", "  ")
+                        )
+                    )
+                except (OSError, ValueError, UnicodeError, YAMLError):
+                    complete = False
+                    continue
+                dependency_docs = [
+                    ParsedInterviewDocument(
+                        doc={str(key).lower(): value for key, value in item.items()},
+                        source_code="",
+                        document_start_line=1,
+                        index=i,
+                    )
+                    for i, item in enumerate(loaded)
+                    if isinstance(item, dict)
+                ]
+                evidence.extend(dependency_docs)
+                visit(dependency_docs, target, depth + 1)
+
+    visit(docs, start, 0)
+    return evidence, complete
 
 
 def _is_review_screen(parsed_doc: ParsedInterviewDocument) -> bool:
     if parsed_doc.doc.get("review") is not None:
         return True
-    combined = " ".join(
-        _stringify(parsed_doc.doc.get(key)) for key in ("question", "id", "event")
+    question = _plain_text(_stringify(parsed_doc.doc.get("question"))).lower()
+    identity = " ".join(_stringify(parsed_doc.doc.get(key)) for key in ("id", "event"))
+    identity = re.sub(r"[_-]", " ", identity).lower()
+    return bool(
+        re.search(
+            r"\b(?:review|check|edit) (?:your |the )?(?:answers|responses|information|details|expenses|income|names|addresses)\b",
+            question,
+        )
+        or re.search(r"\breview (?:answers|screen)\b", identity)
+        or _is_document_preview(parsed_doc)
+    )
+
+
+def _is_document_preview(parsed_doc: ParsedInterviewDocument) -> bool:
+    question = _plain_text(_stringify(parsed_doc.doc.get("question"))).lower()
+    identity = re.sub(
+        r"[_-]",
+        " ",
+        " ".join(_stringify(parsed_doc.doc.get(key)) for key in ("id", "event")),
     ).lower()
     return bool(
         re.search(
-            r"\b(?:review|check your answers|edit your answers)\b",
-            combined,
+            r"\b(?:review|preview|check) (?:your |the )?(?:form|document|work)\b",
+            question,
+        )
+        or re.search(
+            r"\b(?:preview (?:pdf|screen)|review before signature)\b", identity
         )
     )
 
 
+def _review_text(parsed_doc: ParsedInterviewDocument) -> str:
+    texts = [entry.text for entry in _iter_doc_texts([parsed_doc])]
+    review = parsed_doc.doc.get("review")
+    for item in review if isinstance(review, list) else [review]:
+        if isinstance(item, dict):
+            texts.extend(
+                _stringify(item.get(key)) for key in ("button", "note", "html", "help")
+            )
+    return " ".join(texts)
+
+
+def _review_action_targets(text: str) -> set[str]:
+    targets: set[str] = set()
+    call = re.compile(r"(?:url_action|action_button_html)\(\s*['\"]([^'\"]+)['\"]")
+    for expression in _MAKO_EXPR_RE.finditer(text):
+        before = text[max(0, expression.start() - 120) : expression.start()]
+        has_edit_label = bool(
+            re.search(
+                r"\[(?:edit|update|change|make changes)[^\]]*\]\(\s*$",
+                before,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"(?:label\s*=\s*(?:word\s*\(\s*)?['\"](?:edit|update|change|make changes)|icon\s*=\s*['\"]edit['\"])",
+                expression[0],
+                re.IGNORECASE,
+            )
+        )
+        for target in call.findall(expression[0]):
+            if has_edit_label or re.search(
+                r"(?:^|[_ .])(?:edit|update|change|review)(?:[_ .]|$)",
+                target,
+                re.IGNORECASE,
+            ):
+                targets.add(target)
+    return targets
+
+
 def _review_edit_variables(review_value: Any) -> set[str]:
     variables: set[str] = set()
-    if isinstance(review_value, list):
-        for item in review_value:
-            if isinstance(item, dict):
-                edit_value = _stringify(item.get("Edit")).strip()
-                if edit_value:
-                    variables.add(edit_value)
-    elif isinstance(review_value, dict):
-        edit_value = _stringify(review_value.get("Edit")).strip()
-        if edit_value:
-            variables.add(edit_value)
+    reserved = FIELD_NON_LABEL_KEYS | {
+        "button",
+        "css class",
+        "skip undefined",
+        "recompute",
+        "undefine",
+    }
+    for item in review_value if isinstance(review_value, list) else [review_value]:
+        if not isinstance(item, dict):
+            continue
+        explicit_field = item.get("field")
+        if isinstance(explicit_field, str) and explicit_field.strip():
+            variables.add(explicit_field.strip())
+        for label, targets in item.items():
+            if str(label).lower() in reserved:
+                continue
+            for target in targets if isinstance(targets, list) else [targets]:
+                if isinstance(target, str) and re.fullmatch(
+                    r"[A-Za-z_][\w.\[\]'\"]*", target.strip()
+                ):
+                    variables.add(target.strip())
     return variables
 
 
@@ -1701,13 +2719,15 @@ def _field_looks_like_key_choice(field: dict[str, Any]) -> bool:
 
 
 def _variable_name_matches(left: str, right: str) -> bool:
-    left_text = _stringify(left).strip()
-    right_text = _stringify(right).strip()
+    left_text = _normalize_reference(_stringify(left).strip())
+    right_text = _normalize_reference(_stringify(right).strip())
     if not left_text or not right_text:
         return False
     if left_text == right_text:
         return True
-    return left_text.split(".")[0] == right_text.split(".")[0]
+    return left_text.startswith(right_text + ".") or right_text.startswith(
+        left_text + "."
+    )
 
 
 def _apply_plain_text_transforms(text: str) -> str:
@@ -1884,9 +2904,17 @@ def _find_plain_language_suggestions(
     occupied: list[tuple[int, int]] = []
     seen_terms: set[str] = set()
     matches: list[tuple[int, str, str]] = []
-    for _, replacement, pattern in _compiled_plain_language_patterns():
-        if len(matches) >= max_matches:
-            break
+    # Candidates get a separate, bounded budget of seven distinct terms. They
+    # must not displace stronger suggestions from the existing match budget.
+    patterns = _compiled_plain_language_patterns()
+    ordered = [p for p in patterns if p[0] not in _VOCABULARY_TRIAGE_TERMS] + [
+        p for p in patterns if p[0] in _VOCABULARY_TRIAGE_TERMS
+    ]
+    ordinary_matches = 0
+    for term, replacement, pattern in ordered:
+        contextual = term in _VOCABULARY_TRIAGE_TERMS
+        if not contextual and ordinary_matches >= max_matches:
+            continue
         for found in pattern.finditer(plain):
             span = (found.start(), found.end())
             overlaps = any(
@@ -1901,6 +2929,8 @@ def _find_plain_language_suggestions(
             seen_terms.add(seen_key)
             occupied.append(span)
             matches.append((found.start(), found.group(0), replacement))
+            if not contextual:
+                ordinary_matches += 1
             break
     matches.sort(key=lambda item: item[0])
     return [(match_text, replacement) for _, match_text, replacement in matches]

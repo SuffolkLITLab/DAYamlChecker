@@ -242,6 +242,7 @@ class MessageId(StrEnum):
     STYLE_MISSING_SCREEN_TITLE = "style_missing_screen_title"
     STYLE_PLACEHOLDER_LANGUAGE = "style_placeholder_language"
     STYLE_PLAIN_LANGUAGE_REPLACEMENT = "style_plain_language_replacement"
+    STYLE_CONTEXTUAL_VOCABULARY = "style_contextual_vocabulary"
     STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE = "style_variable_root_not_snake_case"
     STYLE_LONG_SENTENCE = "style_long_sentence"
     STYLE_COMPOUND_QUESTION = "style_compound_question"
@@ -259,6 +260,12 @@ class MessageId(StrEnum):
     STYLE_PREFER_PERSON_OBJECTS = "style_prefer_person_objects"
     STYLE_QUESTION_LEVEL_HELP = "style_question_level_help"
     STYLE_CONTRACTION = "style_contraction"
+    # Preserve the historical message ID for API consumers and suppressions.
+    TRANSLATABILITY_COMPLEX_CONTRACTION = "style_contraction"
+    STYLE_FIELD_COUNT_UNCERTAIN = "style_field_count_uncertain"
+    STYLE_PREVIEW_MISSING_CORRECTION_ROUTE = "style_preview_missing_correction_route"
+    STYLE_EXIT_COVERAGE_UNCERTAIN = "style_exit_coverage_uncertain"
+    STYLE_THEME_COVERAGE_UNCERTAIN = "style_theme_coverage_uncertain"
     STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
     STYLE_FIELD_LABEL_INSTRUCTION_VERB = "style_field_label_instruction_verb"
     STYLE_TITLE_CASE_LABEL = "style_title_case_label"
@@ -1405,7 +1412,10 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Screen contains too many fields",
-        template="screen contains {field_count} fields; consider splitting it into smaller steps",
+        template=(
+            "screen can show {field_count} logical input fields, counting parts of "
+            "the same address as one; consider splitting it into smaller steps"
+        ),
     ),
     MessageId.STYLE_WALL_OF_TEXT: MessageDefinition(
         code="WS719",
@@ -1436,7 +1446,7 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Root interview may be missing a custom theme",
         template=(
-            "metadata suggests a root interview file, but no explicit custom theme or CSS dependency was detected"
+            "a custom theme was requested, but no explicit theme or CSS dependency was detected"
         ),
     ),
     MessageId.STYLE_REVIEW_SCREEN_MISSING_EDIT_LINKS: MessageDefinition(
@@ -1471,11 +1481,49 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         ),
     ),
     MessageId.STYLE_CONTRACTION: MessageDefinition(
-        code="WS727",
+        code="WT705",
         severity=Severity.WARNING,
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="Write out negative or complex contractions",
+        template=(
+            "write out {matched_text!r} as {replacement!r} in {location} to avoid "
+            "misinterpretation by non-native readers or translation tools"
+        ),
+    ),
+    MessageId.STYLE_FIELD_COUNT_UNCERTAIN: MessageDefinition(
+        code="IS740",
+        severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
-        summary="Avoid contractions in user-facing text",
-        template="write out the contraction {matched_text!r} in {location}",
+        summary="Conditional or generated input count needs review",
+        template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
+    ),
+    MessageId.STYLE_CONTEXTUAL_VOCABULARY: MessageDefinition(
+        code="IS746",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Contextual word simplification candidate",
+        template="review {matched_text!r} in {location} for simpler wording if the meaning permits: {replacement}",
+    ),
+    MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE: MessageDefinition(
+        code="IS742",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Document preview needs a way to correct answers",
+        template="document preview explicitly disables Back and has no detected edit route; provide a way to correct answers before signing or filing",
+    ),
+    MessageId.STYLE_EXIT_COVERAGE_UNCERTAIN: MessageDefinition(
+        code="IS743",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Eligibility exit coverage could not be verified",
+        template="eligibility screening was detected but no clear rejection screen was found in available source; unresolved includes may provide one, so verify them before adding an exit screen",
+    ),
+    MessageId.STYLE_THEME_COVERAGE_UNCERTAIN: MessageDefinition(
+        code="IS744",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Required theme coverage could not be verified",
+        template="a custom theme was requested, but none was found in available source; inspect unresolved includes for a theme or CSS dependency",
     ),
     MessageId.STYLE_SLASH_ALTERNATIVE: MessageDefinition(
         code="WS728",

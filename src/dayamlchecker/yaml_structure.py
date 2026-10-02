@@ -90,6 +90,7 @@ def _finding_matches_suppression(finding: Finding, codes: frozenset[str]) -> boo
         return True
     return (
         finding.code.upper() in codes
+        or (finding.message_id == MessageId.STYLE_CONTRACTION and "WS727" in codes)
         or str(finding.message_id).upper() in codes
         or str(finding.finding_class).upper() in codes
     )
@@ -222,6 +223,7 @@ class RuntimeOptions:
     accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
     style_enabled: bool = False
     style_include_llm: bool = False
+    style_require_custom_theme: bool = False
     style_openai_base_url: str | None = None
     style_openai_api_key: str | None = None
     style_openai_model: str | None = None
@@ -237,8 +239,11 @@ class RuntimeOptions:
 
     def style_options(self) -> StyleLintOptions:
         return StyleLintOptions(
-            enabled=self.style_enabled or self.style_include_llm,
+            enabled=self.style_enabled
+            or self.style_include_llm
+            or self.style_require_custom_theme,
             include_llm=self.style_include_llm,
+            require_custom_theme=self.style_require_custom_theme,
             openai_base_url=self.style_openai_base_url,
             openai_api_key=self.style_openai_api_key,
             openai_model=self.style_openai_model,
@@ -2849,6 +2854,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Enable Assembly Line style lint checks.",
     )
     parser.add_argument(
+        "--style-require-custom-theme",
+        action="store_true",
+        help="Require an explicit custom theme. Also enables --style.",
+    )
+    parser.add_argument(
         "--style-llm",
         action="store_true",
         help=(
@@ -2990,8 +3000,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             for widget in args.accessibility_error_on_widgets
             if widget.strip()
         ),
-        style_enabled=args.style or args.style_llm,
+        style_enabled=args.style or args.style_llm or args.style_require_custom_theme,
         style_include_llm=args.style_llm,
+        style_require_custom_theme=args.style_require_custom_theme,
         style_openai_base_url=args.openai_base_url,
         style_openai_api_key=args.openai_api_key,
         style_openai_model=args.openai_model,

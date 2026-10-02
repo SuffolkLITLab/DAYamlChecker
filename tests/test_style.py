@@ -1,4 +1,5 @@
 import io
+import json
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -48,6 +49,22 @@ def test_style_checks_report_deterministic_findings():
     assert MessageId.STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE in message_ids
     assert MessageId.STYLE_REMOVE_LANGUAGE_EN in message_ids
     assert MessageId.STYLE_COMPOUND_QUESTION in message_ids
+
+
+def test_style_allows_review_in_headings_body_and_field_labels():
+    findings = find_errors_from_string(
+        "question: Review your answers\n"
+        "subquestion: Review the information before you continue.\n"
+        "fields:\n"
+        "  - Review: confirm_review\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id != MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT
+        for finding in findings
+    )
 
 
 def test_translatability_choices_without_invariant_values_are_warnings():
@@ -584,7 +601,9 @@ def test_style_checks_report_missing_theme_and_review_edits():
     findings = find_errors_from_string(
         yaml_text,
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_require_custom_theme=True
+        ),
     )
 
     message_ids = {finding.message_id for finding in findings}
@@ -600,7 +619,9 @@ def test_style_theme_rule_allows_explicit_theme_configuration():
         "features:\n"
         "  bootstrap theme: example-theme.css\n",
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_require_custom_theme=True
+        ),
     )
 
     assert all(
@@ -706,7 +727,7 @@ def test_style_checks_report_plain_language_punctuation_and_label_gaps():
     assert MessageId.STYLE_OTHER_CHOICE_NOT_LAST in message_ids
 
 
-def test_style_checks_allow_common_pronoun_slashes_and_i_do_not_know_choice():
+def test_style_checks_allow_pronoun_slashes_but_flag_negative_contractions():
     findings = find_errors_from_string(
         "question: |\n"
         "  Choose pronouns\n"
@@ -720,9 +741,11 @@ def test_style_checks_allow_common_pronoun_slashes_and_i_do_not_know_choice():
     )
 
     assert all(
-        finding.message_id
-        not in {MessageId.STYLE_SLASH_ALTERNATIVE, MessageId.STYLE_CONTRACTION}
-        for finding in findings
+        finding.message_id != MessageId.STYLE_SLASH_ALTERNATIVE for finding in findings
+    )
+
+    assert any(
+        finding.message_id == MessageId.STYLE_CONTRACTION for finding in findings
     )
 
 
@@ -916,6 +939,44 @@ def test_overlong_question_label_preserves_conditional_structure(
     assert (MessageId.STYLE_OVERLONG_QUESTION_LABEL in message_ids) == (
         len(expected_title) > 120
     )
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).parent / "fixtures/style/conditional_headings.json").read_text(
+            encoding="utf-8"
+        )
+    ),
+    ids=lambda case: case["screen_id"],
+)
+def test_overlong_question_label_from_real_interview_corpus(case):
+    length, candidate = style_module._question_longest_line(case["question"])
+    assert length == case["expected_length"]
+    estimated_title = style_module._apply_plain_text_transforms(
+        style_module._MAKO_EXPR_RE.sub("x" * 8, candidate)
+    )
+    assert estimated_title == case["expected_title"]
+
+    yaml_text = (
+        f"id: {case['screen_id']}\nquestion: |\n"
+        + "".join(f"  {line}\n" for line in case["question"].splitlines())
+        + "field: dummy_field\n"
+    )
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    warnings = [
+        finding
+        for finding in findings
+        if finding.message_id == MessageId.STYLE_OVERLONG_QUESTION_LABEL
+    ]
+    assert len(warnings) == int(case["expected_length"] > 120)
+    if warnings:
+        assert warnings[0].context["screen_id"] == case["screen_id"]
+        assert warnings[0].line_number == 2
 
 
 def test_overlong_question_label_assumes_mako_variable_adds_about_eight_chars():
