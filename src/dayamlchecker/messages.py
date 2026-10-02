@@ -259,6 +259,8 @@ class MessageId(StrEnum):
     STYLE_PREFER_PERSON_OBJECTS = "style_prefer_person_objects"
     STYLE_QUESTION_LEVEL_HELP = "style_question_level_help"
     STYLE_CONTRACTION = "style_contraction"
+    # Preserve the historical message ID for API consumers and suppressions.
+    TRANSLATABILITY_COMPLEX_CONTRACTION = "style_contraction"
     STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
     STYLE_FIELD_LABEL_INSTRUCTION_VERB = "style_field_label_instruction_verb"
     STYLE_TITLE_CASE_LABEL = "style_title_case_label"
@@ -1471,11 +1473,14 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         ),
     ),
     MessageId.STYLE_CONTRACTION: MessageDefinition(
-        code="WS727",
+        code="WT705",
         severity=Severity.WARNING,
-        finding_class=FindingClass.STYLE,
-        summary="Avoid contractions in user-facing text",
-        template="write out the contraction {matched_text!r} in {location}",
+        finding_class=FindingClass.TRANSLATABILITY,
+        summary="Write out negative or complex contractions",
+        template=(
+            "write out {matched_text!r} as {replacement!r} in {location} to avoid "
+            "misinterpretation by non-native readers or translation tools"
+        ),
     ),
     MessageId.STYLE_SLASH_ALTERNATIVE: MessageDefinition(
         code="WS728",

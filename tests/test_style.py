@@ -1,4 +1,5 @@
 import io
+import json
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -48,6 +49,22 @@ def test_style_checks_report_deterministic_findings():
     assert MessageId.STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE in message_ids
     assert MessageId.STYLE_REMOVE_LANGUAGE_EN in message_ids
     assert MessageId.STYLE_COMPOUND_QUESTION in message_ids
+
+
+def test_style_allows_review_in_headings_body_and_field_labels():
+    findings = find_errors_from_string(
+        "question: Review your answers\n"
+        "subquestion: Review the information before you continue.\n"
+        "fields:\n"
+        "  - Review: confirm_review\n",
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+
+    assert all(
+        finding.message_id != MessageId.STYLE_PLAIN_LANGUAGE_REPLACEMENT
+        for finding in findings
+    )
 
 
 def test_translatability_choices_without_invariant_values_are_warnings():
@@ -706,7 +723,7 @@ def test_style_checks_report_plain_language_punctuation_and_label_gaps():
     assert MessageId.STYLE_OTHER_CHOICE_NOT_LAST in message_ids
 
 
-def test_style_checks_allow_common_pronoun_slashes_and_i_do_not_know_choice():
+def test_style_checks_allow_pronoun_slashes_but_flag_negative_contractions():
     findings = find_errors_from_string(
         "question: |\n"
         "  Choose pronouns\n"
@@ -720,9 +737,11 @@ def test_style_checks_allow_common_pronoun_slashes_and_i_do_not_know_choice():
     )
 
     assert all(
-        finding.message_id
-        not in {MessageId.STYLE_SLASH_ALTERNATIVE, MessageId.STYLE_CONTRACTION}
-        for finding in findings
+        finding.message_id != MessageId.STYLE_SLASH_ALTERNATIVE for finding in findings
+    )
+
+    assert any(
+        finding.message_id == MessageId.STYLE_CONTRACTION for finding in findings
     )
 
 

@@ -160,6 +160,17 @@ use `WT` warning codes. They include translated choice labels that lack
 invariant stored values, user-facing strings embedded in code, and conditional
 expressions or Mako blocks that change only part of a sentence.
 
+`WT705` flags negative contractions (`can't`, `don't`, `won't`) and complex
+contractions (`could've`, `should've`, `would've`, `they've`) for translation
+clarity and non-native reader comprehension, following
+[GOV.UK guidance](https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/clear-language/).
+Simple positive forms such as `you'll`, `it's`, `what's`, `we're`, and `I'm`
+are allowed. Straight and curly apostrophes are checked. The historical
+`style_contraction` message ID and `WS727` suppression code still work;
+the finding now belongs to `translatability`, so suppressing `style` alone
+does not hide it.
+
+
 ```bash
 python3 -m dayamlchecker --style --no-url-check path/to/interview.yml
 python3 -m dayamlchecker --style-llm --openai-api-key "$OPENAI_API_KEY" path/to/interview.yml

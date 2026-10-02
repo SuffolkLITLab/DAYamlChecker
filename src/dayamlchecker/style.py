@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 import html
 import importlib.resources
+import itertools
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any, Iterable, Optional
 
 from dayamlchecker.accessibility import (
+    FIELD_NON_LABEL_KEYS,
     _absolute_line_number,
     _extract_field_label,
     _extract_field_variable,
@@ -20,6 +23,7 @@ from dayamlchecker.accessibility import (
 from dayamlchecker.messages import Finding, FindingDraft, MessageId, draft, make_finding
 import requests
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 VISIBLE_TEXT_KEYS = ("question", "subquestion", "under", "help", "note", "html")
 _OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
@@ -48,11 +52,54 @@ _COMPOUND_QUESTION_RE = re.compile(
     r"can|could|will|would|should|have|has|had)\b",
     re.IGNORECASE,
 )
+_NEGATIVE_CONTRACTIONS = {
+    "can't": "cannot",
+    "won't": "will not",
+    "don't": "do not",
+    "doesn't": "does not",
+    "didn't": "did not",
+    "isn't": "is not",
+    "aren't": "are not",
+    "wasn't": "was not",
+    "weren't": "were not",
+    "haven't": "have not",
+    "hasn't": "has not",
+    "hadn't": "had not",
+    "couldn't": "could not",
+    "shouldn't": "should not",
+    "wouldn't": "would not",
+    "mustn't": "must not",
+    "needn't": "need not",
+    "shan't": "shall not",
+    "ain't": "am not / is not / are not",
+    "mightn't": "might not",
+    "oughtn't": "ought not",
+    "daren't": "dare not",
+}
+_COMPLEX_CONTRACTIONS = {
+    "could've": "could have",
+    "should've": "should have",
+    "would've": "would have",
+    "might've": "might have",
+    "must've": "must have",
+    "they've": "they have",
+}
+_CONTRACTION_REPLACEMENTS = _NEGATIVE_CONTRACTIONS | _COMPLEX_CONTRACTIONS
+_CONTRACTION_REPLACEMENTS.update(
+    {
+        contraction + "'ve": expansion + " have"
+        for contraction, expansion in _NEGATIVE_CONTRACTIONS.items()
+        if contraction
+        in {"couldn't", "shouldn't", "wouldn't", "can't", "won't", "mightn't"}
+    }
+)
 _CONTRACTION_RE = re.compile(
-    r"\b(?:can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|"
-    r"haven't|hasn't|hadn't|couldn't|shouldn't|wouldn't|mustn't|"
-    r"I'm|you're|we're|they're|it's|that's|there's|what's|who's|"
-    r"I'll|you'll|we'll|they'll|I'll|I'd|you'd|we'd|they'd)\b",
+    r"\b(?:"
+    + "|".join(
+        re.escape(word).replace("'", "['’]")
+        for word in sorted(_CONTRACTION_REPLACEMENTS, key=len, reverse=True)
+    )
+    + r")\b",
     re.IGNORECASE,
 )
 _SLASH_ALTERNATIVE_RE = re.compile(r"\b[A-Za-z]+/[A-Za-z]+(?:/[A-Za-z]+)*\b")
@@ -554,17 +601,19 @@ def _check_contractions(docs: list[ParsedInterviewDocument]) -> list[FindingDraf
         match = _CONTRACTION_RE.search(plain)
         if not match:
             continue
-        if match.group(0).lower() == "don't" and re.search(
-            r"\bi\s+don't\s+know\b", plain, re.IGNORECASE
-        ):
-            continue
+        replacement = _CONTRACTION_REPLACEMENTS[
+            match.group(0).lower().replace("’", "'")
+        ]
+        if match.group(0)[0].isupper():
+            replacement = replacement[0].upper() + replacement[1:]
         findings.append(
             _style_draft(
-                MessageId.STYLE_CONTRACTION,
+                MessageId.TRANSLATABILITY_COMPLEX_CONTRACTION,
                 line_number=entry.line_number,
                 screen_id=entry.screen_id,
                 location=entry.location,
                 matched_text=match.group(0),
+                replacement=replacement,
             )
         )
     return findings

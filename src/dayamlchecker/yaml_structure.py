@@ -90,6 +90,7 @@ def _finding_matches_suppression(finding: Finding, codes: frozenset[str]) -> boo
         return True
     return (
         finding.code.upper() in codes
+        or (finding.message_id == MessageId.STYLE_CONTRACTION and "WS727" in codes)
         or str(finding.message_id).upper() in codes
         or str(finding.finding_class).upper() in codes
     )

@@ -6,6 +6,8 @@
 # Notes:
 # - Values are suggestions only and should be applied in context.
 # - A few high-noise terms (e.g., "address", "type") are intentionally excluded.
+# - Corpus review: omit unsafe role/grammar substitutions; contextual vocabulary
+#   entries below generate review candidates instead of unconditional advice.
 
 a and/or b: a or b or both
 a number of: some
@@ -27,7 +29,6 @@ acknowledge: thank you for
 acquaint yourself with: '[find out about, read]'
 acquiesce: agree
 acquire: '[buy, get]'
-added: '[more, other]'
 additional: '[extra, more, other]'
 addressees: you
 addressees are requested: (omit)
@@ -58,7 +59,6 @@ and/or: a or b or both
 anticipate: expect
 apparent: '[clear, plain, obvious, seeming]'
 applicant: you
-application: use
 appoint: '[choose, name]'
 appointed: '[chose, named]'
 appreciable: '[many, large, great]'
@@ -95,7 +95,7 @@ be advised: (omit)
 belated: late
 believe: '[consider, think]'
 beneficial: '[helpful, useful]'
-benefit: help
+benefit: 'help (when used as a verb; preserve benefit names)'
 bestow: '[give, award]'
 breach: break
 by means of: '[by, with]'
@@ -126,7 +126,6 @@ conceal: hide
 concerning: '[about, on]'
 conclusion: end
 concur: agree
-condition: rule
 consequently: so
 considerable: '[great, important]'
 consolidate: '[join, merge]'
@@ -242,9 +241,8 @@ feasible: '[can be done, workable]'
 females: women
 finalise: '[end, finish]'
 finalize: '[complete, finish]'
-find: '[name, show]'
 find enclosed: I enclose
-following: '[after, per, under]'
+following: 'these, this, or after (depending on the sentence)'
 for a period of: for
 for example,______etc.: for example, such as
 for the duration of: '[during, while]'
@@ -351,7 +349,6 @@ is of the opinion: thinks
 is responsible for: '[(omit), handles]'
 issue: '[give, send, problem]'
 it appears: seems
-it is: (omit)
 it is compulsory: you must
 it is essential: '[must, need to]'
 it is known that: I/we know that
@@ -482,9 +479,9 @@ remainder: '[the rest, what is left]'
 remittance: payment
 remuneration: '[pay, payment, wages, salary]'
 render: '[make, give, send]'
-report: tell
+report: 'tell someone about something (verb); preserve document/report names'
 represents: '[shows, stands for, is]'
-request: '[ask, question, document asking for]'
+request: 'ask for (verb); preserve official form names'
 require: '[need, want, force, must]'
 requirement: need
 requirements: '[needs, rules]'
@@ -492,7 +489,8 @@ reside: live
 residence: '[home, where you live]'
 restriction: limit
 retain: keep
-review: '[look at, look at again]'
+# "Review" is familiar interface language, especially on answer-summary screens.
+# review: '[look at, look at again]'
 revised: '[new, changed]'
 said, some, such: the, this, that
 said/such/same: '[the, this, that]'
@@ -530,7 +528,6 @@ terminate: '[stop, end]'
 that being the case: if so
 the month of: (omit)
 the question as to whether: whether
-the tenant: you
 the undersigned: I
 the use of: (omit)
 there are: (omit)
