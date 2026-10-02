@@ -82,6 +82,78 @@ def test_unsafe_plain_language_mappings_are_removed():
     )
 
 
+def field_screen(variables: list[str], extra: str = "") -> str:
+    return (
+        "question: Tell us more\nfields:\n"
+        + "".join(f"  - Detail {i}: {name}\n" for i, name in enumerate(variables))
+        + extra
+    )
+
+
+@pytest.mark.parametrize("prefix", ["user.address.", "mailing_", "mailing_address_"])
+def test_address_components_count_as_one_field(prefix):
+    address = [prefix + name for name in ("address", "unit", "city", "state", "zip")]
+    assert "WS718" not in codes(
+        field_screen(address + [f"answer_{i}" for i in range(5)])
+    )
+    assert "WS718" in codes(field_screen(address + [f"answer_{i}" for i in range(6)]))
+
+
+def test_different_addresses_stay_separate():
+    variables = [
+        prefix + part
+        for prefix in ("home.", "work.")
+        for part in ("address", "city", "state", "zip")
+    ]
+    assert "WS718" not in codes(
+        field_screen(variables + [f"answer_{i}" for i in range(4)])
+    )
+    assert "WS718" in codes(field_screen(variables + [f"answer_{i}" for i in range(5)]))
+
+
+def test_two_address_parts_count_as_one_but_different_roots_do_not():
+    others = [f"answer_{i}" for i in range(5)]
+    assert "WS718" not in codes(
+        field_screen(["mailing_city", "mailing_state"] + others)
+    )
+    assert "WS718" in codes(field_screen(["mailing_city", "billing_state"] + others))
+
+
+def test_presentation_items_and_unknown_generated_fields_do_not_inflate_input_count():
+    source = field_screen(
+        [f"answer_{i}" for i in range(6)],
+        "  - note: Read this\n  - html: '<p>Read this</p>'\n  - code: dynamic_fields\n",
+    )
+    assert "WS718" not in codes(source)
+
+
+def test_mutually_exclusive_boolean_fields_count_only_visible_inputs():
+    source = field_screen([f"answer_{i}" for i in range(5)])
+    source += (
+        "  - Rent: rent\n    show if: is_renter\n  - Own: own\n    hide if: is_renter\n"
+    )
+    assert "WS718" not in codes(source)
+    assert "WS718" in codes(source + "  - Other: other\n")
+
+
+def test_address_and_name_parts_are_not_automatically_complex():
+    assert "IS720" not in codes(
+        field_screen(["first_name", "last_name", "address", "city", "state", "zip"])
+    )
+    assert "IS720" in codes(field_screen([f"decision_{i}" for i in range(5)]))
+
+
+def test_inline_help_is_recognized_but_labeled_help_tab_is_discouraged():
+    source = field_screen([f"decision_{i}" for i in range(5)])
+    assert "IS720" not in codes(
+        source + "subquestion: ${ collapse_template(explanation) }\n"
+    )
+    assert {"IS720", "WS726"}.issubset(
+        codes(source + "help:\n  label: Learn more\n  content: An explanation\n")
+    )
+    assert "WS726" in codes(source + "help: An explanation\n")
+
+
 def test_field_label_measures_visible_conditional_alternatives_and_links():
     source = "question: Choose\nfields:\n  - label: |\n      % if person_answering == 'helper':\n      What is the tenant's name?\n      % elif person_answering == 'attorney':\n      What is your client's name?\n      % else:\n      What is your name?\n      % endif\n    field: answer\n"
     assert "WS717" not in codes(source)

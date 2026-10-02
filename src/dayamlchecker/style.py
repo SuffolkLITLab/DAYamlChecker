@@ -981,6 +981,216 @@ def _is_object_choice(value: dict[str, Any]) -> bool:
     }
 
 
+@dataclass(frozen=True)
+class FieldCount:
+    known: int
+    possible: int | None
+
+
+def _static_variable(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute) and _static_variable(node.value):
+        return ast.unparse(node)
+    if isinstance(node, ast.Subscript) and _static_variable(node.value):
+        if isinstance(node.slice, ast.Name) or (
+            isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, (str, int))
+        ):
+            return ast.unparse(node)
+    return None
+
+
+def _simple_visibility(value: Any, *, hidden: bool) -> tuple[str, str, Any] | None:
+    """Parse references and literal comparisons, never evaluate interview code."""
+    if isinstance(value, dict):
+        if "variable" in value and "is" in value:
+            expected = value["is"]
+            if expected is not None and not isinstance(
+                expected, (str, int, float, bool)
+            ):
+                return None
+            try:
+                variable = _static_variable(
+                    ast.parse(_stringify(value["variable"]), mode="eval").body
+                )
+            except SyntaxError:
+                return None
+            return (variable, "ne" if hidden else "eq", expected) if variable else None
+        value = value.get("code")
+    if not isinstance(value, str):
+        return None
+    js = re.fullmatch(
+        r"\s*val\(\s*['\"]([^'\"]+)['\"]\s*\)\s*(===?|!==?)\s*(true|false)\s*", value
+    )
+    if js:
+        value = f"{js[1]} {'!=' if js[2].startswith('!') else '=='} {js[3].title()}"
+    try:
+        node = ast.parse(value.strip(), mode="eval").body
+    except SyntaxError:
+        return None
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        hidden = not hidden
+        node = node.operand
+    variable = _static_variable(node)
+    if variable:
+        return variable, "truth", not hidden
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and len(node.comparators) == 1
+    ):
+        variable = _static_variable(node.left)
+        literal = node.comparators[0]
+        if (
+            variable
+            and isinstance(literal, ast.Constant)
+            and isinstance(node.ops[0], (ast.Eq, ast.NotEq, ast.Is, ast.IsNot))
+        ):
+            expected = literal.value
+            if expected is not None and not isinstance(
+                expected, (str, int, float, bool)
+            ):
+                return None
+            unequal = isinstance(node.ops[0], (ast.NotEq, ast.IsNot)) != hidden
+            identity = isinstance(node.ops[0], (ast.Is, ast.IsNot))
+            return (
+                variable,
+                (
+                    ("isnot" if unequal else "is")
+                    if identity
+                    else ("ne" if unequal else "eq")
+                ),
+                expected,
+            )
+    return None
+
+
+def _field_count_bounds(
+    doc: dict[str, Any], *, group_names: bool = False
+) -> FieldCount:
+    """Bound logical input count, preserving unknown conditional/generated inputs."""
+    inputs: list[tuple[str, tuple[str, str, Any] | None, bool]] = []
+    generated = False
+    for field in _iter_fields(doc):
+        variable = _extract_field_variable(field)
+        if not variable:
+            generated = generated or bool(field.get("code"))
+            continue
+        condition = None
+        unknown = excluded = False
+        for key in ("show if", "hide if", "js show if", "js hide if"):
+            if key not in field:
+                continue
+            value = field[key]
+            hidden = "hide" in key
+            if isinstance(value, bool):
+                excluded = excluded or value == hidden
+                continue
+            parsed = _simple_visibility(value, hidden=hidden)
+            if parsed is None or condition is not None:
+                unknown = True
+            else:
+                condition = parsed
+        if not excluded:
+            inputs.append((variable, condition, unknown))
+
+    groups: dict[str, list[str]] = {}
+    for variable, _, _ in inputs:
+        match = re.fullmatch(
+            r"(?:(.*)[._])?(address|address2|street|unit|city|state|zip|zip_code|postal_code|country|county)",
+            variable,
+        )
+        if match:
+            prefix = (match[1] or "").rstrip("._")
+            prefix = re.sub(r"(?:[._])address$", "", prefix)
+            groups.setdefault("address:" + prefix, []).append(variable)
+        elif group_names:
+            match = re.fullmatch(r"(?:(.*)[._])?(first|middle|last)_name", variable)
+            if match:
+                groups.setdefault("name:" + (match[1] or "").rstrip("._"), []).append(
+                    variable
+                )
+    grouped = {
+        variable: group
+        for group, variables in groups.items()
+        if len(set(variables)) >= 2
+        for variable in variables
+    }
+    units: dict[str, list[tuple[tuple[str, str, Any] | None, bool]]] = {}
+    domains: dict[str, list[Any]] = {}
+    other_value = object()
+    for variable, condition, unknown in inputs:
+        units.setdefault(grouped.get(variable, variable), []).append(
+            (condition, unknown)
+        )
+        if condition and not unknown:
+            values = domains.setdefault(condition[0], [False, True])
+            if condition[1] != "truth":
+                if None not in values:
+                    values.append(None)
+                if other_value not in values:
+                    values.append(other_value)
+            if not any(
+                type(value) is type(condition[2]) and value == condition[2]
+                for value in values
+            ):
+                values.append(condition[2])
+    combinations = 1
+    for values in domains.values():
+        combinations *= len(values)
+    if combinations > 4096:
+        known = sum(
+            any(condition is None and not unknown for condition, unknown in options)
+            for options in units.values()
+        )
+        return FieldCount(known, None if generated else len(units))
+
+    def visible(
+        condition: tuple[str, str, Any] | None, assignment: dict[str, Any]
+    ) -> bool:
+        if condition is None:
+            return True
+        variable, operator, expected = condition
+        actual = assignment[variable]
+        if operator == "truth":
+            return bool(actual) == expected
+        if operator == "is":
+            return actual is expected
+        if operator == "isnot":
+            return actual is not expected
+        return (actual == expected) == (operator == "eq")
+
+    known = possible = 0
+    for combination in itertools.product(*domains.values()):
+        assignment = dict(zip(domains, combination))
+        known = max(
+            known,
+            sum(
+                any(
+                    not unknown and visible(condition, assignment)
+                    for condition, unknown in options
+                )
+                for options in units.values()
+            ),
+        )
+        possible = max(
+            possible,
+            sum(
+                any(
+                    unknown or visible(condition, assignment)
+                    for condition, unknown in options
+                )
+                for options in units.values()
+            ),
+        )
+    return FieldCount(known, None if generated else possible)
+
+
+def _logical_field_count(doc: dict[str, Any], *, group_names: bool = False) -> int:
+    return _field_count_bounds(doc, group_names=group_names).known
+
+
 def _longest_prose_span(
     raw: str, *, sentences: bool, total: bool = False
 ) -> tuple[int, str]:
@@ -1097,8 +1307,23 @@ def _longest_prose_span(
 def _check_too_many_fields(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
-        field_count = len(_iter_fields(parsed_doc.doc))
+        bounds = _field_count_bounds(parsed_doc.doc)
+        field_count = bounds.known
         if field_count <= 6:
+            if bounds.possible is None or bounds.possible > 6:
+                findings.append(
+                    _style_draft(
+                        MessageId.STYLE_FIELD_COUNT_UNCERTAIN,
+                        line_number=parsed_doc.default_line(),
+                        screen_id=parsed_doc.screen_id,
+                        field_count=field_count,
+                        possible_count=(
+                            bounds.possible
+                            if bounds.possible is not None
+                            else "unknown (generated fields)"
+                        ),
+                    )
+                )
             continue
         findings.append(
             _style_draft(
@@ -1160,9 +1385,12 @@ def _check_missing_help_on_complex_screens(
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
         fields = _iter_fields(parsed_doc.doc)
-        if len(fields) < 5:
+        if _logical_field_count(parsed_doc.doc, group_names=True) < 5:
             continue
-        has_help = bool(parsed_doc.doc.get("help"))
+        has_help = any(
+            "collapse_template(" in entry.text
+            for entry in _iter_doc_texts([parsed_doc])
+        )
         for field in fields:
             if field.get("help") or field.get("hint") or field.get("note"):
                 has_help = True

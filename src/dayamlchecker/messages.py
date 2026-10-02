@@ -261,6 +261,7 @@ class MessageId(StrEnum):
     STYLE_CONTRACTION = "style_contraction"
     # Preserve the historical message ID for API consumers and suppressions.
     TRANSLATABILITY_COMPLEX_CONTRACTION = "style_contraction"
+    STYLE_FIELD_COUNT_UNCERTAIN = "style_field_count_uncertain"
     STYLE_SLASH_ALTERNATIVE = "style_slash_alternative"
     STYLE_FIELD_LABEL_INSTRUCTION_VERB = "style_field_label_instruction_verb"
     STYLE_TITLE_CASE_LABEL = "style_title_case_label"
@@ -1407,7 +1408,10 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Screen contains too many fields",
-        template="screen contains {field_count} fields; consider splitting it into smaller steps",
+        template=(
+            "screen can show {field_count} logical input fields, counting parts of "
+            "the same address as one; consider splitting it into smaller steps"
+        ),
     ),
     MessageId.STYLE_WALL_OF_TEXT: MessageDefinition(
         code="WS719",
@@ -1481,6 +1485,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "write out {matched_text!r} as {replacement!r} in {location} to avoid "
             "misinterpretation by non-native readers or translation tools"
         ),
+    ),
+    MessageId.STYLE_FIELD_COUNT_UNCERTAIN: MessageDefinition(
+        code="IS740",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Conditional or generated input count needs review",
+        template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
     ),
     MessageId.STYLE_SLASH_ALTERNATIVE: MessageDefinition(
         code="WS728",

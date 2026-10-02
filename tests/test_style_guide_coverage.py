@@ -15,6 +15,18 @@ def codes(source, *, path=None, theme=False):
     }
 
 
+def field_screen(variables):
+    return "question: Details\nfields:\n" + "".join(
+        f"  - Detail {i}: {name}\n" for i, name in enumerate(variables)
+    )
+
+
+def conditional_screen(condition: str) -> str:
+    return "question: Details\nfields:\n" + "".join(
+        f"  - Detail {i}: detail_{i}\n    {condition}\n" for i in range(7)
+    )
+
+
 def test_guide_or_question_and_single_choice_alternative():
     # The readability guide's compound-question example.
     assert "IS715" in codes(
@@ -32,9 +44,54 @@ def test_guide_or_question_and_single_choice_alternative():
     )
 
 
+def test_enum_and_indexed_visibility_can_still_overload_screen():
+    assert "WS718" in codes(
+        conditional_screen(
+            "show if:\n      variable: users[i].status\n      is: employed"
+        )
+    )
+    assert "WS718" in codes(
+        conditional_screen("show if:\n      code: users[i].status == 'employed'")
+    )
+    assert "WS718" not in codes(conditional_screen("show if: False"))
+
+
+def test_unknown_visibility_and_generated_inputs_have_coverage_advisories():
+    unknown = codes(conditional_screen("show if:\n      code: custom_check()"))
+    assert "IS740" in unknown
+    assert "WS718" not in unknown
+    assert "IS740" in codes("question: Details\nfields:\n  - code: make_fields()\n")
+    assert "IS740" not in codes(
+        "question: Details\nfields:\n  - Choice: selected\n    code: make_choices()\n"
+    )
+
+
+def test_mutually_exclusive_enum_groups_do_not_inflate_count():
+    source = "question: Details\nfields:\n" + "".join(
+        f"  - Detail {kind} {i}: {kind}_{i}\n    show if:\n      variable: category\n      is: {kind}\n"
+        for kind in ("first", "second")
+        for i in range(6)
+    )
+    assert {"WS718", "IS740"}.isdisjoint(codes(source))
+
+
+def test_top_level_help_is_separate_even_with_custom_label():
+    assert "WS726" in codes(
+        "question: Details\nfield: answer\nhelp:\n  label: Learn more\n  content: Explanation\n"
+    )
+
+
 def test_formatted_prose_still_has_length_limits():
     source = "question: Details\nfield: answer\nsubquestion: |\n"
     paragraphs = source + "  " + "word " * 65 + "\n\n  " + "word " * 65 + "\n"
     assert "IS741" not in codes(paragraphs)
     assert "WS719" not in codes(paragraphs)
     assert "WS719" in codes(source + "  * " + "word " * 125 + "\n")
+
+
+def test_address_exception_still_preserves_overload_signal():
+    address = [f"user.address.{part}" for part in ("address", "city", "state", "zip")]
+    assert "WS718" not in codes(
+        field_screen(address + [f"answer_{i}" for i in range(5)])
+    )
+    assert "WS718" in codes(field_screen(address + [f"answer_{i}" for i in range(6)]))
