@@ -1,0 +1,65 @@
+[
+  {
+    "source": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_appointment_of_guardian.yml",
+    "source_line": 727,
+    "screen_id": "parent basic information",
+    "question": "% if who_is_making_petition == \"minor\" and (not form_filled_by_attorney):\n% if parents.target_number == 1:\nTell us about your parent\n% else:\nTell us about your ${ ordinal(i) } parent\n% endif\n% else:\n% if parents.target_number == 1:\nTell us about ${ children.familiar() }'s parent\n% else:\nTell us about ${ children.familiar() }'s ${ ordinal(i) } parent\n% endif\n% endif\n",
+    "expected_length": 40,
+    "expected_title": "Tell us about xxxxxxxx's xxxxxxxx parent",
+    "naive_length": 133
+  },
+  {
+    "source": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_appointment_of_guardian.yml",
+    "source_line": 1211,
+    "screen_id": "requested guardian information",
+    "question": "% if (len(requested_guardians.complete_elements()) < 1) and (who_is_making_petition == \"minor\" and not form_filled_by_attorney):\nWho do you want the court to appoint as your guardian?\n% elif (len(requested_guardians.complete_elements()) < 1) and (who_is_making_petition == \"minor\" and form_filled_by_attorney):\nWho does ${ children[0] } want the court to appoint as their guardian?\n% elif (len(requested_guardians.complete_elements()) < 1) and (who_is_making_petition == \"interested_party\"):\nWho do you want the court to appoint as a guardian for ${ children.familiar() }?\n% elif (len(requested_guardians.complete_elements()) > 0) and (who_is_making_petition == \"minor\" and not form_filled_by_attorney):\nWho else do you want the court to appoint as your guardian?\n% elif (len(requested_guardians.complete_elements()) > 0) and (who_is_making_petition == \"minor\" and form_filled_by_attorney):\nWho else does ${ children[0] } want the court to appoint as their guardian?\n% elif (len(requested_guardians.complete_elements()) > 0) and (who_is_making_petition == \"interested_party\"):\nWho else do you want the court to appoint as a guardian for ${ children.familiar() }?\n% endif\n",
+    "expected_length": 69,
+    "expected_title": "Who else do you want the court to appoint as a guardian for xxxxxxxx?",
+    "naive_length": 380
+  },
+  {
+    "source": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_removal_of_guardian.yml",
+    "source_line": 797,
+    "screen_id": "guardian information",
+    "question": "Tell us about\n% if who_is_making_petition == \"minor\" and (not form_filled_by_attorney):\nyour\n% else:\n${ children[0].familiar() }'s\n% endif\n% if len(guardians.complete_elements()) < 1:\ncurrent guardian(s)\n% else:\nother guardian\n% endif\n",
+    "expected_length": 44,
+    "expected_title": "Tell us about xxxxxxxx's current guardian(s)",
+    "naive_length": 64
+  },
+  {
+    "source": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_2.yml",
+    "source_line": 327,
+    "screen_id": "non_parent_children",
+    "question": "% if ( children_cares_for.target_number == 1 ):\nTell us about the child in your home who you care and take responsiblity for\n% else:\n% if i == 0:\nTell us about the oldest child in your home who you care and take responsiblity for\n% else:\nTell us about the ${ordinal(i)} child in your home who you care and take responsiblity for.\n% endif\n% endif\n",
+    "expected_length": 86,
+    "expected_title": "Tell us about the xxxxxxxx child in your home who you care and take responsiblity for.",
+    "naive_length": 247
+  },
+  {
+    "source": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_appointment_of_guardian.yml",
+    "source_line": 927,
+    "screen_id": "nomination of guardian by signed writing",
+    "question": "% if who_is_making_petition == \"minor\" and (not form_filled_by_attorney):\nHas a guardian been nominated for you in a will or other written document, signed by a parent or existing guardian?\n% else:\nHas a guardian been nominated for ${ children.familiar() } in a will or other written document, signed by a parent or existing guardian?\n% endif\n",
+    "expected_length": 120,
+    "expected_title": "Has a guardian been nominated for xxxxxxxx in a will or other written document, signed by a parent or existing guardian?",
+    "naive_length": 236
+  },
+  {
+    "source": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/section-iii.yml",
+    "source_line": 155,
+    "screen_id": "spouse income total",
+    "question": "What is your spouse's monthly income from all sources\n% if is_spouse_employed == True and spouse_has_other_income_source:\nincluding employment with ${spouse_employer.name} and from ${spouse_monthly_income_source}\n% elif is_spouse_employed == True:\nincluding employment with ${spouse_employer.name}\n% elif is_spouse_employed == True:\nincluding ${spouse_monthly_income_source}\n% endif \n?\n",
+    "expected_length": 108,
+    "expected_title": "What is your spouse's monthly income from all sources including employment with xxxxxxxx and from xxxxxxxx ?",
+    "naive_length": 162
+  },
+  {
+    "source": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/verified_complaint_and_motions_to_include.yml",
+    "source_line": 1276,
+    "screen_id": "service_method",
+    "question": "% if person_answering == \"tenant\":\nIt’s best to give your landlord notice by providing them with a copy of your motion for repairs and relief (and your complaint) before filing it with the court. \n% elif person_answering == \"attorney\" and representation_type == \"entering_appearance\":\nIt’s best to give the landlord notice by providing them with a copy of your motion for repairs and relief (and your complaint) before filing it with the court.\n% else:\nIt’s best to give the landlord notice by providing them with a copy of the tenant’s motion for repairs and relief (and the complaint) before filing it with the court. \n% endif\n",
+    "expected_length": 166,
+    "expected_title": "It’s best to give the landlord notice by providing them with a copy of the tenant’s motion for repairs and relief (and the complaint) before filing it with the court.",
+    "naive_length": 487
+  }
+]

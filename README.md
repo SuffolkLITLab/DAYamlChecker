@@ -170,6 +170,39 @@ are allowed. Straight and curly apostrophes are checked. The historical
 the finding now belongs to `translatability`, so suppressing `style` alone
 does not hide it.
 
+Length checks measure visible conditional alternatives, and prose checks keep
+paragraphs and list items separate. Field counts exclude presentation items and
+count related parts of the same address as one input. Separate addresses count
+separately. Simple boolean visibility is checked for simultaneously visible
+inputs, including literal comparisons and indexed references. Generated fields
+and unsupported visibility expressions produce count-coverage advisories when
+they could conceal an overloaded screen.
+The complex-screen help check also groups ordinary name components.
+
+A custom theme is optional. Use `--style-require-custom-theme` (which also
+enables `--style`) or `RuntimeOptions(style_require_custom_theme=True)` to
+require one. Theme and eligibility checks read locally available includes
+without executing interview code. When an include cannot be resolved, those
+checks report coverage as uncertain unless available evidence already establishes
+the theme or exit. Top-level `help`, including `{label, content}`, opens a separate
+Help interface and is discouraged; use inline contextual help instead. Review
+action destinations, table edit definitions, and cell-level edit links are
+checked using available local includes. Document previews normally have a Back
+route; they are flagged only when that route is explicitly disabled and no
+correction control is detected. Unresolved review widgets alone do not produce
+findings. Wall-of-text checks measure individual paragraphs, list items, and
+table cells, including soft wraps. Short chunks are not added together to create
+a length warning; an individual chunk over 120 words still warns even when
+the rest of the screen is well formatted.
+
+Vocabulary checks favor recall. `IS712` suggests simpler wording for `please`,
+`select`, and `option`. `IS746` asks authors to review `request`, `report`,
+`benefit`, and `following` in context, with alternatives that distinguish verbs
+from nouns and preserve official names. These are informational suggestions,
+not automatic source edits. The seven candidates have a separate match budget
+so they do not displace other plain-language findings. `Review` remains allowed,
+and the unsafe blanket mappings for `the tenant`, `find`, `it is`, `application`,
+`added`, and `condition` remain disabled.
 
 ```bash
 python3 -m dayamlchecker --style --no-url-check path/to/interview.yml
@@ -178,6 +211,18 @@ OPENAI_BASE_URL=https://api.openai.com/v1 OPENAI_API_KEY=... python3 -m dayamlch
 ```
 
 `--style-llm` also enables `--style`. It reads `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` from the environment when flags are not provided. The checker only emits sanitized configuration/request errors for LLM-backed style rules and does not print the credential values.
+
+With `--style-llm`, a contextual triage pass reviews those seven vocabulary
+candidates in batches of at most 20, across all screens. This adds one request
+per batch to the existing broad style reviews. A candidate is dismissed only
+when the model supplies a high-confidence dismissal with a literal contextual
+quote. Uncertainty, truncated context, missing credentials, request failures,
+or invalid/incomplete responses retain the deterministic findings. Other
+deterministic checks cannot be dismissed by this pass. Retained candidates
+include the model's reason and quote in their finding context; a confirmed
+candidate can receive a more grammatical suggestion. Response validation
+guards the triage protocol; it does not guarantee the model's judgment is
+correct. Corpus audits run without model calls by default.
 
 For Python callers, use the module helper instead of shelling out:
 

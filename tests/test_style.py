@@ -941,6 +941,44 @@ def test_overlong_question_label_preserves_conditional_structure(
     )
 
 
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).parent / "fixtures/style/conditional_headings.json").read_text(
+            encoding="utf-8"
+        )
+    ),
+    ids=lambda case: case["screen_id"],
+)
+def test_overlong_question_label_from_real_interview_corpus(case):
+    length, candidate = style_module._question_longest_line(case["question"])
+    assert length == case["expected_length"]
+    estimated_title = style_module._apply_plain_text_transforms(
+        style_module._MAKO_EXPR_RE.sub("x" * 8, candidate)
+    )
+    assert estimated_title == case["expected_title"]
+
+    yaml_text = (
+        f"id: {case['screen_id']}\nquestion: |\n"
+        + "".join(f"  {line}\n" for line in case["question"].splitlines())
+        + "field: dummy_field\n"
+    )
+    findings = find_errors_from_string(
+        yaml_text,
+        input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    warnings = [
+        finding
+        for finding in findings
+        if finding.message_id == MessageId.STYLE_OVERLONG_QUESTION_LABEL
+    ]
+    assert len(warnings) == int(case["expected_length"] > 120)
+    if warnings:
+        assert warnings[0].context["screen_id"] == case["screen_id"]
+        assert warnings[0].line_number == 2
+
+
 def test_overlong_question_label_assumes_mako_variable_adds_about_eight_chars():
     # 115 chars of text + 1 mako variable (assumed ~8 chars) = ~123 chars > 120.
     prefix = "A" * 115
