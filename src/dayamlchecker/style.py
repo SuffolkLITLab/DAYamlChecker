@@ -179,6 +179,14 @@ class ParsedInterviewDocument:
 
     def line_for_key(self, key: str) -> int:
         key_line = _find_top_level_key_line(self.source_code, key)
+        if key_line is None:
+            match = re.search(
+                rf"^{re.escape(key)}\s*:",
+                self.source_code,
+                re.MULTILINE | re.IGNORECASE,
+            )
+            if match:
+                key_line = self.source_code.count("\n", 0, match.start()) + 1
         if key_line is not None:
             return _absolute_line_number(
                 self.source_code,
@@ -262,7 +270,10 @@ def find_style_findings(
     options: Optional[StyleLintOptions] = None,
 ) -> list[Finding]:
     resolved_options = options or StyleLintOptions()
-    parsed_docs = list(docs)
+    parsed_docs = [
+        replace(doc, doc={str(key).lower(): value for key, value in doc.doc.items()})
+        for doc in docs
+    ]
     deterministic: list[Finding] = []
 
     for check in (
@@ -351,6 +362,8 @@ def _check_choices_without_invariant_values(
 
     for parsed_doc in docs:
         for key in ("choices", "dropdown", "buttons"):
+            if _is_object_choice(parsed_doc.doc):
+                continue
             value = parsed_doc.doc.get(key)
             if not has_noninvariant_choices(value):
                 continue
@@ -364,6 +377,8 @@ def _check_choices_without_invariant_values(
                 )
             )
         for field in _iter_fields(parsed_doc.doc):
+            if _is_object_choice(field):
+                continue
             choices = field.get("choices")
             if not has_noninvariant_choices(choices):
                 continue
@@ -413,7 +428,17 @@ def _check_ternary_conditional_text(
                 parsed = ast.parse(source, mode="eval")
             except SyntaxError:
                 continue
-            if not any(isinstance(node, ast.IfExp) for node in ast.walk(parsed)):
+            if not any(
+                isinstance(node, ast.IfExp)
+                and any(
+                    isinstance(part, ast.Constant)
+                    and isinstance(part.value, str)
+                    and re.search(r"[^\W\d_]", part.value)
+                    for branch in (node.body, node.orelse)
+                    for part in ast.walk(branch)
+                )
+                for node in ast.walk(parsed)
+            ):
                 continue
             findings.append(
                 _style_draft(
@@ -524,9 +549,8 @@ def _check_empty_screen_title(
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     for parsed_doc in docs:
-        question_text = _plain_text(
-            _visible_text(parsed_doc.doc.get("question"))
-        ).strip()
+        raw_question = _visible_text(parsed_doc.doc.get("question"))
+        question_text = _plain_text(_MAKO_EXPR_RE.sub("value", raw_question)).strip()
         if question_text:
             continue
         has_fields = len(_iter_fields(parsed_doc.doc)) > 0
@@ -899,6 +923,14 @@ def _check_pronoun_and_gender_fields(
                     )
                 )
     return findings
+
+
+def _is_object_choice(value: dict[str, Any]) -> bool:
+    return _stringify(value.get("datatype")).lower() in {
+        "object",
+        "object_radio",
+        "object_checkboxes",
+    }
 
 
 def _check_too_many_fields(docs: list[ParsedInterviewDocument]) -> list[FindingDraft]:
