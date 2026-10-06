@@ -404,3 +404,42 @@ def test_theme_cli_flag_implies_style(tmp_path, capsys):
         ]
     )
     assert "is722" in capsys.readouterr().out.lower()
+
+
+@pytest.mark.parametrize(
+    "text, matched, replacement",
+    [
+        ("Date you obtained the order", "obtained", "got, received"),
+        ("Preview your answers before submitting the form.", "submitting", "sending"),
+        ("Only materials presented to the lower court", "presented", "shown, given"),
+        ("Has the appeal period expired?", "expired", "ran out, ended"),
+        (
+            "Is a household member that is employed?",
+            "is employed",
+            "is working, has a job",
+        ),
+        (
+            "Explain the reasons set forth above.",
+            "set forth",
+            "listed, written, explained",
+        ),
+    ],
+)
+def test_inflected_and_phrase_entries_suggest_matching_forms(
+    text, matched, replacement
+):
+    findings = find_errors_from_string(
+        f"question: {text}\nfield: answer\n",
+        runtime_options=RuntimeOptions(style_enabled=True),
+    )
+    found = {
+        finding.context["matched_text"].lower(): finding.context["replacement"]
+        for finding in findings
+        if finding.code == "IS712"
+    }
+    assert found.get(matched) == replacement
+
+
+@pytest.mark.parametrize("text", ["I am self employed", "Are you self-employed?"])
+def test_self_employed_is_not_flagged(text):
+    assert "IS712" not in codes(f"question: {text}\nfield: answer\n")

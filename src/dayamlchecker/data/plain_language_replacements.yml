@@ -8,6 +8,11 @@
 # - A few high-noise terms (e.g., "address", "type") are intentionally excluded.
 # - Corpus review: omit unsafe role/grammar substitutions; contextual vocabulary
 #   entries below generate review candidates instead of unconditional advice.
+# - Inflected forms ("obtained", "submitted") are listed as their own entries,
+#   so the suggestion can match the tense. Added 2026-10-06 after checking each
+#   one against 180 published Massachusetts interviews; forms that are usually
+#   ordinary words or names ("required", "benefits", "deemed" in a form
+#   title, "self-employed") were left out.
 
 a and/or b: a or b or both
 a number of: some
@@ -41,9 +46,11 @@ advantageous: '[useful, helpful]'
 adversely impact: '[hurt, set back]'
 adversely impact on: '[hurt, set back]'
 advise: '[recommend, tell, say]'
+advised: '[told, recommended]'
 affix: '[add, write, fasten, stick on, fix to]'
 afford an opportunity: '[allow, let]'
 afforded: given
+aforementioned: '[this, that, (omit)]'
 aforesaid: '[this, earlier in this document]'
 aggregate: total
 aircraft: plane
@@ -57,6 +64,7 @@ ameliorate: '[improve, help]'
 amendment: change
 and/or: a or b or both
 anticipate: expect
+anticipated: expected
 apparent: '[clear, plain, obvious, seeming]'
 applicant: you
 appoint: '[choose, name]'
@@ -67,6 +75,7 @@ appropriate: '[(omit), proper, right, suitable]'
 appropriate to: suitable for
 approximate: about
 approximately: '[about, roughly]'
+are employed: '[are working, have jobs]'
 arrive onboard: arrive
 as a consequence of: because
 as a means of: to
@@ -85,6 +94,7 @@ at present: now
 at the moment: '[now, (omit)]'
 at the present time: '[now, (omit)]'
 attain: meet
+attained: '[reached, finished]'
 attempt: try
 attend: '[come to, go to, be at]'
 attributable to: '[due to, because of]'
@@ -110,6 +120,7 @@ combat environment: combat
 combine: '[mix, join, merge]'
 combined: '[together, joint]'
 commence: '[start, begin]'
+commenced: '[started, began]'
 communicate: '[talk, write, telephone, be specific]'
 competent: '[able, can]'
 compile: '[make, collect]'
@@ -145,6 +156,7 @@ counter: against
 courteous: polite
 cumulative: '[added up, added together]'
 currently: '[(omit), now]'
+currently employed: '[working now, have a job]'
 customary: '[usual, normal]'
 decide: '[figure, find]'
 deduct: '[take off, take away]'
@@ -230,6 +242,7 @@ expenditure: spending
 expertise: ability
 expiration: end
 expire: run out
+expired: '[ran out, ended]'
 extant: '[current, in force]'
 extremity: limit
 fabricate: '[make, make up]'
@@ -261,6 +274,7 @@ furthermore: '[then, also, and]'
 generate: '[produce, give, make]'
 give consideration to: '[consider, think about]'
 grant: give
+granted: '[approved, given]'
 greatest: '[largest, most]'
 has a requirement for: needs
 has regard to: takes into account
@@ -312,6 +326,7 @@ in the amount of: for
 in the course of: '[while, during]'
 in the event of: if
 in the event of/that: if
+in the event that: if
 in the majority of instances: '[most, mostly]'
 in the near future: soon
 in the neighborhood of: '[about, around]'
@@ -326,7 +341,9 @@ inception: '[start, beginning]'
 incorporating: which includes
 incumbent upon: must
 incur: '[have to pay, owe]'
+incurred: '[had, owed]'
 indicate: '[show, suggest, write down]'
+indicated: '[said, showed]'
 indication: sign
 inform: tell
 initial: first
@@ -344,6 +361,7 @@ irrespective of: '[despite, even if]'
 is applicable to: applies to
 is authorized to: may
 is compulsory: you must
+is employed: '[is working, has a job]'
 is in consonance with: '[agrees with, follows]'
 is of the opinion: thinks
 is responsible for: '[(omit), handles]'
@@ -388,14 +406,18 @@ nevertheless: '[but, however, even so]'
 not later than: '[before, by]'
 not later than 10 may: by 10 May, before 11 May
 not later than 1600: by 1600
+notified: told
 notify: '[tell, let you know, let us know]'
 notwithstanding: '[even if, despite, still, yet]'
 numerous: '[many, say how many]'
 objective: '[aim, goal]'
 obligate: '[bind, compel]'
+obligated: '[required, must]'
 obligatory: you must
 observe: see
 obtain: '[get, receive]'
+obtained: '[got, received]'
+obtaining: '[getting, receiving]'
 occasioned by: '[caused by, because of]'
 on a regular basis: (omit)
 on behalf of: for
@@ -419,6 +441,7 @@ perceive: '[see, notice, understand]'
 perform: do
 permissible: allowed
 permit: '[let, allow]'
+permitted: allowed
 personnel: '[people, staff]'
 persons: '[people, anyone]'
 pertaining to: about, of, on
@@ -435,6 +458,7 @@ practically: '[almost, nearly]'
 preclude: prevent
 predominant: main
 prescribe: '[set, fix]'
+presented: '[shown, given]'
 preserve: '[keep, protect]'
 previous: '[earlier, before, last]'
 previously: before
@@ -447,6 +471,7 @@ procure: '[get, obtain, arrange, (omit)]'
 proficiency: skill
 profusion of: '[plenty, too many, say how many]'
 prohibit: '[ban, stop]'
+prohibited: not allowed
 projected: estimated
 prolonged: long
 promptly: '[quickly, at once]'
@@ -454,11 +479,14 @@ promulgate: '[advertise, announce, issue, publish]'
 proportion: part
 provide: give
 provide give: '[offer, say]'
+provided: '[gave, given]'
 provided that: '[if, as long as]'
 provides guidance for: guides
+providing: giving
 provisions: '[rules, terms]'
 proximity: '[closeness, nearness]'
 purchase: buy
+purchased: bought
 pursuant to: '[under, because of, in line with]'
 pursuant to by: '[following, per, under]'
 reconsider: '[think again about, look again at]'
@@ -497,6 +525,7 @@ said/such/same: '[the, this, that]'
 scrutinize: '[read carefully, look at carefully]'
 select: choose
 selection: choice
+set forth: '[listed, written, explained]'
 set forth in: in
 set up: '[prove, show]'
 settle: pay
@@ -513,6 +542,8 @@ statutory: '[legal, by law]'
 subject: '[the, this, your]'
 subject to: '[depending on, under, keeping to]'
 submit: '[send, give]'
+submitted: '[sent, given]'
+submitting: sending
 subsequent: '[later, next]'
 subsequent to/upon: after
 subsequently: '[after, later, then]'
@@ -525,6 +556,7 @@ supplementary: '[extra, more]'
 supply: '[give, sell, deliver]'
 take action to: (omit)
 terminate: '[stop, end]'
+terminated: '[ended, stopped]'
 that being the case: if so
 the month of: (omit)
 the question as to whether: whether
@@ -562,6 +594,7 @@ utilise: use
 utilization: use
 utilize: use
 utilize, utilization: use
+utilized: used
 validate: confirm
 variation: change
 verify: '[check, confirm, make sure]'
@@ -575,6 +608,7 @@ we have pleasure in: we are glad to
 whatsoever: '[whatever, what, any]'
 whensoever: when
 whereas: '[but, because, since]'
+whereby: '[by which, so]'
 whether or not: whether
 will issue: '[will pass, will send]'
 with a view to: '[to, so that]'
