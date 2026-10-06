@@ -3213,6 +3213,22 @@ attachment:
                     f"A null value has no Mako to report on, got: {errs}",
                 )
 
+    def test_crlf_document_separators_split_blocks(self):
+        # Callers like the Weaver pass raw strings, so CRLF is not normalized
+        # by open(); "---\r" must still separate blocks.
+        source = (
+            "include:\r\n  - shared.yml\r\n---\r\n"
+            "metadata:\r\n  title: Test\r\n---\r\n"
+            "code: |\r\n  broken =\r\n"
+        )
+        errs = find_errors_from_string(source, input_file="<string_crlf>")
+        self.assertFalse(_has_code(errs, "EG102"), f"Unexpected parse error: {errs}")
+        self.assertTrue(_has_code(errs, "EG122"), f"Expected a syntax error: {errs}")
+        lf_errs = find_errors_from_string(
+            source.replace("\r\n", "\n"), input_file="<string_crlf>"
+        )
+        self.assertEqual(errs, lf_errs)
+
 
 if __name__ == "__main__":
     unittest.main()
