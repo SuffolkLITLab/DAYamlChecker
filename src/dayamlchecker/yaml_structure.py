@@ -2097,6 +2097,9 @@ def find_errors_from_string(
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
     """Preprocess opted-in Jinja templates, then run normal YAML validation."""
+    # Match the universal newlines that find_errors() gets from open(): a "---\r"
+    # separator would otherwise not split, collapsing the file into one block.
+    full_content = full_content.replace("\r\n", "\n").replace("\r", "\n")
     partial_findings: list[YAMLError] = []
     if uses_jinja(full_content):
         from dayamlchecker._jinja import render_yaml
