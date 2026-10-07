@@ -8,7 +8,7 @@ from pyexpat import features
 import re
 import sys
 
-from typing import Any, Optional
+from typing import Any, Callable, Iterator, Optional
 from dayamlchecker.accessibility import (
     AccessibilityLintOptions,
     find_accessibility_findings,
@@ -26,6 +26,12 @@ from dayamlchecker.style import (
     ParsedInterviewDocument,
     StyleLintOptions,
     find_style_findings,
+)
+
+from dayamlchecker.spelling import (
+    SpellcheckOptions,
+    find_spelling_findings,
+    options_from_cli,
 )
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
 from mako.exceptions import (  # type: ignore[import-untyped]
@@ -228,6 +234,8 @@ class RuntimeOptions:
     style_openai_api_key: str | None = None
     style_openai_model: str | None = None
     docx_accessibility_severity: Severity = Severity.WARNING
+    # None disables spellcheck.
+    spellcheck: SpellcheckOptions | None = field(default_factory=SpellcheckOptions)
 
     def docx_accessibility_options(self) -> DocxAccessibilityOptions:
         return DocxAccessibilityOptions(max_severity=self.docx_accessibility_severity)
@@ -2097,6 +2105,21 @@ def find_errors_from_string(
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[YAMLError]:
     """Preprocess opted-in Jinja templates, then run normal YAML validation."""
+    return _check_with_jinja(
+        full_content,
+        input_file,
+        lambda content: _find_errors_from_yaml(
+            content, input_file, lint_mode, runtime_options
+        ),
+    )
+
+
+def _check_with_jinja(
+    full_content: str,
+    input_file: Optional[str],
+    check_yaml: Callable[[str], list[YAMLError]],
+) -> list[YAMLError]:
+    """Render opted-in Jinja templates, then run check_yaml on the YAML."""
     # Match the universal newlines that find_errors() gets from open(): a "---\r"
     # separator would otherwise not split, collapsing the file into one block.
     full_content = full_content.replace("\r\n", "\n").replace("\r", "\n")
@@ -2148,13 +2171,69 @@ def find_errors_from_string(
         # usable, while suppression and annotation stay off the source lines.
         return partial_findings + [
             replace(finding, rendered_jinja=True)
-            for finding in _find_errors_from_yaml(
-                full_content, input_file, lint_mode, runtime_options
-            )
+            for finding in check_yaml(full_content)
         ]
-    return partial_findings + _find_errors_from_yaml(
-        full_content, input_file, lint_mode, runtime_options
-    )
+    return partial_findings + check_yaml(full_content)
+
+
+def _iter_yaml_documents(
+    full_content: str, input_file: str
+) -> Iterator[tuple[int, str, Any, Optional[YAMLError]]]:
+    """Split and parse each YAML document.
+
+    Yield (start line, normalized source, document, parse error finding).
+    """
+    yaml_parser = _make_yaml_parser()
+    line_number = 1
+    for source_code in document_match.split(full_content):
+        lines_in_code = sum(l == "\n" for l in source_code)
+        source_code = remove_trailing_dots.sub("", source_code)
+        source_code = fix_tabs.sub("  ", source_code)
+        try:
+            doc = _with_line_metadata(yaml_parser.load(source_code))
+        except Exception as errMess:
+            error_line_number = line_number
+            if isinstance(errMess, MarkedYAMLError):
+                if errMess.context_mark is not None:
+                    errMess.context_mark.line += line_number - 1
+                if errMess.problem_mark is not None:
+                    errMess.problem_mark.line += line_number - 1
+                error_line_number = _yaml_error_line_number(
+                    errMess, full_content, line_number
+                )
+            rendered_error = str(errMess)
+            yield line_number, source_code, None, make_finding(
+                _yaml_error_message_id(rendered_error),
+                line_number=error_line_number,
+                file_name=input_file,
+                error=rendered_error,
+            )
+        else:
+            yield line_number, source_code, doc, None
+        line_number += lines_in_code
+
+
+def parse_interview_documents(
+    full_content: str, input_file: str = "<string input>"
+) -> tuple[list[ParsedInterviewDocument], list[YAMLError]]:
+    """Parse the YAML documents of an interview, without running any checks."""
+    docs: list[ParsedInterviewDocument] = []
+    errors: list[YAMLError] = []
+    for line_number, source_code, doc, error in _iter_yaml_documents(
+        full_content, input_file
+    ):
+        if error is not None:
+            errors.append(error)
+        elif isinstance(doc, dict):
+            docs.append(
+                ParsedInterviewDocument(
+                    doc=doc,
+                    source_code=source_code,
+                    document_start_line=line_number,
+                    index=len(docs),
+                )
+            )
+    return docs, errors
 
 
 def _find_errors_from_yaml(
@@ -2181,48 +2260,20 @@ def _find_errors_from_yaml(
         for key in types_of_blocks.keys()
         if types_of_blocks[key].get("exclusive", True)
     ]
-    yaml_parser = _make_yaml_parser()
     prior_conditional_fields: list[dict[str, Any]] = []
     seen_ids: dict[str, int] = {}
     skip_undefined = False
     parsed_docs: list[ParsedInterviewDocument] = []
     has_yaml_parse_errors = False
-    line_number = 1
-    for source_code in document_match.split(full_content):
-        lines_in_code = sum(l == "\n" for l in source_code)
-        source_code = remove_trailing_dots.sub("", source_code)
-        source_code = fix_tabs.sub("  ", source_code)
-        try:
-            doc = _with_line_metadata(yaml_parser.load(source_code))
-        except Exception as errMess:
-            error_line_number = line_number
-            if isinstance(errMess, MarkedYAMLError):
-                if errMess.context_mark is not None:
-                    errMess.context_mark.line += line_number - 1
-                if errMess.problem_mark is not None:
-                    errMess.problem_mark.line += line_number - 1
-                error_line_number = _yaml_error_line_number(
-                    errMess, full_content, line_number
-                )
-            rendered_error = str(errMess)
-            all_errors.append(
-                make_finding(
-                    _yaml_error_message_id(rendered_error),
-                    line_number=error_line_number,
-                    file_name=input_file,
-                    error=rendered_error,
-                )
-            )
+    for line_number, source_code, doc, parse_error in _iter_yaml_documents(
+        full_content, input_file
+    ):
+        if parse_error is not None:
+            all_errors.append(parse_error)
             has_yaml_parse_errors = True
-            line_number += lines_in_code
             continue
-
-        if doc is None:
-            # Just YAML comments, that's fine
-            line_number += lines_in_code
-            continue
+        # None is a comment-only document, which is fine.
         if not isinstance(doc, dict):
-            line_number += lines_in_code
             continue
 
         if lint_mode == ACCESSIBILITY_LINT_MODE:
@@ -2447,7 +2498,6 @@ def _find_errors_from_yaml(
             )
         )
 
-        line_number += lines_in_code
     if not has_yaml_parse_errors:
         all_errors.extend(
             _find_interview_level_findings(parsed_docs, input_file=input_file)
@@ -2466,6 +2516,14 @@ def _find_errors_from_yaml(
                 docs=parsed_docs,
                 input_file=input_file,
                 options=style_options,
+            )
+        )
+    if runtime_options.spellcheck and not has_yaml_parse_errors:
+        all_errors.extend(
+            find_spelling_findings(
+                docs=parsed_docs,
+                input_file=input_file,
+                options=runtime_options.spellcheck,
             )
         )
     return _apply_dayc_suppressions(all_errors, full_content)
@@ -2641,7 +2699,7 @@ def find_style_findings_from_string(
     lint_mode: str = DEFAULT_LINT_MODE,
     runtime_options: Optional[RuntimeOptions] = None,
 ) -> list[Finding]:
-    resolved_options = runtime_options or RuntimeOptions()
+    resolved_options = replace(runtime_options or RuntimeOptions(), spellcheck=None)
     if not resolved_options.style_enabled and not resolved_options.style_include_llm:
         resolved_options = replace(resolved_options, style_enabled=True)
     return [
@@ -2653,6 +2711,32 @@ def find_style_findings_from_string(
             runtime_options=resolved_options,
         )
         if finding.finding_class in {FindingClass.STYLE, FindingClass.TRANSLATABILITY}
+    ]
+
+
+def find_spelling_findings_from_string(
+    full_content: str,
+    *,
+    input_file: str | None = None,
+    runtime_options: Optional[RuntimeOptions] = None,
+) -> list[Finding]:
+    """Return only spelling findings, with normal preprocessing and suppressions."""
+    options = (runtime_options or RuntimeOptions()).spellcheck or SpellcheckOptions()
+    file_name = input_file or "<string input>"
+
+    def check_yaml(content: str) -> list[YAMLError]:
+        docs, parse_errors = parse_interview_documents(content, file_name)
+        if parse_errors:
+            return []
+        return _apply_dayc_suppressions(
+            find_spelling_findings(docs=docs, input_file=file_name, options=options),
+            content,
+        )
+
+    return [
+        finding
+        for finding in _check_with_jinja(full_content, input_file, check_yaml)
+        if finding.finding_class == FindingClass.SPELLING
     ]
 
 
@@ -2857,6 +2941,44 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Enable Assembly Line style lint checks.",
     )
     parser.add_argument(
+        "--spellcheck",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Check visible text for possible spelling mistakes (enabled by default; offline US English).",
+    )
+    parser.add_argument(
+        "--spellcheck-severity",
+        choices=[level.value for level in Severity],
+        default=Severity.WARNING.value,
+        help="Severity for spelling findings: info, warning or error (default: warning).",
+    )
+    parser.add_argument(
+        "--spellcheck-wordlist",
+        type=Path,
+        action="append",
+        default=[],
+        help="Allow words from a UTF-8 file, one per line (# comments); repeatable.",
+    )
+    parser.add_argument(
+        "--spellcheck-ignore-word",
+        action="append",
+        default=[],
+        help="Suppress a word, case insensitive; repeatable.",
+    )
+    parser.add_argument(
+        "--spellcheck-language",
+        action="append",
+        default=[],
+        help="Dictionary language code (default: en/US English); repeat for mixed languages.",
+    )
+    parser.add_argument(
+        "--spellcheck-dictionary",
+        action="append",
+        default=[],
+        metavar="LANG=PATH",
+        help="Custom Hunspell dictionary prefix (without .aff/.dic); repeatable.",
+    )
+    parser.add_argument(
         "--style-require-custom-theme",
         action="store_true",
         help="Require an explicit custom theme. Also enables --style.",
@@ -2996,6 +3118,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    spellcheck: SpellcheckOptions | None = None
+    if args.spellcheck:
+        try:
+            spellcheck = options_from_cli(
+                languages=args.spellcheck_language,
+                dictionary_specs=args.spellcheck_dictionary,
+                wordlists=args.spellcheck_wordlist,
+                ignore_words=args.spellcheck_ignore_word,
+                severity=args.spellcheck_severity,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+
     lint_mode = ACCESSIBILITY_LINT_MODE if args.wcag else DEFAULT_LINT_MODE
     runtime_options = RuntimeOptions(
         accessibility_error_on_widgets=frozenset(
@@ -3010,6 +3145,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         style_openai_api_key=args.openai_api_key,
         style_openai_model=args.openai_model,
         docx_accessibility_severity=Severity(args.docx_accessibility_severity),
+        spellcheck=spellcheck,
     )
 
     yaml_files = _collect_yaml_files(

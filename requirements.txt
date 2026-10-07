@@ -8,5 +8,6 @@ linkify-it-py>=2.0.3
 pypdf>=5.0.0
 requests>=2.31.0
 urllib3>=2.0.0
+spylls>=0.1.7,<0.2
 mypy>=1.11.0
 types-requests>=2.32.0
