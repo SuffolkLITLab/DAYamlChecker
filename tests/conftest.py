@@ -11,7 +11,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 
-
 @pytest.fixture(scope="session", autouse=True)
 def dictionary_cache(request):
     """Keep downloaded dictionaries in pytest's cache, so local runs fetch once."""
