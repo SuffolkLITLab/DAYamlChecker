@@ -70,7 +70,8 @@ Bundled languages are `en` (US English), `es` (US Spanish), `ru` and `sv` (Swedi
 as `es-MX` match selected `es`; regional dictionary selection such as `en-GB`
 requires a custom dictionary. Spanish uses the RLA-ES Hunspell dictionary
 distributed by LibreOffice, including inflection rules and accented words.
-Its source and license notices are in `src/dayamlchecker/data/dictionaries/es/`.
+That dictionary is distributed under the Mozilla Public License 1.1; its
+source and license notices are in `src/dayamlchecker/data/dictionaries/es/`.
 No dictionaries are downloaded while checking interviews.
 
 For other languages or dialects, provide a Hunspell `.aff`/`.dic` pair:

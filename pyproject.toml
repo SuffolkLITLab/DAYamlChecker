@@ -17,8 +17,13 @@ dependencies = [
     "urllib3>=2.0.0",
     "spylls>=0.1.7,<0.2",
 ]
-license = "MIT"
-license-files = ["LICEN[CS]E*"]
+# The bundled Spanish dictionary (data/dictionaries/es) is MPL 1.1.
+license = "MIT AND MPL-1.1"
+license-files = [
+    "LICEN[CS]E*",
+    "src/dayamlchecker/data/dictionaries/es/LICENSE.md",
+    "src/dayamlchecker/data/dictionaries/es/MPL-1.1.txt",
+]
 authors = [
   { name="Bryce Willey", email="bryce.steven.willey@gmail.com" },
   { name="Quinten Steenhuis", email="qsteenhuis@suffolk.edu" },
