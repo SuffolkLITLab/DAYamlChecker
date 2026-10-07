@@ -1,18 +1,25 @@
-"""Offline, conservative spelling checks for visible interview text."""
+"""Conservative spelling checks for visible interview text.
+
+Checking is local. English, Russian and Swedish dictionaries come with spylls;
+the Spanish dictionary is downloaded once on first use and cached.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import lru_cache
+import hashlib
 from html.parser import HTMLParser
 import itertools
 import importlib.resources
 import inspect
+import os
 from pathlib import Path
 import re
 from typing import Iterable
 import unicodedata
 
+import requests
 from spylls.hunspell import Dictionary  # type: ignore[import-untyped]
 
 from dayamlchecker.accessibility import (
@@ -89,12 +96,16 @@ class SpellcheckOptions:
                     f"cannot load spellcheck dictionary {code}: {exc}"
                 ) from exc
         for language in languages:
-            if language not in _BUILTIN_LANGUAGES and language not in dict(
-                dictionaries
-            ):
+            if language in dict(dictionaries):
+                continue
+            if language in _REMOTE_DICTIONARIES:
+                # Download now so a failure is a configuration error, not a
+                # crash partway through checking.
+                _remote_dictionary_prefix(language)
+            elif language not in _SPYLLS_DICTIONARIES:
                 raise ValueError(
                     f"unsupported spellcheck language {language!r}; "
-                    f"bundled: {', '.join(_BUILTIN_LANGUAGES)}; "
+                    f"built in: {', '.join(_BUILTIN_LANGUAGES)}; "
                     "supply a custom Hunspell dictionary for other languages or regions"
                 )
         object.__setattr__(self, "languages", languages)
@@ -128,24 +139,100 @@ def normalize_language(language: str) -> str:
     return {"en-us": "en", "es-us": "es", "sv-se": "sv", "ru-ru": "ru"}.get(code, code)
 
 
-# Dictionaries shipped with spylls, and those packaged in data/dictionaries/.
+@dataclass(frozen=True)
+class _RemoteDictionary:
+    name: str
+    base_url: str
+    sha256: dict[str, str]  # by file suffix
+
+
+# Dictionaries shipped with spylls.
 _SPYLLS_DICTIONARIES = {"en": "en_US", "ru": "ru", "sv": "sv_SE"}
-_PACKAGED_DICTIONARIES = {"es": "es_US"}
-_BUILTIN_LANGUAGES = sorted(_SPYLLS_DICTIONARIES.keys() | _PACKAGED_DICTIONARIES)
+# Dictionaries downloaded on first use rather than redistributed. The pinned
+# upstream commit and hashes keep every run on identical files.
+_REMOTE_DICTIONARIES = {
+    "es": _RemoteDictionary(
+        # RLA-ES Spanish (US), as distributed by LibreOffice.
+        name="es_US",
+        base_url="https://raw.githubusercontent.com/LibreOffice/dictionaries/"
+        "762abe74008b94b2ff06db6f4024b59a8254c467/es/",
+        sha256={
+            ".aff": "674c5a4b4d39fd3b4452f045a4e6e0649db4a2ce23f5903df8c311e21f1a757c",
+            ".dic": "d46932a5c0ec3881fdf265333df4de45a73de51741baedcb5bb54d37b03979c8",
+        },
+    ),
+}
+_BUILTIN_LANGUAGES = sorted(_SPYLLS_DICTIONARIES.keys() | _REMOTE_DICTIONARIES)
 _SPYLLS_DATA = Path(inspect.getfile(Dictionary)).parent / "data"
+
+
+def dictionary_cache_dir() -> Path:
+    """Where downloaded dictionaries are kept: $DAYAMLCHECKER_CACHE_DIR, else
+    the platform's user cache directory."""
+    if configured := os.environ.get("DAYAMLCHECKER_CACHE_DIR"):
+        return Path(configured).expanduser()
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "dayamlchecker" / "cache"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / (
+        "dayamlchecker"
+    )
+
+
+def _remote_dictionary_prefix(language: str) -> str:
+    """Return the cached dictionary prefix, downloading missing or bad files."""
+    remote = _REMOTE_DICTIONARIES[language]
+    # Key the directory on the content, so a pin update never reuses old files.
+    directory = (
+        dictionary_cache_dir() / "dictionaries" / language / remote.sha256[".dic"][:16]
+    )
+    offline_hint = (
+        f"to work offline, supply --spellcheck-dictionary {language}=PATH "
+        "with a local Hunspell dictionary"
+    )
+    for suffix, expected in remote.sha256.items():
+        path = directory / (remote.name + suffix)
+        try:
+            if path.is_file() and _sha256(path.read_bytes()) == expected:
+                continue
+        except OSError:
+            pass
+        url = remote.base_url + remote.name + suffix
+        try:
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ValueError(
+                f"cannot download the {language} spellcheck dictionary from {url}: "
+                f"{exc}; {offline_hint}"
+            ) from exc
+        if _sha256(response.content) != expected:
+            raise ValueError(
+                f"the downloaded {language} spellcheck dictionary {url} does not "
+                f"match its expected SHA-256; {offline_hint}"
+            )
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            # Write then rename, so concurrent runs never read a partial file.
+            temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            temporary.write_bytes(response.content)
+            os.replace(temporary, path)
+        except OSError as exc:
+            raise ValueError(
+                f"cannot cache the {language} spellcheck dictionary in "
+                f"{directory}: {exc}; set DAYAMLCHECKER_CACHE_DIR to a writable "
+                "directory"
+            ) from exc
+    return str(directory / remote.name)
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 @lru_cache(maxsize=16)
 def _dictionary(source: str) -> Dictionary:
-    if source in _PACKAGED_DICTIONARIES:
-        root = importlib.resources.files("dayamlchecker").joinpath(
-            f"data/dictionaries/{source}"
-        )
-        # Materialize both files together for zip-based installations as well.
-        with importlib.resources.as_file(root) as directory:
-            return Dictionary.from_files(
-                str(directory / _PACKAGED_DICTIONARIES[source])
-            )
+    if source in _REMOTE_DICTIONARIES:
+        return Dictionary.from_files(_remote_dictionary_prefix(source))
     if source in _SPYLLS_DICTIONARIES:
         # Resolve spylls' bundled copy explicitly: from_files("en_US") prefers
         # an en_US.aff/.dic in the current directory when one exists.

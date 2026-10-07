@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from dayamlchecker import (
@@ -349,6 +351,7 @@ def test_legal_typos_respect_suppressions_at_every_severity(level):
     )
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_legal_spelling_rules_are_scoped_to_english_and_us_variants(tmp_path):
     assert (
         spelling(
@@ -418,6 +421,7 @@ def test_cli_missing_wordlist_has_clear_error(tmp_path, capsys):
     assert "cannot read spellcheck wordlist" in capsys.readouterr().err
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_spanish_inflections_and_accented_typos():
     findings = spelling(
         "question: Seleccione su dirección y beneficios para completar estas soliciitudes\n"
@@ -427,6 +431,7 @@ def test_spanish_inflections_and_accented_typos():
     assert {f.context["word"] for f in findings} == {"soliciitudes", "direccióón"}
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_mixed_languages_within_blocks_and_between_translations():
     yaml = """language: en-US
 question: Please complete su solicitud and recieve beneficios
@@ -447,6 +452,7 @@ question: Cette letttre
     }
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_spanish_default_language_and_templates():
     yaml = """default language: es
 ---
@@ -462,6 +468,7 @@ question: Recieve
     ] == ["soliciitud"]
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_spanish_capitalized_typo_unicode_and_custom_suppression():
     assert [
         f.context["word"]
@@ -481,6 +488,7 @@ def test_spanish_capitalized_typo_unicode_and_custom_suppression():
     )
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_language_selection_and_suppressions_do_not_leak_between_calls():
     yaml = "question: beneficios soliciitud\n"
     assert [
@@ -503,6 +511,7 @@ def test_invalid_or_unavailable_languages_have_clear_api_errors(languages):
         spelling("question: Recieve\n", spellcheck_languages=languages)
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_language_aliases_and_duplicates():
     assert SpellcheckOptions(languages=("EN_us", "en", "es_US")).languages == (
         "en",
@@ -510,6 +519,7 @@ def test_language_aliases_and_duplicates():
     )
 
 
+@pytest.mark.usefixtures("requires_spanish")
 def test_cli_mixed_languages_and_inline_suppressions(tmp_path, capsys):
     interview = tmp_path / "mixed.yml"
     interview.write_text(
@@ -781,3 +791,86 @@ def test_style_helper_does_not_run_spellcheck(monkeypatch):
 
     monkeypatch.setattr(spelling_module, "find_spelling_findings", fail)
     yaml_structure.find_style_findings_from_string("question: Recieve\n")
+
+
+class _FakeResponse:
+    def __init__(self, content):
+        self.content = content
+
+    def raise_for_status(self):
+        pass
+
+
+@pytest.fixture
+def fake_remote(tmp_path, monkeypatch):
+    """A remote dictionary served from memory, with a counted fetch."""
+    import hashlib
+
+    from dayamlchecker import spelling as spelling_module
+
+    files = {".aff": b"SET UTF-8\n", ".dic": b"1\nfoobarbaz\n"}
+    remote = spelling_module._RemoteDictionary(
+        name="xx_XX",
+        base_url="https://example.invalid/",
+        sha256={k: hashlib.sha256(v).hexdigest() for k, v in files.items()},
+    )
+    fetched = []
+
+    def get(url, timeout):
+        fetched.append(url)
+        return _FakeResponse(files[url[-4:]])
+
+    monkeypatch.setenv("DAYAMLCHECKER_CACHE_DIR", str(tmp_path))
+    monkeypatch.setitem(spelling_module._REMOTE_DICTIONARIES, "xx", remote)
+    monkeypatch.setattr(spelling_module.requests, "get", get)
+    return spelling_module, files, fetched
+
+
+def test_remote_dictionary_downloads_once_and_reuses_the_cache(fake_remote, tmp_path):
+    spelling_module, files, fetched = fake_remote
+    prefix = Path(spelling_module._remote_dictionary_prefix("xx"))
+    assert prefix.is_relative_to(tmp_path) and len(fetched) == 2
+    assert Path(f"{prefix}.dic").read_bytes() == files[".dic"]
+    assert spelling_module._remote_dictionary_prefix("xx") == str(prefix)
+    assert len(fetched) == 2
+    Path(f"{prefix}.dic").write_bytes(b"corrupted")
+    spelling_module._remote_dictionary_prefix("xx")
+    assert fetched[2:] == ["https://example.invalid/xx_XX.dic"]
+    assert Path(f"{prefix}.dic").read_bytes() == files[".dic"]
+
+
+def test_remote_dictionary_rejects_a_changed_upstream_file(fake_remote, monkeypatch):
+    spelling_module, files, _ = fake_remote
+    monkeypatch.setattr(
+        spelling_module.requests, "get", lambda url, timeout: _FakeResponse(b"x")
+    )
+    with pytest.raises(ValueError, match="expected SHA-256"):
+        spelling_module._remote_dictionary_prefix("xx")
+
+
+def test_offline_download_failure_is_a_clear_configuration_error(
+    fake_remote, monkeypatch, tmp_path, capsys
+):
+    spelling_module, _, _ = fake_remote
+
+    def offline(url, timeout):
+        raise spelling_module.requests.ConnectionError("no network")
+
+    monkeypatch.setattr(spelling_module.requests, "get", offline)
+    with pytest.raises(ValueError, match="--spellcheck-dictionary xx=PATH"):
+        SpellcheckOptions(languages=("xx",))
+    with pytest.raises(SystemExit) as exc:
+        main([str(tmp_path), "--spellcheck-language", "xx"])
+    assert exc.value.code == 2
+    assert "cannot download the xx spellcheck dictionary" in capsys.readouterr().err
+
+
+def test_custom_dictionary_for_a_remote_language_skips_the_download(
+    fake_remote, tmp_path
+):
+    spelling_module, _, fetched = fake_remote
+    prefix = tmp_path / "local"
+    prefix.with_suffix(".aff").write_text("SET UTF-8\n")
+    prefix.with_suffix(".dic").write_text("1\nfoobarbaz\n")
+    SpellcheckOptions(languages=("xx",), dictionaries=(("xx", str(prefix)),))
+    assert fetched == []

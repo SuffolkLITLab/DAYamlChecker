@@ -29,7 +29,7 @@ python3 -m dayamlchecker --fix path/to/interview.yml
 ## Spelling checks
 
 Spelling checks run by default on visible questions, labels, choices, help,
-and template content offline. The default is US English, using the Hunspell
+and template content, locally. The default is US English, using the Hunspell
 dictionary bundled with [Spylls](https://spylls.readthedocs.io/en/latest/hunspell/dictionary.html)
 plus a small reviewed English legal and interface vocabulary. Possible mistakes produce
 `WG701` (`spelling_possible_typo`). Spelling is independent of `--style`
@@ -65,14 +65,21 @@ whose base language is not selected are skipped. Unlabelled text uses all select
 dictionaries. This is explicit dictionary selection, not automatic language detection.
 Selecting more languages can also hide a typo that is a valid word in another language.
 
-Bundled languages are `en` (US English), `es` (US Spanish), `ru` and `sv` (Swedish).
+Built-in languages are `en` (US English), `es` (US Spanish), `ru` and `sv` (Swedish).
 `en-US`/`en_US`, `es-US`, `ru-RU` and `sv-SE` are equivalent aliases. Block tags such
 as `es-MX` match selected `es`; regional dictionary selection such as `en-GB`
-requires a custom dictionary. Spanish uses the RLA-ES Hunspell dictionary
-distributed by LibreOffice, including inflection rules and accented words.
-That dictionary is distributed under the Mozilla Public License 1.1; its
-source and license notices are in `src/dayamlchecker/data/dictionaries/es/`.
-No dictionaries are downloaded while checking interviews.
+requires a custom dictionary. English, Russian and Swedish dictionaries come
+with Spylls and never require network access.
+
+Spanish uses the RLA-ES Hunspell dictionary distributed by LibreOffice,
+including inflection rules and accented words. It is not shipped with this
+package: the first run that selects `es` downloads it (about 850 KB) from a
+pinned LibreOffice commit, verifies its SHA-256 hashes, and caches it in
+`$XDG_CACHE_HOME/dayamlchecker` (default `~/.cache/dayamlchecker`;
+`%LOCALAPPDATA%\dayamlchecker\cache` on Windows). Later runs on the same machine
+reuse the cache. Set `DAYAMLCHECKER_CACHE_DIR` to choose another location, for
+example one saved with `actions/cache`. Fresh CI runners download it once per
+run. To work offline, supply a local copy with `--spellcheck-dictionary es=PATH`.
 
 For other languages or dialects, provide a Hunspell `.aff`/`.dic` pair:
 
@@ -84,7 +91,7 @@ python -m dayamlchecker --spellcheck-language en --spellcheck-language fr \
   --spellcheck-dictionary fr=/path/to/fr_FR interview.yml
 ```
 
-Dictionary flags are repeatable and can override bundled dictionaries. With no
+Dictionary flags are repeatable and can override built-in dictionaries. With no
 language flags, the supplied dictionary language codes become the selected languages.
 Unknown language codes and missing dictionary files produce configuration errors.
 `--no-spellcheck` disables the pass even when language or suppression options

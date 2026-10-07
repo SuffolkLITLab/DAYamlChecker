@@ -1,4 +1,0 @@
-Unmodified Spanish (US) Hunspell dictionary (es_US.aff, es_US.dic) from RLA-ES,
-as distributed by LibreOffice.
-Source: https://github.com/LibreOffice/dictionaries/tree/762abe74008b94b2ff06db6f4024b59a8254c467/es
-License: Mozilla Public License 1.1 or later; see LICENSE.md and MPL-1.1.txt.
