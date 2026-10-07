@@ -15,6 +15,7 @@ dependencies = [
     "pypdf>=5.0.0",
     "requests>=2.31.0",
     "urllib3>=2.0.0",
+    "spylls>=0.1.7,<0.2",
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
@@ -27,7 +28,7 @@ authors = [
 package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
-dayamlchecker = ["py.typed", "data/*.yml"]
+dayamlchecker = ["py.typed", "data/*.yml", "data/*.txt"]
 
 [build-system]
 requires = ["setuptools >= 77.0.3"]

@@ -16,9 +16,12 @@ class FindingClass(StrEnum):
     ACCESSIBILITY = "accessibility"
     STYLE = "style"
     TRANSLATABILITY = "translatability"
+    SPELLING = "spelling"
 
 
 class MessageId(StrEnum):
+    SPELLING_POSSIBLE_TYPO = "spelling_possible_typo"
+    SPELLING_COMMON_LEGAL_TYPO = "spelling_common_legal_typo"
     YAML_DUPLICATE_KEY = "yaml_duplicate_key"
     YAML_DUPLICATE_BLOCK_ID = "yaml_duplicate_block_id"
     YAML_PARSE_ERROR = "yaml_parse_error"
@@ -301,6 +304,20 @@ class MessageDefinition:
 
 
 MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
+    MessageId.SPELLING_POSSIBLE_TYPO: MessageDefinition(
+        code="SP701",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.SPELLING,
+        summary="Possible spelling mistake",
+        template='possible spelling mistake "{word}" in {location}: {snippet}',
+    ),
+    MessageId.SPELLING_COMMON_LEGAL_TYPO: MessageDefinition(
+        code="SP702",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.SPELLING,
+        summary="Common legal spelling mistake",
+        template='"{word}" is usually spelled "{suggestion}" in legal text ({location}): {snippet}',
+    ),
     MessageId.YAML_DUPLICATE_KEY: MessageDefinition(
         code="EG101",
         severity=Severity.ERROR,
@@ -1707,6 +1724,8 @@ class Finding:
     # stays the real path so tools can resolve it, but ``line_number`` counts
     # rendered lines, which need not correspond to lines of that file.
     rendered_jinja: bool = False
+    # Keep the rule code stable for suppressions when its configured level changes.
+    severity_override: Severity | None = None
 
     @property
     def definition(self) -> MessageDefinition:
@@ -1718,7 +1737,7 @@ class Finding:
 
     @property
     def severity(self) -> Severity:
-        return self.definition.severity
+        return self.severity_override or self.definition.severity
 
     @property
     def finding_class(self) -> FindingClass:

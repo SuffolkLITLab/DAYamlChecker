@@ -26,6 +26,167 @@ cannot safely rewrite is not itself an error, so it does not fail the run.
 python3 -m dayamlchecker --fix path/to/interview.yml
 ```
 
+## Spelling checks
+
+Spelling checks run by default on visible questions, labels, choices, help,
+and template content, locally. The default is US English, using the Hunspell
+dictionary bundled with [Spylls](https://spylls.readthedocs.io/en/latest/hunspell/dictionary.html)
+plus a small reviewed English legal and interface vocabulary. Possible mistakes produce
+`SP701` (`spelling_possible_typo`). Spelling is independent of `--style`
+and never rewrites text. Use `--no-spellcheck` to disable it.
+
+`--spellcheck-severity info|warning|error` controls the level of all spelling
+findings; the default is `warning`. At `error`, spelling findings cause a nonzero
+exit code. At `info`, they produce GitHub notices and do not count toward
+`--max-warnings`. Rule codes stay stable at every level so suppressions continue
+to work.
+
+```bash
+python -m dayamlchecker path/to/interview.yml
+python -m dayamlchecker --spellcheck-severity error path/to/interview.yml
+python -m dayamlchecker --no-spellcheck path/to/interview.yml
+python -m dayamlchecker --spellcheck-wordlist project-words.txt path/to/interview.yml
+python -m dayamlchecker --spellcheck-ignore-word Urbana path/to/interview.yml
+python -m dayamlchecker --spellcheck-language es path/to/interview.yml
+python -m dayamlchecker --spellcheck-language en --spellcheck-language es path/to/interview.yml
+```
+
+Word lists are UTF-8, one word per line, with `#` comment lines. The repeatable
+`--spellcheck-wordlist` option adds project-specific suppressions. Matching is case
+insensitive; standard `--suppress` and `# no-dayc: SP701` suppressions apply.
+Use repeatable `--spellcheck-ignore-word WORD` for individual suppressions.
+Both options affect only the current invocation; they do not alter dictionaries.
+
+`--spellcheck-language` replaces the English default. Repeat it for mixed-language
+interviews: a word accepted by **any** selected dictionary is accepted, including
+when languages mix within one sentence. Block `language:` and interview
+`default language:` declarations determine which blocks are eligible; declarations
+whose base language is not selected are skipped. Unlabelled text uses all selected
+dictionaries. This is explicit dictionary selection, not automatic language detection.
+Selecting more languages can also hide a typo that is a valid word in another language.
+
+Built-in languages are `en` (US English), `es` (US Spanish), `ru` and `sv` (Swedish).
+`en-US`/`en_US`, `es-US`, `ru-RU` and `sv-SE` are equivalent aliases. Block tags such
+as `es-MX` match selected `es`; regional dictionary selection such as `en-GB`
+requires a custom dictionary. English, Russian and Swedish dictionaries come
+with Spylls and never require network access.
+
+Spanish uses the RLA-ES Hunspell dictionary distributed by LibreOffice,
+including inflection rules and accented words. It is not shipped with this
+package: the first run that selects `es` downloads it (about 850 KB) from a
+pinned LibreOffice commit, verifies its SHA-256 hashes, and caches it in
+`$XDG_CACHE_HOME/dayamlchecker` (default `~/.cache/dayamlchecker`;
+`%LOCALAPPDATA%\dayamlchecker\cache` on Windows). Later runs on the same machine
+reuse the cache. Set `DAYAMLCHECKER_CACHE_DIR` to choose another location, for
+example one saved with `actions/cache`. Fresh CI runners download it once per
+run. To work offline, supply a local copy with `--spellcheck-dictionary es=PATH`.
+
+For other languages or dialects, provide a Hunspell `.aff`/`.dic` pair:
+
+```bash
+# Loads /path/to/fr_FR.aff and /path/to/fr_FR.dic; selects French.
+python -m dayamlchecker --spellcheck-dictionary fr=/path/to/fr_FR interview.yml
+# Mixes English with the supplied French dictionary.
+python -m dayamlchecker --spellcheck-language en --spellcheck-language fr \
+  --spellcheck-dictionary fr=/path/to/fr_FR interview.yml
+```
+
+Dictionary flags are repeatable and can override built-in dictionaries. With no
+language flags, the supplied dictionary language codes become the selected languages.
+Unknown language codes and missing dictionary files produce configuration errors.
+`--no-spellcheck` disables the pass even when language or suppression options
+are supplied. The optional `--spellcheck` flag explicitly enables it.
+
+Python callers can use `dayamlchecker.find_spelling_findings_from_string(yaml_text)`
+or pass options to the existing checker functions:
+
+```python
+from dayamlchecker import (
+    RuntimeOptions,
+    SpellcheckOptions,
+    find_spelling_findings_from_string,
+)
+from dayamlchecker.messages import Severity
+
+options = RuntimeOptions(
+    spellcheck=SpellcheckOptions(
+        severity=Severity.WARNING,  # Or Severity.INFO / Severity.ERROR.
+        allowed_words=frozenset({"Urbana", "ProjectName"}),
+        languages=("en", "es"),
+        # Optional: dictionaries=(("fr", "/path/to/fr_FR"),),
+    )
+)
+findings = find_spelling_findings_from_string(yaml_text, runtime_options=options)
+```
+
+For the main Python checker APIs, set `RuntimeOptions(spellcheck=None)`
+to disable the pass. The spelling-only convenience API always runs it.
+
+Common legal spellings have explicit recommendations under `SP702`
+(`spelling_common_legal_typo`): `judgement` → `judgment` and `judgements` →
+`judgments` in US English, and `HIPPA` → `HIPAA` when English is selected.
+These checks also cover capitalization, possessives and hyphenated compounds
+such as `judgement-proof` and `HIPPA-compliant`. They bypass dictionary-accepted
+variants and acronym filtering. Custom British English dictionaries keep their
+own accepted variants for `judgement`. Word lists, `--spellcheck-ignore-word`,
+`--suppress SP702` and `# no-dayc: SP702` can suppress these recommendations.
+
+The pass excludes code, stored choice values, object-choice expressions, Mako
+expressions, HTML attributes, links' destinations, icons, and Markdown code.
+It accepts possessives, recognized hyphenated compounds and spelling variants.
+Blocks outside selected languages and long passages mostly outside the selected
+dictionaries are skipped. Metadata is excluded. Capitalized names declared in
+`metadata.authors` are recognized if they appear in visible prose. Personal-name
+spans in contributor, author, credit and copyright sections are excluded, while
+ordinary prose in those sections remains checked.
+
+Capitalized court, county, parish, city and other geographic choice labels are
+recognized from the field's label, variable or help; this works across
+jurisdictions without a county-name dictionary. Questions and instructions on
+those screens remain checked. Other unfamiliar capitalized words produce a
+warning only when a nearby lowercase dictionary word supplies spelling evidence
+(a single insertion, deletion or transposition). This rule applies at the start
+of sentences as well as within them. Acronyms, mixed-case identifiers and short
+tokens also receive conservative treatment. Accented tokens are skipped in the
+default English-only mode and checked with multilingual/custom dictionaries.
+Consequently it can miss typos, particularly in names, capitalized words and valid
+words used incorrectly. Locations point to the containing YAML key or field.
+
+The October 2026 experiment on `~/all_interviews` is recorded in
+[`reports/spelling_corpus_review.json`](reports/spelling_corpus_review.json).
+Reproduce the comparison without running unrelated lints or URL requests:
+
+```bash
+python scripts/evaluate_spelling.py ~/all_interviews --output /tmp/spelling.json
+# Optional: --language en --language es --wordlist project-words.txt
+# Custom dictionaries: --dictionary fr=/path/to/fr_FR
+```
+
+The evaluation reports raw dictionary warnings versus filtered warnings, with
+file, word and context for manual review. A warning count alone is not a
+false-positive count. The earlier pass had no corpus-specific name list: of 45
+warnings, contextual review identified 44 typos and one organization-name false
+positive. It misses the two misspelled car brands found in the earlier run.
+The rules were developed on this corpus, so these figures are not an independent
+accuracy measurement. Upstream issue links are saved in
+[`reports/spelling_issues.json`](reports/spelling_issues.json).
+
+Before adding the legal spelling recommendations, the English–Spanish run on
+the same 180 files produced 44 warnings: the same 44
+reviewed typos, with `Urbana` accepted by the Spanish dictionary and no new warnings.
+The English-only warning set was unchanged. That run gave zero reviewed false positives
+on this corpus with both languages enabled; it does not establish the accuracy of
+Spanish checking on other interviews. Results and commands are recorded in
+[`reports/spelling_language_evaluation.json`](reports/spelling_language_evaluation.json).
+
+With the default-on pass and legal recommendations, the same corpus produces 50
+English-only findings and 49 English–Spanish findings. Five new recommendations
+replace `judgement`/`judgements` in references to court judgments. The earlier
+warning sets remain intact; the reviewed false-positive counts remain one for
+English and zero for English–Spanish. No visible `HIPPA` occurrences were found
+in the corpus. The additions and reproducible commands are in
+[`reports/spelling_default_evaluation.json`](reports/spelling_default_evaluation.json).
+
 ## Jinja2 preprocessing
 
 Files whose first line is exactly `# use jinja` (LF, CRLF, or end of file) are
@@ -115,7 +276,7 @@ Template-aware formatting is outside this feature's scope.
 
 ## Suppressing checks
 
-You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `general`). 
+You can suppress specific errors or warnings by their ID or finding class (`accessibility`, `style`, `translatability`, `spelling`, `general`). 
 
 **Inline and block comments in YAML:**
 To suppress a finding on a specific line, use a `# no-dayc: ` comment:
