@@ -305,14 +305,14 @@ class MessageDefinition:
 
 MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
     MessageId.SPELLING_POSSIBLE_TYPO: MessageDefinition(
-        code="WG701",
+        code="SP701",
         severity=Severity.WARNING,
         finding_class=FindingClass.SPELLING,
         summary="Possible spelling mistake",
         template='possible spelling mistake "{word}" in {location}: {snippet}',
     ),
     MessageId.SPELLING_COMMON_LEGAL_TYPO: MessageDefinition(
-        code="WG702",
+        code="SP702",
         severity=Severity.WARNING,
         finding_class=FindingClass.SPELLING,
         summary="Common legal spelling mistake",

@@ -41,14 +41,14 @@ def spelling(yaml, **options):
 
 def test_public_string_api_returns_only_spelling_warnings():
     findings = find_spelling_findings_from_string("question: Recieve\n")
-    assert len(findings) == 1 and findings[0].code == "WG701"
+    assert len(findings) == 1 and findings[0].code == "SP701"
 
 
 def test_spelling_is_on_by_default_and_reports_locations_without_duplicates():
     yaml = "id: test\nquestion: Adress\nsubquestion: Please recieve teh benefits, not teh letters.\nfield: name\n"
-    assert any(f.code == "WG701" for f in find_errors_from_string(yaml))
+    assert any(f.code == "SP701" for f in find_errors_from_string(yaml))
     assert not any(
-        f.code == "WG701"
+        f.code == "SP701"
         for f in find_errors_from_string(
             yaml, runtime_options=RuntimeOptions(spellcheck=None)
         )
@@ -180,11 +180,11 @@ def test_configured_severity_applies_to_all_spelling_rules_only(level):
         "question: Recieve the judgement and HIPPA letter\nfields: []\n",
         runtime_options=RuntimeOptions(spellcheck=SpellcheckOptions(severity=level)),
     )
-    spelling_findings = [f for f in findings if f.code in {"WG701", "WG702"}]
+    spelling_findings = [f for f in findings if f.code in {"SP701", "SP702"}]
     assert len(spelling_findings) == 3
     assert all(f.severity == level for f in spelling_findings)
     assert any(
-        f.severity == Severity.ERROR and f.code not in {"WG701", "WG702"}
+        f.severity == Severity.ERROR and f.code not in {"SP701", "SP702"}
         for f in findings
     )
     assert (
@@ -201,7 +201,7 @@ def test_spelling_github_annotations_use_configured_severity(level, capsys):
     kind = "notice" if level == Severity.INFO else level.value
     output = capsys.readouterr().out
     assert output.startswith(f"::{kind} ")
-    assert "title=WG702" in output and "HIPAA" in output
+    assert "title=SP702" in output and "HIPAA" in output
 
 
 @pytest.mark.parametrize("level,exit_code", [("info", 0), ("warning", 0), ("error", 1)])
@@ -227,7 +227,7 @@ def test_cli_default_spellcheck_configured_levels_and_exit_codes(
     )
     output = capsys.readouterr().out
     label = {"info": "INFO", "warning": "WARN", "error": "ERROR"}[level]
-    assert f"{label:<5} [WG701]" in output and f"{label:<5} [WG702]" in output
+    assert f"{label:<5} [SP701]" in output and f"{label:<5} [SP702]" in output
     assert "judgment" in output and "HIPAA" in output
 
 
@@ -238,7 +238,7 @@ def test_cli_default_is_warning_and_disable_takes_precedence_over_configuration(
     interview.write_text("id: test\nquestion: Recieve HIPPA\nfield: name\n")
     common = [str(interview), "--no-url-check", "--no-docx-accessibility", "--no-wcag"]
     assert main(common) == 0
-    assert "WARN  [WG701]" in capsys.readouterr().out
+    assert "WARN  [SP701]" in capsys.readouterr().out
     assert (
         main(
             common
@@ -255,7 +255,7 @@ def test_cli_default_is_warning_and_disable_takes_precedence_over_configuration(
         == 0
     )
     output = capsys.readouterr().out
-    assert "[WG701]" not in output and "[WG702]" not in output
+    assert "[SP701]" not in output and "[SP702]" not in output
 
 
 def test_cli_info_does_not_count_as_warning_but_warning_limit_does(tmp_path, capsys):
@@ -272,7 +272,7 @@ def test_cli_info_does_not_count_as_warning_but_warning_limit_does(tmp_path, cap
     assert main(common + ["--spellcheck-severity", "info"]) == 0
     capsys.readouterr()
     assert main(common) == 1
-    assert "WARN  [WG701]" in capsys.readouterr().out
+    assert "WARN  [SP701]" in capsys.readouterr().out
 
 
 def test_invalid_severity_errors_in_api_and_cli(tmp_path, capsys):
@@ -338,7 +338,7 @@ def test_legal_typos_respect_suppressions_at_every_severity(level):
     )
     assert (
         spelling(
-            "question: HIPPA judgement # no-dayc: WG702\n", spellcheck_severity=level
+            "question: HIPPA judgement # no-dayc: SP702\n", spellcheck_severity=level
         )
         == []
     )
@@ -383,7 +383,7 @@ def test_legal_spelling_rules_are_scoped_to_english_and_us_variants(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "directive", ["# no-dayc: WG701", "# no-dayc-block: spelling_possible_typo"]
+    "directive", ["# no-dayc: SP701", "# no-dayc-block: spelling_possible_typo"]
 )
 def test_source_suppressions(directive):
     assert spelling(f"question: Recieve {directive}\n") == []
@@ -410,7 +410,7 @@ def test_cli_custom_wordlist_suppresses_only_listed_words(tmp_path, capsys):
     )
     output = capsys.readouterr().out
     assert result == 0
-    assert "[WG701]" in output and '"lettter"' in output
+    assert "[SP701]" in output and '"lettter"' in output
     assert '"foobarbaz"' not in output
 
 
@@ -543,7 +543,7 @@ def test_cli_mixed_languages_and_inline_suppressions(tmp_path, capsys):
         == 0
     )
     output = capsys.readouterr().out
-    assert "[WG701]" in output and '"lettter"' in output
+    assert "[SP701]" in output and '"lettter"' in output
     assert '"recieve"' not in output and '"beneficios"' not in output
 
 

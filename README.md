@@ -32,7 +32,7 @@ Spelling checks run by default on visible questions, labels, choices, help,
 and template content, locally. The default is US English, using the Hunspell
 dictionary bundled with [Spylls](https://spylls.readthedocs.io/en/latest/hunspell/dictionary.html)
 plus a small reviewed English legal and interface vocabulary. Possible mistakes produce
-`WG701` (`spelling_possible_typo`). Spelling is independent of `--style`
+`SP701` (`spelling_possible_typo`). Spelling is independent of `--style`
 and never rewrites text. Use `--no-spellcheck` to disable it.
 
 `--spellcheck-severity info|warning|error` controls the level of all spelling
@@ -53,7 +53,7 @@ python -m dayamlchecker --spellcheck-language en --spellcheck-language es path/t
 
 Word lists are UTF-8, one word per line, with `#` comment lines. The repeatable
 `--spellcheck-wordlist` option adds project-specific suppressions. Matching is case
-insensitive; standard `--suppress` and `# no-dayc: WG701` suppressions apply.
+insensitive; standard `--suppress` and `# no-dayc: SP701` suppressions apply.
 Use repeatable `--spellcheck-ignore-word WORD` for individual suppressions.
 Both options affect only the current invocation; they do not alter dictionaries.
 
@@ -122,14 +122,14 @@ findings = find_spelling_findings_from_string(yaml_text, runtime_options=options
 For the main Python checker APIs, set `RuntimeOptions(spellcheck=None)`
 to disable the pass. The spelling-only convenience API always runs it.
 
-Common legal spellings have explicit recommendations under `WG702`
+Common legal spellings have explicit recommendations under `SP702`
 (`spelling_common_legal_typo`): `judgement` → `judgment` and `judgements` →
 `judgments` in US English, and `HIPPA` → `HIPAA` when English is selected.
 These checks also cover capitalization, possessives and hyphenated compounds
 such as `judgement-proof` and `HIPPA-compliant`. They bypass dictionary-accepted
 variants and acronym filtering. Custom British English dictionaries keep their
 own accepted variants for `judgement`. Word lists, `--spellcheck-ignore-word`,
-`--suppress WG702` and `# no-dayc: WG702` can suppress these recommendations.
+`--suppress SP702` and `# no-dayc: SP702` can suppress these recommendations.
 
 The pass excludes code, stored choice values, object-choice expressions, Mako
 expressions, HTML attributes, links' destinations, icons, and Markdown code.
