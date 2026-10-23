@@ -145,6 +145,10 @@ class DocxAccessibilityOptions:
 
     max_severity: Severity = Severity.WARNING
 
+    def __post_init__(self) -> None:
+        if self.max_severity not in (Severity.WARNING, Severity.ERROR):
+            raise ValueError("DOCX max_severity must be warning or error")
+
     def message_id(self, rule_id: str, natural: Severity) -> str:
         severity = natural
         if _SEVERITY_RANK[severity] > _SEVERITY_RANK[self.max_severity]:
@@ -172,7 +176,10 @@ class _StyleInfo:
 
 
 def check_docx_accessibility(
-    path: str | Path, options: Optional[DocxAccessibilityOptions] = None
+    path: str | Path,
+    options: Optional[DocxAccessibilityOptions] = None,
+    *,
+    logical_filename: Optional[str] = None,
 ) -> list[Finding]:
     options = options or DocxAccessibilityOptions()
     path = Path(path)
@@ -192,7 +199,9 @@ def check_docx_accessibility(
                         detail="the package is missing word/document.xml",
                     )
                 ]
-            return _DocxContext(package, names, path).check(options)
+            return _DocxContext(
+                package, names, path, logical_filename=logical_filename
+            ).check(options)
     except (OSError, zipfile.BadZipFile):
         return [
             _finding(
@@ -284,11 +293,19 @@ def collect_docx_files(
 
 
 class _DocxContext:
-    def __init__(self, package: zipfile.ZipFile, names: set[str], path: Path) -> None:
+    def __init__(
+        self,
+        package: zipfile.ZipFile,
+        names: set[str],
+        path: Path,
+        *,
+        logical_filename: Optional[str] = None,
+    ) -> None:
         self.package = package
         self.names = names
-        self.path = path
+        self.path = Path(logical_filename) if logical_filename else path
         self.document = str(path)
+        self.parse_errors: dict[str, str] = {}
         self.relationships: dict[str, dict[str, _Relationship]] = {}
         self.styles: dict[str, _StyleInfo] = {}
         self.default_run_style = _StyleInfo(style_id="", is_default_run=True)
@@ -398,12 +415,28 @@ class _DocxContext:
                 manual_numbering_sample,
             )
         )
+        for part, detail in self.parse_errors.items():
+            findings.append(
+                _finding(
+                    options,
+                    self.document,
+                    "docx-unreadable",
+                    Severity.ERROR,
+                    part,
+                    detail=detail,
+                )
+            )
         return _unique_findings(findings)
 
     def _xml_root(self, name: str) -> Optional[ET.Element]:
         try:
             return ET.fromstring(self.package.read(name))
-        except (ET.ParseError, KeyError):
+        except ET.ParseError:
+            self.parse_errors[name] = (
+                f"malformed XML in {name}; inspection is incomplete"
+            )
+            return None
+        except KeyError:
             return None
 
     def _load_relationships(self, part_name: str) -> dict[str, _Relationship]:
@@ -511,12 +544,6 @@ class _DocxContext:
     ) -> list[Finding]:
         if _has_language_in_style_defaults(self.package, self.names):
             return []
-        settings = self._xml_root("word/settings.xml")
-        if (
-            settings is not None
-            and _first_descendant(settings, "themeFontLang") is not None
-        ):
-            return []
         return [
             _finding(
                 options,
@@ -559,6 +586,7 @@ class _DocxContext:
                         Severity.WARNING,
                         part_name,
                         context=near,
+                        element_path=_element_path(root, element),
                     )
                 )
 
@@ -572,6 +600,7 @@ class _DocxContext:
                             Severity.ERROR,
                             part_name,
                             context=near,
+                            element_path=_element_path(root, element),
                         )
                     )
                 for alt in alt_values:
@@ -585,6 +614,7 @@ class _DocxContext:
                                 part_name,
                                 alt=alt,
                                 context=near,
+                                element_path=_element_path(root, element),
                             )
                         )
                 continue
@@ -598,6 +628,7 @@ class _DocxContext:
                         Severity.ERROR,
                         part_name,
                         context=near,
+                        element_path=_element_path(root, element),
                     )
                 )
         return findings
@@ -711,7 +742,7 @@ class _DocxContext:
                 _first_descendant(cell, "tbl") is not None for cell in cells
             )
             has_header = any(
-                _first_descendant(row, "tblHeader") is not None for row in rows[:1]
+                _is_toggle_on(_first_descendant(row, "tblHeader")) for row in rows[:1]
             )
             has_merged = any(_is_merged_cell(cell) for cell in cells)
             if has_merged:
@@ -723,6 +754,7 @@ class _DocxContext:
                         Severity.WARNING,
                         part_name,
                         context=near,
+                        element_path=_element_path(root, table),
                     )
                 )
             if has_nested_table:
@@ -735,6 +767,7 @@ class _DocxContext:
                         part_name,
                         detail="a nested table was found; verify it is not being used for layout",
                         context=near,
+                        element_path=_element_path(root, table),
                     )
                 )
             if len(rows) >= 2 and len(cells) >= 4 and not has_header:
@@ -746,6 +779,7 @@ class _DocxContext:
                         Severity.WARNING,
                         part_name,
                         context=near,
+                        element_path=_element_path(root, table),
                     )
                 )
             empty_cells = [cell for cell in cells if not _element_text(cell).strip()]
@@ -759,6 +793,7 @@ class _DocxContext:
                         part_name,
                         detail="a table has many empty cells and may be used for layout",
                         context=near,
+                        element_path=_element_path(root, table),
                     )
                 )
         return findings
@@ -1174,15 +1209,17 @@ def _finding(
 
 
 def _unique_findings(findings: list[Finding]) -> list[Finding]:
-    """Collapse findings that would render identically.
-
-    A rule that fires on every table in a document should be reported once,
-    not once per table -- there is no line number to tell them apart.
-    """
+    """Collapse repeated aggregate findings, retaining distinct native targets."""
     unique: list[Finding] = []
-    seen: set[tuple[str, str | None, str]] = set()
+    seen: set[tuple] = set()
     for finding in findings:
-        key = (finding.message_id, finding.file_name, finding.message)
+        key = (
+            finding.message_id,
+            finding.file_name,
+            finding.message,
+            str(finding.context.get("part", "")),
+            str(finding.context.get("element_path", "")),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -1553,17 +1590,92 @@ def _is_large_text(size_half_points: Optional[int], bold: bool) -> bool:
     return points >= 18 or (bold and points >= 14)
 
 
+def _element_path(root: ET.Element, target: ET.Element) -> str:
+    """Version-scoped child-index path; never locate a native object by text."""
+    paths = {id(root): ""}
+    for parent in root.iter():
+        for index, child in enumerate(parent):
+            paths[id(child)] = paths[id(parent)] + "/" + str(index)
+    return paths[id(target)]
+
+
 def _has_language_in_style_defaults(package: zipfile.ZipFile, names: set[str]) -> bool:
-    if "word/styles.xml" not in names:
-        return False
+    """Require effective language on text, including only applicable styles."""
     try:
-        root = ET.fromstring(package.read("word/styles.xml"))
+        styles_root = (
+            ET.fromstring(package.read("word/styles.xml"))
+            if "word/styles.xml" in names
+            else ET.Element("styles")
+        )
+        styles = {
+            _attr(style, "styleId"): style
+            for style in _descendants(styles_root, "style")
+        }
+        default_style = next(
+            (
+                _attr(st, "styleId")
+                for st in styles.values()
+                if _attr(st, "type") == "paragraph"
+                and _attr(st, "default") in {"1", "true", "on"}
+            ),
+            "",
+        )
+        defaults = _first_descendant(styles_root, "docDefaults")
+        default_lang = (
+            _attr(_first_descendant(defaults, "lang"), "val")
+            if defaults is not None
+            else ""
+        )
+
+        def style_language(style_id: str) -> str:
+            seen = set()
+            while style_id and style_id not in seen:
+                seen.add(style_id)
+                style = styles.get(style_id)
+                if style is None:
+                    break
+                value = _attr(_first_descendant(style, "lang"), "val")
+                if value:
+                    return value
+                style_id = _attr(_first_child(style, "basedOn"), "val")
+            return ""
+
+        found_text = False
+        for name in names:
+            if not _WORD_PART_RE.match(name):
+                continue
+            root = ET.fromstring(package.read(name))
+            for paragraph in _descendants(root, "p"):
+                p_style = (
+                    _attr(
+                        _first_descendant(_first_child(paragraph, "pPr"), "pStyle"),
+                        "val",
+                    )
+                    if _first_child(paragraph, "pPr") is not None
+                    else ""
+                )
+                for run in _descendants(paragraph, "r"):
+                    if not _run_visible_text(run).strip():
+                        continue
+                    found_text = True
+                    props = _first_child(run, "rPr")
+                    language = (
+                        _attr(_first_child(props, "lang"), "val")
+                        if props is not None
+                        else ""
+                    )
+                    r_style = (
+                        _attr(_first_child(props, "rStyle"), "val")
+                        if props is not None
+                        else ""
+                    )
+                    if not (
+                        language
+                        or style_language(r_style)
+                        or style_language(p_style or default_style)
+                        or default_lang
+                    ):
+                        return False
+        return bool(default_lang) or found_text
     except (ET.ParseError, KeyError):
         return False
-    doc_defaults = _first_descendant(root, "docDefaults")
-    if doc_defaults is not None and _first_descendant(doc_defaults, "lang") is not None:
-        return True
-    for style in _descendants(root, "style"):
-        if _first_descendant(style, "lang") is not None:
-            return True
-    return False
