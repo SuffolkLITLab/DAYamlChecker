@@ -1,7 +1,7 @@
 """Checker behavior required by consumers that store files under opaque names."""
 
 import pytest
-from test_docx_accessibility import _base_files, _document, _write_docx
+from tests.test_docx_accessibility import _base_files, _document, _write_docx
 from dayamlchecker.docx_accessibility import (
     check_docx_accessibility,
     DocxAccessibilityOptions,
