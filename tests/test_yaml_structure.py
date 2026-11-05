@@ -2819,7 +2819,7 @@ fields:
         )
         codes = {err.code for err in errs}
         self.assertTrue(
-            {"EA510", "EA511", "EA513", "WA525", "WA527", "WA528"}.issubset(codes),
+            {"EA510", "EA511", "EA513", "WA525", "WA527"}.issubset(codes),
             f"Expected new accessibility parity findings, got: {errs}",
         )
 

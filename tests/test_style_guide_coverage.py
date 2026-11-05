@@ -4,14 +4,16 @@ from dayamlchecker.style import _variable_name_matches
 from dayamlchecker.yaml_structure import RuntimeOptions, find_errors_from_string
 
 
-def codes(source, *, path=None, theme=False):
+def codes(source, *, path=None, theme=False, level="precision"):
     return {
         finding.code
         for finding in find_errors_from_string(
             source,
             input_file=str(path) if path else "<string input>",
             runtime_options=RuntimeOptions(
-                style_enabled=True, style_require_custom_theme=theme
+                style_enabled=True,
+                style_require_custom_theme=theme,
+                style_review_level=level,
             ),
         )
     }
@@ -59,10 +61,14 @@ def test_enum_and_indexed_visibility_can_still_overload_screen():
 
 
 def test_unknown_visibility_and_generated_inputs_have_coverage_advisories():
-    unknown = codes(conditional_screen("show if:\n      code: custom_check()"))
+    unknown = codes(
+        conditional_screen("show if:\n      code: custom_check()"), level="thorough"
+    )
     assert "IS740" in unknown
     assert "WS718" not in unknown
-    assert "IS740" in codes("question: Details\nfields:\n  - code: make_fields()\n")
+    assert "IS740" in codes(
+        "question: Details\nfields:\n  - code: make_fields()\n", level="thorough"
+    )
     assert "IS740" not in codes(
         "question: Details\nfields:\n  - Choice: selected\n    code: make_choices()\n"
     )

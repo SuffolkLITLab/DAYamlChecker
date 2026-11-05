@@ -569,8 +569,11 @@ def _check_choice_labels(
             normalized = _normalize_human_text(label)
             if (
                 normalized in NON_DESCRIPTIVE_FIELD_LABELS
-                or _looks_like_emoji_or_punctuation_only(label)
-            ):
+                and not (
+                    _extract_field_label(field)
+                    or str(doc.get("question") or "").strip()
+                )
+            ) or _looks_like_emoji_or_punctuation_only(label):
                 findings.append(
                     draft(
                         MessageId.ACCESSIBILITY_NON_DESCRIPTIVE_CHOICE_LABEL,
@@ -688,7 +691,10 @@ def _check_ambiguous_button_text(
 ) -> list[FindingDraft]:
     findings: list[FindingDraft] = []
     labels = _iter_choice_labels(doc.get("buttons"))
-    labels.append(str(doc.get("continue button label") or ""))
+    # Conventional navigation labels are clear on the dedicated continue control.
+    continue_label = str(doc.get("continue button label") or "")
+    if _normalize_human_text(continue_label) not in {"continue", "next"}:
+        labels.append(continue_label)
     for field in _iter_fields(doc):
         datatype = str(field.get("datatype") or "").strip().lower()
         if datatype in {"button", "buttons"}:

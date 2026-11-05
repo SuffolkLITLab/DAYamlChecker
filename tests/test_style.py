@@ -41,7 +41,9 @@ def test_style_checks_report_deterministic_findings():
     findings = find_errors_from_string(
         yaml_text,
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_review_level="thorough"
+        ),
     )
 
     message_ids = {finding.message_id for finding in findings}
@@ -238,7 +240,9 @@ def test_style_rule_severity_decisions_are_stable():
         "---\n"
         'code: |\n  user_message = "Please complete the form before you continue."\n',
         input_file="<string_input>",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_review_level="thorough"
+        ),
     )
 
     severities = {
@@ -532,6 +536,7 @@ def test_module_style_helper_returns_structured_style_findings():
     findings = dayamlchecker.find_style_findings_from_string(
         "id: intro\nquestion: |\n  Commence the interview.\nfield: user_name\n",
         input_file="<string_input>",
+        runtime_options=RuntimeOptions(style_review_level="thorough"),
     )
 
     assert findings
@@ -567,7 +572,15 @@ def test_main_can_run_style_checks_from_cli():
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            exit_code = main(["--style", "--no-url-check", str(interview)])
+            exit_code = main(
+                [
+                    "--style",
+                    "--style-review-level",
+                    "thorough",
+                    "--no-url-check",
+                    str(interview),
+                ]
+            )
 
         output = stdout.getvalue().lower()
         assert exit_code == 1

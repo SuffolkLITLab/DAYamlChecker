@@ -26,6 +26,7 @@ from dayamlchecker.style import (
     ParsedInterviewDocument,
     StyleLintOptions,
     find_style_findings,
+    attach_repair_context,
 )
 
 from dayamlchecker.spelling import (
@@ -229,7 +230,9 @@ class RuntimeOptions:
     accessibility_error_on_widgets: frozenset[str] = field(default_factory=frozenset)
     style_enabled: bool = False
     style_include_llm: bool = False
+    style_vocabulary_only: bool = False
     style_require_custom_theme: bool = False
+    style_review_level: str = "precision"
     style_openai_base_url: str | None = None
     style_openai_api_key: str | None = None
     style_openai_model: str | None = None
@@ -251,7 +254,9 @@ class RuntimeOptions:
             or self.style_include_llm
             or self.style_require_custom_theme,
             include_llm=self.style_include_llm,
+            vocabulary_only=self.style_vocabulary_only,
             require_custom_theme=self.style_require_custom_theme,
+            review_level=self.style_review_level,
             openai_base_url=self.style_openai_base_url,
             openai_api_key=self.style_openai_api_key,
             openai_model=self.style_openai_model,
@@ -2526,7 +2531,9 @@ def _find_errors_from_yaml(
                 options=runtime_options.spellcheck,
             )
         )
-    return _apply_dayc_suppressions(all_errors, full_content)
+    return _apply_dayc_suppressions(
+        attach_repair_context(all_errors, parsed_docs), full_content
+    )
 
 
 _COMMON_COURTFORMSONLINE_METADATA_FIELDS = (
@@ -2888,12 +2895,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument(
         "files",
-        nargs="+",
+        nargs="*",
         type=Path,
         help=(
             "YAML/Python files or directories to validate "
             "(directories are searched recursively)"
         ),
+    )
+    parser.add_argument(
+        "--readiness",
+        action="store_true",
+        help="Run publication pre-flight on one repository (default: current directory); outputs JSON with exit 0=pass, 1=blocked, 2=needs_review.",
+    )
+    parser.add_argument(
+        "--readiness-evidence",
+        "--evidence",
+        type=Path,
+        help="Review evidence JSON for --readiness.",
     )
     parser.add_argument(
         "--suppress",
@@ -2982,6 +3000,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--style-require-custom-theme",
         action="store_true",
         help="Require an explicit custom theme. Also enables --style.",
+    )
+    parser.add_argument(
+        "--style-review-level",
+        choices=("precision", "thorough"),
+        default="precision",
+        help="Precision omits unconfirmed vocabulary advice and unknown field counts; thorough includes them.",
     )
     parser.add_argument(
         "--style-llm",
@@ -3116,7 +3140,70 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help="Maximum number of warnings allowed before failing with a non-zero exit code",
     )
+    from dayamlchecker.readiness_research import (
+        add_research_arguments,
+        options_from_args,
+    )
+
+    from dayamlchecker.readiness import (
+        add_readiness_arguments,
+        readiness_options_from_args,
+        run_cli,
+    )
+
+    add_research_arguments(parser)
+    add_readiness_arguments(parser)
     args = parser.parse_args(argv)
+
+    if args.research_strict_unverified and not args.readiness_research:
+        parser.error("--research-strict-unverified requires --readiness-research")
+    if args.readiness_research and not args.readiness:
+        parser.error("--readiness-research requires --readiness")
+    readiness_only_options = (
+        "readiness_ai_review",
+        "readiness_entrypoint",
+        "readiness_evidence",
+        "readiness_format",
+        "readiness_github",
+        "readiness_review_max_candidates",
+        "readiness_review_model",
+        "readiness_review_timeout",
+        "long_interview_screens",
+        "playground_server",
+        "playground_user",
+        "playground_project",
+        "github_repository",
+        "github_ref",
+    )
+    if not args.readiness and any(
+        getattr(args, name) != parser.get_default(name)
+        for name in readiness_only_options
+    ):
+        parser.error("Readiness options require --readiness")
+    if args.readiness:
+        if args.playground_server and args.files:
+            parser.error("Choose a local directory or --playground-server, not both")
+        if len(args.files) > 1:
+            parser.error("--readiness accepts one repository directory")
+        if args.fix:
+            parser.error("--readiness cannot be combined with --fix")
+        if args.format != "text":
+            parser.error(
+                "Use --readiness-format json or markdown instead of --format with --readiness"
+            )
+        return run_cli(
+            args.files[0] if args.files else Path.cwd(),
+            args.readiness_evidence,
+            parser,
+            options_from_args(args, parser),
+            **readiness_options_from_args(args, parser),
+        )
+    if args.readiness_evidence is not None:
+        parser.error("--readiness-evidence requires --readiness")
+    if not args.files:
+        parser.error(
+            "at least one file or directory is required unless using --readiness"
+        )
 
     spellcheck: SpellcheckOptions | None = None
     if args.spellcheck:
@@ -3140,6 +3227,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ),
         style_enabled=args.style or args.style_llm or args.style_require_custom_theme,
         style_include_llm=args.style_llm,
+        style_review_level=args.style_review_level,
         style_require_custom_theme=args.style_require_custom_theme,
         style_openai_base_url=args.openai_base_url,
         style_openai_api_key=args.openai_api_key,

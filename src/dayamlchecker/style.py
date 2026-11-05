@@ -4,6 +4,7 @@ import ast
 from dataclasses import dataclass, replace
 from functools import lru_cache
 import html
+import hashlib
 import importlib.resources
 import itertools
 import json
@@ -47,7 +48,26 @@ _FILE_TAG_RE = re.compile(
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]")
 _WORD_RE = re.compile(r"\b\w+\b")
 _CONTEXTUAL_VOCABULARY = frozenset({"request", "report", "benefit", "following"})
-_VOCABULARY_TRIAGE_TERMS = _CONTEXTUAL_VOCABULARY | {"please", "select", "option"}
+_VOCABULARY_TRIAGE_TERMS = _CONTEXTUAL_VOCABULARY | {
+    "please",
+    "select",
+    "option",
+    "place",
+    "complete",
+    "correct",
+    "issue",
+    "provide",
+    "provided",
+    "grant",
+    "granted",
+    "appointed",
+    "uniform",
+    "material",
+    "counter",
+    "anticipated",
+    "set up",
+    "to date",
+}
 _COMPOUND_QUESTION_RE = re.compile(
     r"\b(?:and|or)\s+(?:who|what|when|where|why|how|"
     r"(?:do|does|did|is|are|am|was|were|can|could|will|would|should|have|has|had)"
@@ -224,7 +244,9 @@ class TextEntry:
 class StyleLintOptions:
     enabled: bool = False
     include_llm: bool = False
+    vocabulary_only: bool = False
     require_custom_theme: bool = False
+    review_level: str = "precision"
     openai_base_url: str | None = None
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -346,7 +368,7 @@ def find_style_findings(
     )
 
     if not resolved_options.llm_enabled():
-        return _dedupe_findings(deterministic)
+        return _finish_style_findings(deterministic, parsed_docs, resolved_options)
 
     llm_api_key = resolved_options.resolved_openai_api_key()
     if not llm_api_key:
@@ -362,7 +384,7 @@ def find_style_findings(
                 ),
             )
         )
-        return _dedupe_findings(deterministic)
+        return _finish_style_findings(deterministic, parsed_docs, resolved_options)
 
     deterministic = _triage_vocabulary_candidates(
         findings=deterministic,
@@ -370,6 +392,8 @@ def find_style_findings(
         input_file=input_file,
         options=resolved_options,
     )
+    if resolved_options.vocabulary_only:
+        return _finish_style_findings(deterministic, parsed_docs, resolved_options)
     deterministic.extend(
         _run_llm_rules(
             parsed_docs=parsed_docs,
@@ -377,7 +401,80 @@ def find_style_findings(
             options=resolved_options,
         )
     )
-    return _dedupe_findings(deterministic)
+    return _finish_style_findings(deterministic, parsed_docs, resolved_options)
+
+
+def _finish_style_findings(
+    findings: list[Finding],
+    docs: list[ParsedInterviewDocument],
+    options: StyleLintOptions,
+) -> list[Finding]:
+    """Keep speculative advice opt-in; find_errors attaches repair context."""
+    result = []
+    hidden_vocabulary = []
+    for finding in _dedupe_findings(findings):
+        context = dict(finding.context)
+        if options.review_level == "precision":
+            if finding.message_id == MessageId.STYLE_FIELD_COUNT_UNCERTAIN:
+                continue
+            if (
+                context.get("vocabulary_triage_candidate")
+                and context.get("vocabulary_triage_status") != "confirmed"
+            ):
+                hidden_vocabulary.append(finding)
+                continue
+            if finding.message_id == MessageId.STYLE_LLM_REQUEST_FAILED:
+                context["detail"] = str(context.get("detail", "")).replace(
+                    "candidates retained",
+                    "unconfirmed candidates available in thorough mode",
+                )
+        result.append(replace(finding, context=context))
+    if hidden_vocabulary:
+        result.append(
+            make_finding(
+                MessageId.STYLE_VOCABULARY_SUGGESTIONS_HIDDEN,
+                file_name=hidden_vocabulary[0].file_name,
+                line_number=hidden_vocabulary[0].line_number,
+                hidden_count=len(hidden_vocabulary),
+            )
+        )
+    return result
+
+
+def attach_repair_context(
+    findings: list[Finding], docs: list[ParsedInterviewDocument]
+) -> list[Finding]:
+    """Expose evidence without generating a patch or assuming runtime behavior."""
+    result = []
+    for finding in findings:
+        context = dict(finding.context)
+        candidates = [doc for doc in docs if doc.screen_id == context.get("screen_id")]
+        if len(candidates) != 1 and finding.line_number is not None:
+            candidates = [
+                doc
+                for doc in docs
+                if doc.document_start_line
+                <= finding.line_number
+                < doc.document_start_line + len(doc.source_code.splitlines())
+            ]
+        if len(candidates) == 1:
+            doc = candidates[0]
+            context["repair_context"] = {
+                "schema_version": 1,
+                "file_name": finding.file_name,
+                "screen_id": doc.screen_id,
+                "block_index": doc.index,
+                "block_start_line": doc.document_start_line,
+                "source_yaml": doc.source_code,
+                "source_sha256": hashlib.sha256(doc.source_code.encode()).hexdigest(),
+                "location": context.get("location"),
+                "evidence": context.get("snippet", context.get("matched_text", "")),
+                "requires_runtime_verification": bool(
+                    any(field.get("code") for field in _iter_fields(doc.doc))
+                ),
+            }
+        result.append(replace(finding, context=context))
+    return result
 
 
 # Translatability checks
@@ -390,7 +487,11 @@ def _check_choices_without_invariant_values(
         if not isinstance(choices, list):
             return False
         for item in choices:
-            if isinstance(item, str) and ": " not in item:
+            if (
+                isinstance(item, str)
+                and ": " not in item
+                and not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", item.strip())
+            ):
                 return True
             if not isinstance(item, dict):
                 continue
@@ -651,14 +752,10 @@ def _check_plain_language_replacements(
             if key in seen:
                 continue
             seen.add(key)
-            triage_context = (
-                {
-                    "vocabulary_triage_candidate": True,
-                    "vocabulary_triage_status": "not_reviewed",
-                }
-                if matched_text.lower() in _VOCABULARY_TRIAGE_TERMS
-                else {}
-            )
+            triage_context = {
+                "vocabulary_triage_candidate": True,
+                "vocabulary_triage_status": "not_reviewed",
+            }
             findings.append(
                 _style_draft(
                     (
@@ -793,6 +890,15 @@ def _check_compound_questions(
         )
         if offending is None:
             continue
+        if entry.location == "question" and re.search(r"\bwhen\b.*\bwhere\b", plain):
+            matching = [
+                doc
+                for doc in docs
+                if doc.screen_id == entry.screen_id
+                and doc.line_for_key("question") == entry.line_number
+            ]
+            if matching and _has_separate_time_and_place_fields(matching[0].doc):
+                continue
         findings.append(
             _style_draft(
                 MessageId.STYLE_COMPOUND_QUESTION,
@@ -803,6 +909,26 @@ def _check_compound_questions(
             )
         )
     return findings
+
+
+def _has_separate_time_and_place_fields(doc: dict[str, Any]) -> bool:
+    """A when/where heading is not a combined answer if both have input fields."""
+    time_fields, place_fields = set(), set()
+    for index, field in enumerate(_iter_fields(doc)):
+        variable = _extract_field_variable(field)
+        if not variable:
+            continue
+        text = " ".join(
+            [variable, *map(str, field.keys()), str(field.get("label", ""))]
+        ).lower()
+        text = text.replace("_", " ")
+        if field.get("datatype") in ("date", "time", "datetime") or re.search(
+            r"\b(?:date|day|month|year|time|when)\b", text
+        ):
+            time_fields.add(index)
+        if re.search(r"\b(?:state|county|city|location|address|where)\b", text):
+            place_fields.add(index)
+    return any(t != p for t in time_fields for p in place_fields)
 
 
 def _is_single_answer_alternative(sentence: str) -> bool:
@@ -1468,16 +1594,21 @@ def _check_missing_help_on_complex_screens(
     return findings
 
 
+def _doc_key_text(parsed_doc: ParsedInterviewDocument, keys: tuple[str, ...]) -> str:
+    return (
+        " ".join(_stringify(parsed_doc.doc.get(key)) for key in keys)
+        .lower()
+        .replace("_", " ")
+    )
+
+
 def _check_exit_criteria_and_screen(
     docs: list[ParsedInterviewDocument],
 ) -> list[FindingDraft]:
     metadata = _find_metadata(docs)
     screening_signal = bool(_stringify(metadata.get("can_I_use_this_form")).strip())
     for parsed_doc in docs:
-        combined = " ".join(
-            _stringify(parsed_doc.doc.get(key))
-            for key in ("question", "subquestion", "id", "event")
-        ).lower()
+        combined = _doc_key_text(parsed_doc, ("question", "subquestion", "id", "event"))
         if any(
             marker in combined
             for marker in (
@@ -1493,14 +1624,16 @@ def _check_exit_criteria_and_screen(
     if not screening_signal:
         return []
     for parsed_doc in docs:
-        combined = " ".join(
-            _stringify(parsed_doc.doc.get(key))
-            for key in ("question", "subquestion", "under", "id", "event")
-        ).lower()
+        combined = _doc_key_text(
+            parsed_doc, ("question", "subquestion", "under", "id", "event")
+        )
         if any(
             marker in combined
             for marker in (
                 "not eligible",
+                "cannot use this form",
+                "under 18 blocker",
+                "do not have the required information",
                 "may not be able",
                 "cannot help",
                 "can't help",
@@ -1511,6 +1644,8 @@ def _check_exit_criteria_and_screen(
                 "stop here",
             )
         ):
+            return []
+        if re.search(r"\bineligible\b", _doc_key_text(parsed_doc, ("id", "event"))):
             return []
         if re.search(
             r"\b(?:eligib|qualif|can i use|right form|screening)", combined
@@ -1609,6 +1744,40 @@ def _check_review_screen_editability(
                 )
             if not destinations and target not in key_choice_variables:
                 routes_unknown = True
+        # Keep the existing rule's emission scope. Tracing more edit routes
+        # should remove inaccurate claims, not introduce a stricter partial-
+        # coverage requirement for interviews that already passed this check.
+        previously_covered_choice = any(
+            _variable_name_matches(edit_name, key_choice)
+            for edit_name in editable_variables
+            for key_choice in key_choice_variables
+        )
+        pending = list(editable_variables)
+        visited = set()
+        while pending:
+            target = pending.pop()
+            if target in visited:
+                continue
+            visited.add(target)
+            for destination in evidence:
+                names = (
+                    destination.doc.get("event"),
+                    destination.doc.get("continue button field"),
+                    destination.doc.get("field"),
+                )
+                if target not in names:
+                    continue
+                reachable = _review_edit_variables(destination.doc.get("review"))
+                reachable.update(
+                    _extract_field_variable(f) for f in _iter_fields(destination.doc)
+                )
+                widget_edits, widget_unknown = _review_widget_targets(
+                    _review_text(destination), evidence
+                )
+                reachable.update(widget_edits)
+                unknown_widgets.update(widget_unknown)
+                pending.extend(reachable - visited)
+                editable_variables.update(reachable)
         explicit_back = bool(
             re.search(
                 r"\b(?:go|click|press|use)\b[^.!?\n]*\bback\b", text, re.IGNORECASE
@@ -1641,23 +1810,33 @@ def _check_review_screen_editability(
                     screen_id=review_doc.screen_id,
                 )
             )
-        elif key_choice_variables and not any(
-            _variable_name_matches(edit_name, key_choice)
-            for edit_name in editable_variables
-            for key_choice in key_choice_variables
-        ):
-            if routes_unknown or any(
-                _variable_name_matches(prefix, key_choice)
-                for prefix in unknown_widgets
+        elif key_choice_variables and not previously_covered_choice:
+            missing_choices = [
+                key_choice
                 for key_choice in key_choice_variables
-            ):
+                if not any(
+                    _variable_name_matches(edit_name, key_choice)
+                    for edit_name in editable_variables
+                )
+            ]
+            if routes_unknown:
+                continue
+            missing_choices = [
+                key_choice
+                for key_choice in missing_choices
+                if not any(
+                    _variable_name_matches(prefix, key_choice)
+                    for prefix in unknown_widgets
+                )
+            ]
+            if not missing_choices:
                 continue
             findings.append(
                 _style_draft(
                     MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS,
                     line_number=review_doc.default_line(),
                     screen_id=review_doc.screen_id,
-                    snippet=", ".join(key_choice_variables[:4]),
+                    snippet=", ".join(missing_choices[:4]),
                 )
             )
     return findings
@@ -1808,7 +1987,7 @@ def _triage_vocabulary_candidates(
     input_file: str | None,
     options: StyleLintOptions,
 ) -> list[Finding]:
-    """Filter only enumerated vocabulary candidates; preserve recall on failure."""
+    """Review all replacement candidates; thorough mode preserves recall on failure."""
     entries = {
         (entry.screen_id, entry.location, entry.line_number): entry.text
         for entry in _iter_doc_texts(parsed_docs)
@@ -1914,6 +2093,9 @@ def _triage_vocabulary_candidates(
             )
             context["vocabulary_triage_reason"] = decision["reason"]
             context["vocabulary_triage_evidence"] = decision["evidence"]
+            if decision.get("decision") == "keep":
+                context["original_sentence"] = decision.get("original_sentence")
+                context["revised_sentence"] = decision.get("revised_sentence")
             if (
                 decision["decision"] == "keep"
                 and confident
@@ -1924,6 +2106,18 @@ def _triage_vocabulary_candidates(
     return [
         finding for index, finding in enumerate(result) if index not in dismissed
     ] + errors
+
+
+def _match_initial_case(matched: str, replacement: str) -> str:
+    if matched[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
+def _uncertain_decision(decision: dict[str, Any], reason: str) -> dict[str, Any]:
+    downgraded = {**decision, "decision": "uncertain", "reason": reason}
+    downgraded.pop("replacement", None)
+    return downgraded
 
 
 def _validated_vocabulary_decisions(
@@ -1981,6 +2175,51 @@ def _validated_vocabulary_decisions(
             not isinstance(replacement, str) or len(replacement) > 400
         ):
             return None
+        if decision["decision"] == "keep":
+            before = decision.get("original_sentence")
+            after = decision.get("revised_sentence")
+            pattern = rf"(?<!\w){re.escape(candidate['term'])}(?!\w)"
+            valid_patch = (
+                isinstance(before, str)
+                and before in candidate["text"]
+                and len(_WORD_RE.findall(before))
+                >= min(5, len(_WORD_RE.findall(candidate["text"])))
+                and isinstance(after, str)
+                and isinstance(replacement, str)
+                and bool(replacement.strip())
+                and re.search(pattern, before, re.I) is not None
+                and after
+                in {
+                    re.sub(pattern, lambda m: replacement, before, flags=re.I),
+                    re.sub(
+                        pattern,
+                        lambda m: _match_initial_case(m.group(0), replacement),
+                        before,
+                        flags=re.I,
+                    ),
+                }
+                and not re.search(r"\b([a-z]+)\s+\1\b", after, re.I)
+                and not re.search(
+                    r"\b(?:a|an|the)\s+(?:you|we|they)\s+(?:must|should|need)\b",
+                    after,
+                    re.I,
+                )
+                and not re.search(r"\ba or b(?: or both)?\b", replacement, re.I)
+            )
+            if not valid_patch:
+                decision = _uncertain_decision(
+                    decision,
+                    "Check the full sentence: the proposed word replacement was not validated.",
+                )
+        # A phrase replacement must fit where the matched phrase occurred.
+        # Whole-screen rewrites do not belong in a word-substitution finding.
+        if replacement and len(_WORD_RE.findall(replacement)) > max(
+            12, 3 * len(_WORD_RE.findall(candidate["term"]))
+        ):
+            decision = _uncertain_decision(
+                decision,
+                "The suggested replacement rewrites more than the matched phrase.",
+            )
         decisions[identity] = decision
     return decisions if decisions.keys() == expected.keys() else None
 
@@ -1991,12 +2230,27 @@ def _run_llm_rules(
     input_file: str | None,
     options: StyleLintOptions,
 ) -> list[Finding]:
+    # Review every screen, including screens after long metadata/code preambles.
+    screens = [
+        doc for doc in parsed_docs if any(doc.doc.get(key) for key in VISIBLE_TEXT_KEYS)
+    ]
+    if len(screens) > 20:
+        return [
+            finding
+            for offset in range(0, len(screens), 20)
+            for finding in _run_llm_rules(
+                parsed_docs=screens[offset : offset + 20],
+                input_file=input_file,
+                options=options,
+            )
+        ]
+    parsed_docs = screens
     prompts = _load_llm_prompt_templates()
     llm_rules = prompts.get("llm_rules")
     if not isinstance(llm_rules, list):
         return []
     screen_payload = _build_screen_payload(parsed_docs)
-    if not screen_payload:
+    if screen_payload == "[]":
         return []
     findings: list[Finding] = []
     for rule in llm_rules:
@@ -2026,7 +2280,10 @@ def _run_llm_rules(
                 )
             )
             continue
+        seen_screens = set()
         for item in _safe_parse_llm_json(raw_response):
+            if item.get("rule_id", rule_id) != rule_id:
+                continue
             finding = _build_llm_finding(
                 parsed_docs=parsed_docs,
                 input_file=input_file,
@@ -2036,9 +2293,17 @@ def _run_llm_rules(
                 problematic_text=_stringify(item.get("problematic_text")).strip(),
                 screen_id=_stringify(item.get("screen_id")).strip(),
             )
-            if finding is not None:
+            if (
+                finding is not None
+                and finding.context.get("screen_id") not in seen_screens
+            ):
+                seen_screens.add(finding.context.get("screen_id"))
                 findings.append(finding)
     return findings
+
+
+def _normalized_text(text: str) -> str:
+    return " ".join(_plain_text(text).split())
 
 
 def _build_llm_finding(
@@ -2057,24 +2322,29 @@ def _build_llm_finding(
         message_id = MessageId.STYLE_PLAIN_LANGUAGE_REWRITE_OPPORTUNITY
     else:
         return None
-    line_number = next(
-        (
-            parsed_doc.default_line()
-            for parsed_doc in parsed_docs
-            if parsed_doc.screen_id == screen_id
-        ),
-        parsed_docs[0].default_line() if parsed_docs else 1,
-    )
-    rendered_message = message
-    if problematic_text:
-        rendered_message = f'{message} Quote: "{_shorten(problematic_text, limit=220)}"'
+    matches = [doc for doc in parsed_docs if doc.screen_id == screen_id]
+    if len(matches) != 1 or not problematic_text:
+        return None
+    parsed_doc = matches[0]
+    # The model sees normalized text, so its quote may not match the raw source.
+    normalized_quote = _normalized_text(problematic_text)
+    entries = [
+        entry
+        for entry in _iter_doc_texts([parsed_doc])
+        if problematic_text in entry.text
+        or (normalized_quote and normalized_quote in _normalized_text(entry.text))
+    ]
+    if not entries:
+        return None
+    line_number = entries[0].line_number
+    quote = _shorten(problematic_text, limit=220)
     return make_finding(
         message_id,
         file_name=input_file,
         line_number=line_number,
-        message=rendered_message,
+        message=f'{message} Quote: "{quote}"',
         screen_id=screen_id,
-        snippet=_shorten(problematic_text, limit=220) if problematic_text else "",
+        snippet=quote,
     )
 
 
@@ -2504,6 +2774,30 @@ def _find_metadata(docs: list[ParsedInterviewDocument]) -> dict[str, Any]:
     return metadata
 
 
+def _include_candidates(reference: str, source: Path) -> list[Path]:
+    """List local paths an include may name, in docassemble's lookup order."""
+    if ":" not in reference:
+        return [source.parent / reference] + [
+            parent / reference
+            for parent in source.parents
+            if parent.name == "questions" and parent.parent.name == "data"
+        ]
+    package, filename = reference.split(":", 1)
+    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
+        return []
+    name = package.split(".")[1]
+    relative = Path("docassemble", name, "data", "questions")
+    relative /= filename.removeprefix("data/questions/")
+    return [
+        candidate
+        for ancestor in source.parents
+        for candidate in (
+            ancestor / relative,
+            ancestor / ("docassemble-" + name) / relative,
+        )
+    ]
+
+
 def _include_evidence(
     docs: list[ParsedInterviewDocument], input_file: str | None
 ) -> tuple[list[ParsedInterviewDocument], bool]:
@@ -2545,37 +2839,10 @@ def _include_evidence(
                 ):
                     complete = False
                     continue
-                candidates: list[Path] = []
-                if ":" in reference:
-                    package, filename = reference.split(":", 1)
-                    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
-                        complete = False
-                        continue
-                    name = package.split(".")[1]
-                    for ancestor in source.parents:
-                        candidates.append(
-                            ancestor
-                            / "docassemble"
-                            / name
-                            / "data"
-                            / "questions"
-                            / filename
-                        )
-                        candidates.append(
-                            ancestor
-                            / ("docassemble-" + name)
-                            / "docassemble"
-                            / name
-                            / "data"
-                            / "questions"
-                            / filename
-                        )
-                else:
-                    candidates.append(source.parent / reference)
                 target = next(
                     (
                         candidate.resolve()
-                        for candidate in candidates
+                        for candidate in _include_candidates(reference, source)
                         if candidate.is_file()
                     ),
                     None,
@@ -2954,8 +3221,24 @@ def _build_screen_payload(parsed_docs: list[ParsedInterviewDocument]) -> str:
         screen_text = _shorten(_plain_text(screen_text), limit=800)
         if not screen_text:
             continue
-        payload.append({"screen_id": parsed_doc.screen_id, "text": screen_text})
-    return json.dumps(payload, ensure_ascii=False)
+        payload.append(
+            {
+                "screen_id": parsed_doc.screen_id,
+                "text": screen_text,
+                "fields": [
+                    {
+                        "label": _extract_field_label(field),
+                        "variable": _extract_field_variable(field),
+                        "generated_by": field.get("code"),
+                        "datatype": field.get("datatype"),
+                        "choices": field.get("choices"),
+                    }
+                    for field in _iter_fields(parsed_doc.doc)
+                ],
+                "text_truncated": len(screen_text) >= 800,
+            }
+        )
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def _call_openai_chat_completion(
@@ -2982,7 +3265,6 @@ def _call_openai_chat_completion(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                "temperature": 0,
                 "response_format": {"type": "json_object"},
             },
             timeout=60,

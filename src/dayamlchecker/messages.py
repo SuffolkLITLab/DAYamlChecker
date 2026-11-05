@@ -246,6 +246,7 @@ class MessageId(StrEnum):
     STYLE_PLACEHOLDER_LANGUAGE = "style_placeholder_language"
     STYLE_PLAIN_LANGUAGE_REPLACEMENT = "style_plain_language_replacement"
     STYLE_CONTEXTUAL_VOCABULARY = "style_contextual_vocabulary"
+    STYLE_VOCABULARY_SUGGESTIONS_HIDDEN = "style_vocabulary_suggestions_hidden"
     STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE = "style_variable_root_not_snake_case"
     STYLE_LONG_SENTENCE = "style_long_sentence"
     STYLE_COMPOUND_QUESTION = "style_compound_question"
@@ -1384,45 +1385,42 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
         summary="Prefer a plainer word or phrase",
-        template=(
-            "consider replacing {matched_text!r} in {location} with simpler language, "
-            "such as {replacement!r}"
-        ),
+        template=("Replace {matched_text!r} with {replacement!r} in {location}."),
     ),
     MessageId.STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE: MessageDefinition(
         code="WS713",
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Variable roots should use snake_case",
-        template="variable roots should use snake_case: {roots}",
+        template="Rename these variables using lowercase words joined by underscores: {roots}",
     ),
     MessageId.STYLE_LONG_SENTENCE: MessageDefinition(
         code="WS714",
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Sentence is probably too long",
-        template="sentence in {location} exceeds 20 words: {snippet}",
+        template="Split this sentence in {location} into shorter sentences: {snippet}",
     ),
     MessageId.STYLE_COMPOUND_QUESTION: MessageDefinition(
         code="IS715",
         severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
         summary="Question may ask about more than one thing",
-        template="potential compound question in {location}: {snippet}",
+        template="Check whether this question in {location} needs separate answers: {snippet}",
     ),
     MessageId.STYLE_OVERLONG_QUESTION_LABEL: MessageDefinition(
         code="WS716",
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Question title is probably too long",
-        template="question text exceeds 120 characters: {snippet}",
+        template="Shorten this question title; move extra details below it: {snippet}",
     ),
     MessageId.STYLE_OVERLONG_FIELD_LABEL: MessageDefinition(
         code="WS717",
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Field label is probably too long",
-        template="field label exceeds 90 characters: {snippet}",
+        template="Shorten this field label; move extra details into a hint: {snippet}",
     ),
     MessageId.STYLE_TOO_MANY_FIELDS_ON_SCREEN: MessageDefinition(
         code="WS718",
@@ -1439,14 +1437,14 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Subquestion may be a wall of text",
-        template="subquestion has a long unstructured block of text: {snippet}",
+        template="Break this text into short paragraphs or a list: {snippet}",
     ),
     MessageId.STYLE_COMPLEX_SCREEN_MISSING_HELP: MessageDefinition(
         code="IS720",
         severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
         summary="Complex screen has no inline help",
-        template="complex screen has no help, hint, or note text: {snippet}",
+        template="Add a short hint to explain this complex question: {snippet}",
     ),
     MessageId.STYLE_MISSING_EXIT_CRITERIA_SCREEN: MessageDefinition(
         code="IS721",
@@ -1471,14 +1469,14 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         severity=Severity.WARNING,
         finding_class=FindingClass.STYLE,
         summary="Review screen has no edit links",
-        template="review screen detected but no editable `Edit:` links were found",
+        template="Add `Edit:` links so users can change answers on the review screen.",
     ),
     MessageId.STYLE_REVIEW_SCREEN_MISSING_KEY_CHOICE_EDITS: MessageDefinition(
         code="IS724",
         severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
         summary="Review screen may not edit key decision fields",
-        template="review screen exists but does not appear to allow editing key decision fields: {snippet}",
+        template="Check that users can edit these choices on the review screen: {snippet}",
     ),
     MessageId.STYLE_PREFER_PERSON_OBJECTS: MessageDefinition(
         code="IS725",
@@ -1514,12 +1512,19 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         summary="Conditional or generated input count needs review",
         template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
     ),
+    MessageId.STYLE_VOCABULARY_SUGGESTIONS_HIDDEN: MessageDefinition(
+        code="IS749",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Unconfirmed word suggestions were hidden",
+        template="{hidden_count} unconfirmed word suggestion(s) hidden by precision review; use --style-review-level thorough to see them",
+    ),
     MessageId.STYLE_CONTEXTUAL_VOCABULARY: MessageDefinition(
         code="IS746",
         severity=Severity.INFO,
         finding_class=FindingClass.STYLE,
         summary="Contextual word simplification candidate",
-        template="review {matched_text!r} in {location} for simpler wording if the meaning permits: {replacement}",
+        template="Simplify {matched_text!r} in {location} if the meaning permits: {replacement}.",
     ),
     MessageId.STYLE_PREVIEW_MISSING_CORRECTION_ROUTE: MessageDefinition(
         code="IS742",

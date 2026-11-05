@@ -9,14 +9,22 @@ from dayamlchecker.style import _longest_prose_span
 from dayamlchecker.yaml_structure import RuntimeOptions, find_errors_from_string, main
 
 
-def codes(source: str, *, path: Path | None = None, theme: bool = False) -> set[str]:
+def codes(
+    source: str,
+    *,
+    path: Path | None = None,
+    theme: bool = False,
+    level: str = "precision",
+) -> set[str]:
     return {
         finding.code
         for finding in find_errors_from_string(
             source,
             input_file=str(path) if path else "<string input>",
             runtime_options=RuntimeOptions(
-                style_enabled=True, style_require_custom_theme=theme
+                style_enabled=True,
+                style_require_custom_theme=theme,
+                style_review_level=level,
             ),
         )
     }
@@ -80,7 +88,8 @@ def test_unsafe_plain_language_mappings_are_removed():
     text = "Review the tenant application and find it. It is added because of this condition."
     assert "IS712" not in codes(f"question: {text}\nfield: answer\n")
     assert "IS712" in codes(
-        "question: Commence the interview pursuant to this order.\nfield: answer\n"
+        "question: Commence the interview pursuant to this order.\nfield: answer\n",
+        level="thorough",
     )
 
 
@@ -430,7 +439,9 @@ def test_inflected_and_phrase_entries_suggest_matching_forms(
 ):
     findings = find_errors_from_string(
         f"question: {text}\nfield: answer\n",
-        runtime_options=RuntimeOptions(style_enabled=True),
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_review_level="thorough"
+        ),
     )
     found = {
         finding.context["matched_text"].lower(): finding.context["replacement"]
