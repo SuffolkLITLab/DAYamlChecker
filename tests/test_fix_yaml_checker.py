@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ruamel.yaml import YAML
+
 from dayamlchecker.fixer import (
     FilePlan,
     FixOptions,
@@ -76,6 +78,38 @@ question: Second duplicate
             self.assertIn("datatype: yesnomaybe", result)
             self.assertNotIn("yesnomaybe:", result)
             self.assertEqual(_target_counts(result, path)["EA510"], 0)
+
+    def test_fixer_preserves_shortcut_polarity_and_unknown_choice(self) -> None:
+        # noyes variants invert Yes/No, not just their display order. Losing
+        # that polarity reverses existing conditions that consume the answer.
+        for shortcut, datatype in (
+            ("yesno", "yesnoradio"),
+            ("noyes", "noyesradio"),
+            ("yesnomaybe", "yesnomaybe"),
+            ("noyesmaybe", "noyesmaybe"),
+        ):
+            with self.subTest(shortcut=shortcut):
+                source = (
+                    "id: screening\nquestion: Has the court issued an order?\n"
+                    f"{shortcut}: people[i].no_order  # Keep the answer polarity\n"
+                )
+                result, plan = self._fixed(source)
+                self.assertIsNone(plan.validation_error)
+                self.assertEqual(plan.counts, {"EA510": 1})
+                document = YAML(typ="safe").load(result)
+                self.assertEqual(
+                    document["fields"],
+                    [{"no label": "people[i].no_order", "datatype": datatype}],
+                )
+                self.assertNotIn(shortcut, document)
+                self.assertEqual(document["id"], "screening")
+                self.assertIn("# Keep the answer polarity", result)
+                self.assertEqual(
+                    _target_counts(result, Path("interview.yml"))["EA510"], 0
+                )
+                again, second_plan = self._fixed(result)
+                self.assertEqual(again, result)
+                self.assertFalse(second_plan.changed)
 
     def test_fixer_labels_blank_mapping_key_in_place(self) -> None:
         source = """question: Child support?

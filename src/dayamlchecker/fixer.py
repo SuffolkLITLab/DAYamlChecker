@@ -668,9 +668,14 @@ def fix_yesno_shortcut(
         ):
             continue
 
-        datatype = (
-            "yesnomaybe" if shortcut in {"yesnomaybe", "noyesmaybe"} else "yesnoradio"
-        )
+        # Preserve the inverted boolean values of noyes/noyesmaybe, as well
+        # as the unknown choice of both three-way shortcuts.
+        datatype = {
+            "yesno": "yesnoradio",
+            "noyes": "noyesradio",
+            "yesnomaybe": "yesnomaybe",
+            "noyesmaybe": "noyesmaybe",
+        }[shortcut]
         original_line = lines[key_location[0]].rstrip("\r\n")
         colon = original_line.find(":", key_location[1])
         _, comment = _split_inline_comment(original_line, colon + 1)
