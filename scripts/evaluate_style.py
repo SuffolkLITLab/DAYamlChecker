@@ -41,6 +41,8 @@ def main():
             findings = list(errors) + find_style_findings(
                 docs=docs, input_file=str(path), options=options
             )
+            # The hidden-suggestion notice is a summary, not a candidate finding.
+            findings = [f for f in findings if f.code != "IS749"]
             for doc in docs:
                 findings += find_accessibility_findings(
                     doc=doc.doc,

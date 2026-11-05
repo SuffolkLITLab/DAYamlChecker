@@ -494,7 +494,9 @@ same problem are two findings rather than one.
 field-count advisories and unconfirmed, context-sensitive vocabulary suggestions.
 For example, generated `users[0].name_fields()` is not itself evidence of an
 unclear screen. Use `--style-review-level thorough` to include those candidates
-for editorial review. Neither mode turns off concrete structural errors.
+for editorial review. Neither mode turns off concrete structural errors. When word
+suggestions are hidden, precision mode reports one informational IS749 finding per
+file with the hidden count.
 
 Choice labels such as Yes, No, and Other are evaluated with their question or
 field label. A dedicated Continue button is normal navigation. Blank and

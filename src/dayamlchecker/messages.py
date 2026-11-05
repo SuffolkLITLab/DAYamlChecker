@@ -246,6 +246,7 @@ class MessageId(StrEnum):
     STYLE_PLACEHOLDER_LANGUAGE = "style_placeholder_language"
     STYLE_PLAIN_LANGUAGE_REPLACEMENT = "style_plain_language_replacement"
     STYLE_CONTEXTUAL_VOCABULARY = "style_contextual_vocabulary"
+    STYLE_VOCABULARY_SUGGESTIONS_HIDDEN = "style_vocabulary_suggestions_hidden"
     STYLE_VARIABLE_ROOT_NOT_SNAKE_CASE = "style_variable_root_not_snake_case"
     STYLE_LONG_SENTENCE = "style_long_sentence"
     STYLE_COMPOUND_QUESTION = "style_compound_question"
@@ -1510,6 +1511,13 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.STYLE,
         summary="Conditional or generated input count needs review",
         template="screen has {field_count} known logical inputs and a possible count of {possible_count}; inspect conditional/generated fields before deciding whether to split the screen",
+    ),
+    MessageId.STYLE_VOCABULARY_SUGGESTIONS_HIDDEN: MessageDefinition(
+        code="IS749",
+        severity=Severity.INFO,
+        finding_class=FindingClass.STYLE,
+        summary="Unconfirmed word suggestions were hidden",
+        template="{hidden_count} unconfirmed word suggestion(s) hidden by precision review; use --style-review-level thorough to see them",
     ),
     MessageId.STYLE_CONTEXTUAL_VOCABULARY: MessageDefinition(
         code="IS746",

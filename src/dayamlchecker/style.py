@@ -411,6 +411,7 @@ def _finish_style_findings(
 ) -> list[Finding]:
     """Keep speculative advice opt-in; find_errors attaches repair context."""
     result = []
+    hidden_vocabulary = []
     for finding in _dedupe_findings(findings):
         context = dict(finding.context)
         if options.review_level == "precision":
@@ -420,6 +421,7 @@ def _finish_style_findings(
                 context.get("vocabulary_triage_candidate")
                 and context.get("vocabulary_triage_status") != "confirmed"
             ):
+                hidden_vocabulary.append(finding)
                 continue
             if finding.message_id == MessageId.STYLE_LLM_REQUEST_FAILED:
                 context["detail"] = str(context.get("detail", "")).replace(
@@ -427,6 +429,15 @@ def _finish_style_findings(
                     "unconfirmed candidates available in thorough mode",
                 )
         result.append(replace(finding, context=context))
+    if hidden_vocabulary:
+        result.append(
+            make_finding(
+                MessageId.STYLE_VOCABULARY_SUGGESTIONS_HIDDEN,
+                file_name=hidden_vocabulary[0].file_name,
+                line_number=hidden_vocabulary[0].line_number,
+                hidden_count=len(hidden_vocabulary),
+            )
+        )
     return result
 
 

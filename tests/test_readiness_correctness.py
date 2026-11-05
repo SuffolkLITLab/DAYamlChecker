@@ -6,7 +6,8 @@ import pytest
 
 from dayamlchecker import readiness_ai_review as ai
 from dayamlchecker import readiness_research as research
-from dayamlchecker import style
+from dayamlchecker import RuntimeOptions, find_style_findings_from_string, style
+from dayamlchecker.messages import Severity
 from dayamlchecker.readiness import publication_readiness
 from dayamlchecker.readiness_review import review_view
 from dayamlchecker.readiness_scope import local_scope, template_exposure
@@ -275,3 +276,39 @@ def test_readiness_options_are_not_silently_ignored(args, capsys):
         main(["example.yml", *args])
     assert exc.value.code == 2
     assert "require --readiness" in capsys.readouterr().err
+
+
+def test_precision_reports_how_many_word_suggestions_it_hid():
+    source = "id: start\nquestion: Please utilize the form\nfield: answer\n"
+    options = RuntimeOptions(style_enabled=True)
+    findings = find_style_findings_from_string(source, runtime_options=options)
+    notices = [f for f in findings if f.code == "IS749"]
+    assert len(notices) == 1
+    assert notices[0].severity == Severity.INFO
+    assert notices[0].context["hidden_count"] >= 2
+    assert "--style-review-level thorough" in notices[0].message
+    thorough = find_style_findings_from_string(
+        source,
+        runtime_options=RuntimeOptions(
+            style_enabled=True, style_review_level="thorough"
+        ),
+    )
+    assert not [f for f in thorough if f.code == "IS749"]
+
+
+def test_hidden_word_suggestion_notice_is_cleanup_in_readiness(tmp_path):
+    write(
+        tmp_path,
+        "main.yml",
+        f"{TITLE}id: a\nquestion: Please utilize the form\nfield: answer\n",
+    )
+    report = publication_readiness(tmp_path)
+    notice = [
+        index for index, f in enumerate(report["findings"]) if f["code"] == "IS749"
+    ]
+    assert len(notice) == 1 and not report["findings"][notice[0]]["release_gate"]
+    assert notice[0] not in [
+        index
+        for item in report["review"]["actionable"]
+        for index in item.get("finding_indexes", [])
+    ]
