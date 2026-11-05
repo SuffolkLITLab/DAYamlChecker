@@ -409,7 +409,7 @@ def _finish_style_findings(
     docs: list[ParsedInterviewDocument],
     options: StyleLintOptions,
 ) -> list[Finding]:
-    """Keep speculative advice opt-in and attach source context for repair clients."""
+    """Keep speculative advice opt-in; find_errors attaches repair context."""
     result = []
     for finding in _dedupe_findings(findings):
         context = dict(finding.context)
@@ -421,16 +421,13 @@ def _finish_style_findings(
                 and context.get("vocabulary_triage_status") != "confirmed"
             ):
                 continue
-        if (
-            options.review_level == "precision"
-            and finding.message_id == MessageId.STYLE_LLM_REQUEST_FAILED
-        ):
-            context["detail"] = str(context.get("detail", "")).replace(
-                "candidates retained",
-                "unconfirmed candidates available in thorough mode",
-            )
+            if finding.message_id == MessageId.STYLE_LLM_REQUEST_FAILED:
+                context["detail"] = str(context.get("detail", "")).replace(
+                    "candidates retained",
+                    "unconfirmed candidates available in thorough mode",
+                )
         result.append(replace(finding, context=context))
-    return attach_repair_context(result, docs)
+    return result
 
 
 def attach_repair_context(
@@ -1586,20 +1583,21 @@ def _check_missing_help_on_complex_screens(
     return findings
 
 
+def _doc_key_text(parsed_doc: ParsedInterviewDocument, keys: tuple[str, ...]) -> str:
+    return (
+        " ".join(_stringify(parsed_doc.doc.get(key)) for key in keys)
+        .lower()
+        .replace("_", " ")
+    )
+
+
 def _check_exit_criteria_and_screen(
     docs: list[ParsedInterviewDocument],
 ) -> list[FindingDraft]:
     metadata = _find_metadata(docs)
     screening_signal = bool(_stringify(metadata.get("can_I_use_this_form")).strip())
     for parsed_doc in docs:
-        combined = (
-            " ".join(
-                _stringify(parsed_doc.doc.get(key))
-                for key in ("question", "subquestion", "id", "event")
-            )
-            .lower()
-            .replace("_", " ")
-        )
+        combined = _doc_key_text(parsed_doc, ("question", "subquestion", "id", "event"))
         if any(
             marker in combined
             for marker in (
@@ -1615,13 +1613,8 @@ def _check_exit_criteria_and_screen(
     if not screening_signal:
         return []
     for parsed_doc in docs:
-        combined = (
-            " ".join(
-                _stringify(parsed_doc.doc.get(key))
-                for key in ("question", "subquestion", "under", "id", "event")
-            )
-            .lower()
-            .replace("_", " ")
+        combined = _doc_key_text(
+            parsed_doc, ("question", "subquestion", "under", "id", "event")
         )
         if any(
             marker in combined
@@ -1641,12 +1634,7 @@ def _check_exit_criteria_and_screen(
             )
         ):
             return []
-        exit_identifier = (
-            " ".join(_stringify(parsed_doc.doc.get(key)) for key in ("id", "event"))
-            .lower()
-            .replace("_", " ")
-        )
-        if re.search(r"\bineligible\b", exit_identifier):
+        if re.search(r"\bineligible\b", _doc_key_text(parsed_doc, ("id", "event"))):
             return []
         if re.search(
             r"\b(?:eligib|qualif|can i use|right form|screening)", combined
@@ -2109,6 +2097,12 @@ def _triage_vocabulary_candidates(
     ] + errors
 
 
+def _uncertain_decision(decision: dict[str, Any], reason: str) -> dict[str, Any]:
+    downgraded = {**decision, "decision": "uncertain", "reason": reason}
+    downgraded.pop("replacement", None)
+    return downgraded
+
+
 def _validated_vocabulary_decisions(
     raw: Any, candidates: list[dict[str, Any]]
 ) -> dict[str, dict[str, Any]] | None:
@@ -2187,23 +2181,19 @@ def _validated_vocabulary_decisions(
                 and not re.search(r"\ba or b(?: or both)?\b", replacement, re.I)
             )
             if not valid_patch:
-                decision = {
-                    **decision,
-                    "decision": "uncertain",
-                    "reason": "Check the full sentence: the proposed word replacement was not validated.",
-                }
-                decision.pop("replacement", None)
+                decision = _uncertain_decision(
+                    decision,
+                    "Check the full sentence: the proposed word replacement was not validated.",
+                )
         # A phrase replacement must fit where the matched phrase occurred.
         # Whole-screen rewrites do not belong in a word-substitution finding.
         if replacement and len(_WORD_RE.findall(replacement)) > max(
             12, 3 * len(_WORD_RE.findall(candidate["term"]))
         ):
-            decision = {
-                **decision,
-                "decision": "uncertain",
-                "reason": "The suggested replacement rewrites more than the matched phrase.",
-            }
-            decision.pop("replacement", None)
+            decision = _uncertain_decision(
+                decision,
+                "The suggested replacement rewrites more than the matched phrase.",
+            )
         decisions[identity] = decision
     return decisions if decisions.keys() == expected.keys() else None
 
@@ -2314,16 +2304,14 @@ def _build_llm_finding(
     if not entries:
         return None
     line_number = entries[0].line_number
-    rendered_message = message
-    if problematic_text:
-        rendered_message = f'{message} Quote: "{_shorten(problematic_text, limit=220)}"'
+    quote = _shorten(problematic_text, limit=220)
     return make_finding(
         message_id,
         file_name=input_file,
         line_number=line_number,
-        message=rendered_message,
+        message=f'{message} Quote: "{quote}"',
         screen_id=screen_id,
-        snippet=_shorten(problematic_text, limit=220) if problematic_text else "",
+        snippet=quote,
     )
 
 

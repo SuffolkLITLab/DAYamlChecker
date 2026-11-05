@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import re
 
 
@@ -15,6 +14,41 @@ def _walk(value):
     elif isinstance(value, list):
         for child in value:
             yield from _walk(child)
+
+
+def question_files(root):
+    return sorted(
+        set(root.glob("docassemble/*/data/questions/**/*.yml"))
+        | set(root.glob("docassemble/*/data/questions/**/*.yaml"))
+    )
+
+
+def template_path(question_file, ref):
+    """Locate a literal template reference in the package that owns a question file."""
+    package = next(p.parent for p in question_file.parents if p.name == "questions")
+    return package / "templates" / ref
+
+
+def doc_assignments(doc):
+    """Return (name, expression) pairs and whether the block's code could be parsed."""
+    expressions = []
+    objects = doc.doc.get("objects", [])
+    for obj in objects if isinstance(objects, list) else []:
+        if isinstance(obj, dict):
+            expressions.extend(
+                (name, value) for name, value in obj.items() if isinstance(value, str)
+            )
+    code = doc.doc.get("code")
+    if isinstance(code, str):
+        try:
+            expressions.extend(
+                (ast.unparse(n.targets[0]), ast.unparse(n.value))
+                for n in ast.walk(ast.parse(code))
+                if isinstance(n, ast.Assign) and len(n.targets) == 1
+            )
+        except SyntaxError:
+            return expressions, False
+    return expressions, True
 
 
 def local_scope(root, parsed, entrypoint_files=()):
@@ -64,7 +98,7 @@ def local_scope(root, parsed, entrypoint_files=()):
             )
         ]
         roots = roots or [p for p in paths if p not in included] or list(paths)
-    entrypoints, active = [], set()
+    entrypoints, closures, active = [], [], set()
     for entry in roots:
         closure, pending = set(), [entry]
         while pending:
@@ -74,6 +108,7 @@ def local_scope(root, parsed, entrypoint_files=()):
             closure.add(p)
             pending.extend(edges[p])
         active.update(closure)
+        closures.append(closure)
         entrypoints.append(
             {
                 "file": str(entry.relative_to(root)),
@@ -86,33 +121,15 @@ def local_scope(root, parsed, entrypoint_files=()):
     # Keep a separate bundle graph for each entrypoint. Reused variable names in
     # unrelated interviews must not make their documents appear delivered here.
     template_states = {}
-    for entry in entrypoints:
-        docs = [
-            d
-            for p in active
-            if str(p.relative_to(root)) in entry["local_files"]
-            for d in paths[p]
-        ]
+    for entry, closure in zip(entrypoints, closures):
+        docs = [(p, d) for p in closure for d in paths[p]]
         bundles, attachments, uncertain = {}, [], False
-        source = "\n".join(d.source_code for d in docs)
-        for doc in docs:
-            expressions = []
-            objects = doc.doc.get("objects", [])
-            for obj in objects if isinstance(objects, list) else []:
-                if isinstance(obj, dict):
-                    expressions.extend(obj.items())
-            code = doc.doc.get("code")
-            if isinstance(code, str):
-                try:
-                    expressions.extend(
-                        (ast.unparse(n.targets[0]), ast.unparse(n.value))
-                        for n in ast.walk(ast.parse(code))
-                        if isinstance(n, ast.Assign) and len(n.targets) == 1
-                    )
-                except SyntaxError:
-                    uncertain = True
+        source = "\n".join(d.source_code for _, d in docs)
+        for path, doc in docs:
+            expressions, code_parsed = doc_assignments(doc)
+            uncertain = uncertain or not code_parsed
             for name, value in expressions:
-                if not isinstance(value, str) or "ALDocumentBundle.using" not in value:
+                if "ALDocumentBundle.using" not in value:
                     continue
                 try:
                     call = ast.parse(value, mode="eval").body
@@ -141,23 +158,9 @@ def local_scope(root, parsed, entrypoint_files=()):
                     if not isinstance(var, str) or not var:
                         uncertain = True
                     name = re.split(r"[.\[]", var)[0] if isinstance(var, str) else ""
-                    # Package directory comes from the declaring document below.
-                    for p in paths:
-                        if doc in paths[p]:
-                            target = (
-                                next(
-                                    parent.parent
-                                    for parent in p.parents
-                                    if parent.name == "questions"
-                                )
-                                / "templates"
-                                / ref
-                            )
-                            if target.resolve().is_relative_to(root):
-                                attachments.append(
-                                    (str(target.resolve().relative_to(root)), name)
-                                )
-                            break
+                    target = template_path(path, ref).resolve()
+                    if target.is_relative_to(root):
+                        attachments.append((str(target.relative_to(root)), name))
         used = set(
             re.findall(
                 r"\b([A-Za-z_]\w*)\.(?:download_list_html|send_button_html|as_pdf|as_docx)\s*\(",

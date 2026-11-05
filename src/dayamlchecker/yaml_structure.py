@@ -3148,6 +3148,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     from dayamlchecker.readiness import (
         add_readiness_arguments,
         readiness_options_from_args,
+        run_cli,
     )
 
     add_research_arguments(parser)
@@ -3180,8 +3181,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             parser.error(
                 "Use --readiness-format json or markdown instead of --format with --readiness"
             )
-        from dayamlchecker.readiness import run_cli
-
         return run_cli(
             args.files[0] if args.files else Path.cwd(),
             args.readiness_evidence,

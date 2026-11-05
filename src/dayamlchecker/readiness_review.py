@@ -1,6 +1,7 @@
 """Prioritized, lossless review view, separate from certification/coverage state."""
 
 from pathlib import Path
+from dayamlchecker.readiness_report import REVIEW_NAMES
 from dayamlchecker.readiness_scope import template_exposure
 
 # These rules alone establish a convention, not a harmful user outcome.
@@ -102,12 +103,7 @@ def review_view(report, scope):
         else:
             actionable.append(item)
     for c in report["checks"]:
-        if c["id"] in {
-            "legal_review",
-            "plain_language_review",
-            "interview_flow_review",
-            "publication_review",
-        }:
+        if c["id"] in REVIEW_NAMES:
             if c["status"] != "pass":
                 process.append(c)
         elif c["id"] in {"instructions_research", "github_publication"}:

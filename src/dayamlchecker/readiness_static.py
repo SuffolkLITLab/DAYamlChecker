@@ -16,23 +16,30 @@ from dayamlchecker.docx_accessibility import (
     check_docx_accessibility,
     check_docx_review_markup,
 )
-from dayamlchecker.style import (
-    ParsedInterviewDocument,
-    _include_evidence,
-    _is_review_screen,
+from dayamlchecker.readiness_scope import (
+    doc_assignments,
+    template_exposure,
+    template_path,
 )
+from dayamlchecker.style import ParsedInterviewDocument, _is_review_screen
 
 
-def check_result(id: str, status: str, detail: str, **extra: Any) -> dict[str, Any]:
+def check_policy(status: str) -> dict[str, Any]:
     return {
-        "id": id,
-        "status": status,
         "severity": {
             "blocked": "error",
             "needs_review": "warning",
             "warning": "warning",
         }.get(status, "info"),
         "release_gate": status in {"blocked", "needs_review"},
+    }
+
+
+def check_result(id: str, status: str, detail: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "id": id,
+        "status": status,
+        **check_policy(status),
         "detail": detail,
         **extra,
     }
@@ -58,8 +65,8 @@ def static_checks(
     root: Path,
     parsed: dict[Path, list[ParsedInterviewDocument]],
     *,
+    scope: dict,
     long_interview_screens: int = 10,
-    scope: dict | None = None,
 ) -> list[dict]:
     checks = []
     filenames = [
@@ -116,11 +123,7 @@ def static_checks(
         )
     )
 
-    from dayamlchecker.readiness_scope import local_scope
-
-    scope = scope or local_scope(root, parsed)
     for entry in scope["entrypoints"]:
-        path = root / entry["file"]
         docs = [
             d
             for p, ds in parsed.items()
@@ -170,7 +173,7 @@ def static_checks(
                 "answer_review",
                 status,
                 "Missing review is a strong warning for short interviews and a release gate for long ones. Counts cover local declared input screens, not library questions or an executed path. Unresolved includes may provide review.",
-                file=str(path.relative_to(root)),
+                file=entry["file"],
                 estimated_input_screens=len(screens),
                 long_interview_threshold=long_interview_screens,
                 review_detected=review,
@@ -283,27 +286,7 @@ def static_checks(
     bundles = []
     for path, docs in parsed.items():
         for doc in docs:
-            expressions: list[tuple[str, str]] = []
-            objects = doc.doc.get("objects", [])
-            if isinstance(objects, list):
-                for obj in objects:
-                    if isinstance(obj, dict):
-                        expressions.extend(
-                            (name, value)
-                            for name, value in obj.items()
-                            if isinstance(value, str)
-                        )
-            code = doc.doc.get("code")
-            if isinstance(code, str):
-                try:
-                    tree = ast.parse(code)
-                    expressions.extend(
-                        (ast.unparse(node.targets[0]), ast.unparse(node.value))
-                        for node in ast.walk(tree)
-                        if isinstance(node, ast.Assign) and len(node.targets) == 1
-                    )
-                except SyntaxError:
-                    pass
+            expressions, _ = doc_assignments(doc)
             for name, value in expressions:
                 try:
                     expression = ast.parse(value, mode="eval").body
@@ -365,15 +348,7 @@ def static_checks(
                                     "detail": "Dynamic or external template reference was not resolved.",
                                 }
                             )
-                        elif not (
-                            next(
-                                parent.parent
-                                for parent in path.parents
-                                if parent.name == "questions"
-                            )
-                            / "templates"
-                            / ref
-                        ).is_file():
+                        elif not template_path(path, ref).is_file():
                             delivery_errors.append(
                                 {
                                     "file": str(path.relative_to(root)),
@@ -389,16 +364,9 @@ def static_checks(
     for path, docs in parsed.items():
         for doc in docs:
             visit(doc.doc, path)
-    from dayamlchecker.readiness_scope import template_exposure
-
     active_errors = []
     for error in delivery_errors:
-        source = root / error["file"]
-        target = (
-            next(p.parent for p in source.parents if p.name == "questions")
-            / "templates"
-            / error["reference"]
-        )
+        target = template_path(root / error["file"], error["reference"])
         relative = (
             str(target.resolve().relative_to(root.resolve()))
             if target.resolve().is_relative_to(root.resolve())

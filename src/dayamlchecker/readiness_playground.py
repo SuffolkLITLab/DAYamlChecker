@@ -134,7 +134,6 @@ class PlaygroundReader:
                     or "\\" in name
                     or ":" in name
                     or not name
-                    or name.startswith(".")
                 ):
                     raise PlaygroundError("Unsafe path in Playground file listing.")
                 package = root / "docassemble" / "PlaygroundSnapshot"
@@ -161,6 +160,16 @@ class PlaygroundReader:
                     }
                 )
         return manifest
+
+
+def _relocate(value, old, new):
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [_relocate(v, old, new) for v in value]
+    if isinstance(value, dict):
+        return {k: _relocate(v, old, new) for k, v in value.items()}
+    return value
 
 
 def scan_playgrounds(
@@ -204,19 +213,13 @@ def scan_playgrounds(
                     style_options=style_options,
                     **({"ai_review": ai_review} if ai_review is not None else {}),
                 )
-
                 # Snapshot paths are temporary. Preserve original project/file identity.
-                def relocate(value):
-                    if isinstance(value, str):
-                        return value.replace(str(root), "playground:" + project)
-                    if isinstance(value, list):
-                        return [relocate(v) for v in value]
-                    if isinstance(value, dict):
-                        return {k: relocate(v) for k, v in value.items()}
-                    return value
-
                 reports.append(
-                    {"project": project, "files": manifest, "report": relocate(report)}
+                    {
+                        "project": project,
+                        "files": manifest,
+                        "report": _relocate(report, str(root), "playground:" + project),
+                    }
                 )
         except (PlaygroundError, OSError, UnicodeError) as exc:
             reports.append(

@@ -17,6 +17,13 @@ import requests
 from docx2python import docx2python
 from pypdf import PdfReader
 
+from dayamlchecker.readiness_scope import local_scope, question_files
+from dayamlchecker.style import (
+    _DEFAULT_OPENAI_BASE_URL,
+    _OPENAI_API_KEY_ENV,
+    _OPENAI_BASE_URL_ENV,
+)
+
 DEFAULT_MODEL = "gpt-6.1-terra"
 MAX_INPUT_CHARS = 120_000
 MAX_DOCUMENT_CHARS = 24_000
@@ -197,6 +204,40 @@ def _url(value: Any) -> str:
         return ""
 
 
+def resolve_api_key(api_key: str | None) -> str:
+    return api_key or os.getenv(_OPENAI_API_KEY_ENV) or ""
+
+
+def post_responses(
+    base_url: str | None, api_key: str, body: dict[str, Any], timeout: int
+) -> requests.Response:
+    """POST to the Responses API; --openai-base-url may name the chat endpoint."""
+    base = (
+        (base_url or os.getenv(_OPENAI_BASE_URL_ENV) or _DEFAULT_OPENAI_BASE_URL)
+        .rstrip("/")
+        .removesuffix("/chat/completions")
+    )
+    return requests.post(
+        base if base.endswith("/responses") else base + "/responses",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=body,
+        timeout=(10, timeout),
+    )
+
+
+def response_output_text(payload: dict[str, Any]) -> str:
+    return "".join(
+        part.get("text", "")
+        for item in payload.get("output", [])
+        if item.get("type") == "message"
+        for part in item.get("content", [])
+        if part.get("type") == "output_text"
+    )
+
+
 def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
     """Extract question/template text without executing templates or reading .env files."""
     from dayamlchecker.yaml_structure import parse_interview_documents
@@ -206,12 +247,15 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
     gaps: list[str] = []
     parsed_local = {}
     seeds = {url: "explicit" for raw in options.source_urls if (url := _url(raw))}
+
+    def add_seeds(text: str, origin: str) -> None:
+        for url in URL_RE.findall(text):
+            if normalized := _url(url.rstrip(".,;")):
+                seeds.setdefault(normalized, origin)
+
     remaining = MAX_INPUT_CHARS
     metadata_remaining = 20_000
-    paths = sorted(
-        set(root.glob("docassemble/*/data/questions/**/*.yml"))
-        | set(root.glob("docassemble/*/data/questions/**/*.yaml"))
-    )
+    paths = question_files(root)
     # Include all templates: filenames alone cannot reliably identify instructions.
     paths += sorted(
         p for p in root.glob("docassemble/*/data/templates/**/*") if p.is_file()
@@ -253,9 +297,7 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
                             metadata_remaining -= len(meta_text)
                         else:
                             gaps.append(f"Metadata budget omitted: {relative}")
-                        for url in URL_RE.findall(meta_text):
-                            if normalized := _url(url.rstrip(".,;")):
-                                seeds.setdefault(normalized, "metadata")
+                        add_seeds(meta_text, "metadata")
                     if doc.doc.get("include"):
                         gaps.append(
                             f"Runtime includes are not expanded: {relative} block {doc.index}"
@@ -263,9 +305,7 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
             if not text.strip():
                 gaps.append(f"No extractable text (may require OCR): {relative}")
                 continue
-            for url in URL_RE.findall(text):
-                if normalized := _url(url.rstrip(".,;")):
-                    seeds.setdefault(normalized, "interview_or_template")
+            add_seeds(text, "interview_or_template")
             limit = min(MAX_DOCUMENT_CHARS, remaining)
             if limit <= 0:
                 gaps.append(f"Input budget omitted: {relative}")
@@ -301,8 +341,6 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
             pair[1]
         ],
     )[:100]
-    from dayamlchecker.readiness_scope import local_scope
-
     scope = local_scope(root, parsed_local, options.entrypoint_files)
     return {
         "local_scope": scope,
@@ -451,6 +489,10 @@ def _web_evidence(response: dict[str, Any]) -> tuple[list[dict], list[dict]]:
     return list(sources.values()), actions
 
 
+def _grounded(quote: Any, doc: dict[str, Any]) -> bool:
+    return isinstance(quote, str) and len(quote.strip()) >= 8 and quote in doc["text"]
+
+
 def _validate_report(
     result: dict,
     material: dict,
@@ -487,9 +529,7 @@ def _validate_report(
         quote = item.get("local_quote")
         if (
             not doc
-            or not isinstance(quote, str)
-            or len(quote.strip()) < 8
-            or quote not in doc["text"]
+            or not _grounded(quote, doc)
             or not citations(item)
             or item.get("confidence") != "high"
             or not isinstance(item.get("concern"), str)
@@ -498,11 +538,7 @@ def _validate_report(
             reasons = []
             if not doc:
                 reasons.append("unknown document")
-            elif (
-                not isinstance(quote, str)
-                or len(quote.strip()) < 8
-                or quote not in doc["text"]
-            ):
+            elif not _grounded(quote, doc):
                 reasons.append("local quote not found verbatim")
             if not citations(item):
                 reasons.append("citation not present in provider sources")
@@ -586,9 +622,7 @@ def _validate_report(
                 quote = item.get("local_quote")
                 if (
                     not doc
-                    or not isinstance(quote, str)
-                    or len(quote.strip()) < 8
-                    or quote not in doc["text"]
+                    or not _grounded(quote, doc)
                     or not isinstance(item.get("reason"), str)
                     or not isinstance(item.get("research_question"), str)
                 ):
@@ -638,7 +672,7 @@ def research_readiness(root: Path, options: ResearchOptions) -> dict[str, Any]:
         },
         "evidence_validation": "Local quotes and URL provenance checked; external interpretations require human review.",
     }
-    key = options.api_key or os.getenv("OPENAI_API_KEY", "")
+    key = resolve_api_key(options.api_key)
     if not key:
         return {
             **report,
@@ -646,20 +680,11 @@ def research_readiness(root: Path, options: ResearchOptions) -> dict[str, Any]:
         }
     if not material["documents"]:
         return {**report, "error": "No reviewable local material."}
-    base = (
-        options.base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-    ).rstrip("/")
-    if base.endswith("/chat/completions"):
-        base = base.removesuffix("/chat/completions")
-    endpoint = base if base.endswith("/responses") else base + "/responses"
     try:
-        response = requests.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
+        response = post_responses(
+            options.base_url,
+            key,
+            {
                 "model": options.model,
                 "instructions": INSTRUCTIONS
                 + (
@@ -679,7 +704,7 @@ def research_readiness(root: Path, options: ResearchOptions) -> dict[str, Any]:
                 "store": False,
                 "text": {"format": response_format(options.strict_unverified)},
             },
-            timeout=(10, options.timeout),
+            options.timeout,
         )
         if not response.ok:
             return {
@@ -694,13 +719,7 @@ def research_readiness(root: Path, options: ResearchOptions) -> dict[str, Any]:
                 **report,
                 "error": "Provider did not complete research (budget, timeout, refusal, or interruption).",
             }
-        text = "".join(
-            part.get("text", "")
-            for item in payload.get("output", [])
-            if item.get("type") == "message"
-            for part in item.get("content", [])
-            if part.get("type") == "output_text"
-        )
+        text = response_output_text(payload)
         # Accommodate a JSON code fence, but never scrape a partial object from prose.
         if text.strip().startswith("```json") and text.strip().endswith("```"):
             text = text.strip()[7:-3].strip()

@@ -97,7 +97,6 @@ def github_publication(
             archived_or_disabled=archived,
             private=info.get("private"),
             naming_advisories=issues,
-            naming_severity="warning" if issues else "info",
         )
     except (requests.RequestException, ValueError, KeyError, TypeError):
         return check_result(

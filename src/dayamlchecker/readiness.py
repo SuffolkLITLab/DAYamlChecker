@@ -11,13 +11,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dayamlchecker.readiness_report import markdown_report
 from dayamlchecker.readiness_research import (
+    DEFAULT_MODEL,
     ResearchOptions,
     add_research_arguments,
     options_from_args,
     research_readiness,
 )
-from dayamlchecker.readiness_static import static_checks, check_result
+from dayamlchecker.readiness_review import review_view
+from dayamlchecker.readiness_scope import local_scope, question_files
+from dayamlchecker.readiness_static import check_policy, check_result, static_checks
+from dayamlchecker.style import _find_metadata
 from dayamlchecker.readiness_github import github_publication
 from dayamlchecker.readiness_playground import (
     PlaygroundOptions,
@@ -41,6 +46,7 @@ CHECKLIST_URL = (
     "https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/"
 )
 MATURITY_URL = "https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/"
+EXIT_CODES = {"pass": 0, "blocked": 1, "needs_review": 2}
 # These are project evidence requirements, not an official Court Forms Online policy.
 REVIEWS = {
     "legal_review": (
@@ -69,7 +75,7 @@ def add_readiness_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Opt in to one paid AI second opinion on candidate findings; preserves raw results.",
     )
-    group.add_argument("--readiness-review-model", default="gpt-6.1-terra")
+    group.add_argument("--readiness-review-model", default=DEFAULT_MODEL)
     group.add_argument("--readiness-review-timeout", type=int, default=180)
     group.add_argument("--readiness-review-max-candidates", type=int, default=40)
     group.add_argument(
@@ -225,10 +231,7 @@ def publication_readiness(
         )
     root = root.resolve()
     evidence = evidence or {}
-    files = sorted(
-        set(root.glob("docassemble/*/data/questions/**/*.yml"))
-        | set(root.glob("docassemble/*/data/questions/**/*.yaml"))
-    )
+    files = question_files(root)
     # Bind human reviews to the package contents, including templates and tests.
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
@@ -260,10 +263,7 @@ def publication_readiness(
                 runtime_options=style_options,
             )
         )
-        metadata = {}
-        for doc in docs:
-            if isinstance(doc.doc.get("metadata"), dict):
-                metadata.update(doc.doc["metadata"])
+        metadata = _find_metadata(docs)
         if metadata.get("title"):
             entrypoints.append(str(path.relative_to(root)))
             missing = [
@@ -290,13 +290,10 @@ def publication_readiness(
                     "source": CHECKLIST_URL,
                 }
             )
-    from dayamlchecker.readiness_scope import local_scope
-    from dayamlchecker.readiness_review import review_view
-
     scope = local_scope(root, parsed, entrypoint_files)
     active = {str(root / p) for p in scope["active_local_files"]}
     # Unselected source remains in raw findings but cannot block selected publication.
-    checks = [c for c in checks if not c.get("file") or str(root / c["file"]) in active]
+    checks = [c for c in checks if str(root / c["file"]) in active]
     # Style/translatability conventions are not automatically publication blockers.
     uncertain_guards = [f for f in findings if _has_local_default(f, parsed)]
     errors = [
@@ -407,12 +404,11 @@ def publication_readiness(
                 "release_gate": True,
             }
         )
-    research_report = (
-        research_readiness(root, replace(research, entrypoint_files=entrypoint_files))
-        if research is not None
-        else None
-    )
-    if research_report is not None:
+    research_report = None
+    if research is not None:
+        research_report = research_readiness(
+            root, replace(research, entrypoint_files=entrypoint_files)
+        )
         checks.append(
             {
                 "id": "instructions_research",
@@ -422,19 +418,8 @@ def publication_readiness(
             }
         )
     for check in checks:
-        check.setdefault(
-            "severity",
-            (
-                "error"
-                if check["status"] == "blocked"
-                else (
-                    "warning"
-                    if check["status"] in {"warning", "needs_review"}
-                    else "info"
-                )
-            ),
-        )
-        check.setdefault("release_gate", check["status"] in {"blocked", "needs_review"})
+        for key, value in check_policy(check["status"]).items():
+            check.setdefault(key, value)
     status = (
         "blocked"
         if any(c["status"] == "blocked" for c in checks)
@@ -444,6 +429,32 @@ def publication_readiness(
             else "pass"
         )
     )
+
+    def finding_record(f):
+        release_gate = f in errors or f in design_errors
+        severity = (
+            "error"
+            if release_gate
+            else "warning" if f.severity == Severity.ERROR else str(f.severity)
+        )
+        uncertain_guard = f in uncertain_guards
+        return dict(
+            asdict(f),
+            code=f.code,
+            severity=severity,
+            checker_severity=str(f.severity),
+            message=(
+                f"Check the default and display conditions for {f.context.get('field_name')!r}. This block assigns the field, so the guard check does not prove the interview will get stuck."
+                if uncertain_guard
+                else f.message
+            ),
+            readiness_evidence=(
+                "default_assignment_needs_review" if uncertain_guard else "static_rule"
+            ),
+            release_gate=release_gate,
+            readiness_severity=severity,
+        )
+
     result = {
         "schema_version": 3,
         "policy": {
@@ -459,35 +470,7 @@ def publication_readiness(
         "scope": "Local publication pre-flight, not Court Forms Online acceptance or maturity certification",
         "maturity": {"assessed_level": None, "reference": MATURITY_URL},
         "checks": checks,
-        "findings": [
-            dict(
-                asdict(f),
-                code=f.code,
-                severity=(
-                    "error"
-                    if f in errors or f in design_errors
-                    else "warning" if f.severity == Severity.ERROR else str(f.severity)
-                ),
-                checker_severity=str(f.severity),
-                message=(
-                    f"Check the default and display conditions for {f.context.get('field_name')!r}. This block assigns the field, so the guard check does not prove the interview will get stuck."
-                    if f in uncertain_guards
-                    else f.message
-                ),
-                readiness_evidence=(
-                    "default_assignment_needs_review"
-                    if f in uncertain_guards
-                    else "static_rule"
-                ),
-                release_gate=f in errors or f in design_errors,
-                readiness_severity=(
-                    "error"
-                    if f in errors or f in design_errors
-                    else "warning" if f.severity == Severity.ERROR else str(f.severity)
-                ),
-            )
-            for f in findings
-        ],
+        "findings": [finding_record(f) for f in findings],
     }
 
     result["local_scope"] = scope
@@ -500,8 +483,6 @@ def publication_readiness(
 
 def _print_report(result, report_format):
     if report_format == "markdown":
-        from dayamlchecker.readiness_report import markdown_report
-
         print(markdown_report(result), end="")
     else:
         print(json.dumps(result, indent=2, default=str))
@@ -552,7 +533,7 @@ def run_cli(
             )
             return 2
         _print_report(result, report_format)
-        return {"pass": 0, "blocked": 1, "needs_review": 2}[result["status"]]
+        return EXIT_CODES[result["status"]]
     if not root.is_dir():
         parser.error("readiness requires an existing repository directory")
     try:
@@ -584,7 +565,7 @@ def run_cli(
     except ValueError as exc:
         parser.error(str(exc))
     _print_report(result, report_format)
-    return {"pass": 0, "blocked": 1, "needs_review": 2}[result["status"]]
+    return EXIT_CODES[result["status"]]
 
 
 def main(argv: list[str] | None = None) -> int:

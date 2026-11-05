@@ -14,6 +14,16 @@ REVIEW_NAMES = {
 }
 
 
+def source_findings(report, source):
+    if source == "research":
+        return (report.get("research") or {}).get("findings", [])
+    return report.get("findings", [])
+
+
+def _collapsed(summary, body):
+    return f"<details>\n<summary>{summary}</summary>\n\n{body}\n\n</details>"
+
+
 def _text(value):
     """Treat source text as text, not HTML or Markdown instructions."""
     text = html.escape(str(value), quote=False)
@@ -46,11 +56,7 @@ def _links(urls):
 def _details(report, item):
     """Follow review indexes back to the evidence; never ask a model to reconstruct it."""
     source = item.get("source")
-    findings = (
-        (report.get("research") or {}).get("findings", [])
-        if source == "research"
-        else report.get("findings", [])
-    )
+    findings = source_findings(report, source)
     rows = []
     if item.get("ai_review_decision"):
         rows.append(
@@ -94,17 +100,16 @@ def _details(report, item):
                 rows.append("**Check:** " + _text(finding["code"]))
             if repair.get("source_yaml"):
                 rows.append(
-                    "<details>\n<summary>Show the source block</summary>\n\n"
-                    + _quote(repair["source_yaml"])
-                    + "\n\n</details>"
+                    _collapsed("Show the source block", _quote(repair["source_yaml"]))
                 )
         if evidence:
             rows.append("**Text that raised the concern:**\n\n" + _quote(evidence))
     if item.get("evidence"):
         rows.append(
-            "<details>\n<summary>Show check details</summary>\n\n"
-            + _quote(json.dumps(item["evidence"], indent=2, default=str))
-            + "\n\n</details>"
+            _collapsed(
+                "Show check details",
+                _quote(json.dumps(item["evidence"], indent=2, default=str)),
+            )
         )
     return "\n\n".join(rows)
 
@@ -229,15 +234,17 @@ def markdown_report(report):
     cleanup = review.get("cleanup", [])
     if cleanup:
         lines.append(
-            "<details>\n<summary>Optional improvements — not publication requirements</summary>\n\n"
-            + _section(report, "Optional improvements", cleanup)
-            + "\n\n</details>"
+            _collapsed(
+                "Optional improvements — not publication requirements",
+                _section(report, "Optional improvements", cleanup),
+            )
         )
     if review.get("ai_dismissed"):
         lines.append(
-            "<details>\n<summary>Findings the AI reviewer set aside — original evidence retained</summary>\n\n"
-            + _section(report, "Review these decisions", review["ai_dismissed"])
-            + "\n\n</details>"
+            _collapsed(
+                "Findings the AI reviewer set aside — original evidence retained",
+                _section(report, "Review these decisions", review["ai_dismissed"]),
+            )
         )
     lines.append("## What this review could not establish")
     scope = report.get("local_scope") or {}
@@ -276,9 +283,10 @@ def markdown_report(report):
                 )
         if research.get("unverified_claims"):
             lines.append(
-                "<details>\n<summary>Optional claims to find sources for — not errors</summary>\n\n"
-                + _quote(json.dumps(research["unverified_claims"], indent=2))
-                + "\n\n</details>"
+                _collapsed(
+                    "Optional claims to find sources for — not errors",
+                    _quote(json.dumps(research["unverified_claims"], indent=2)),
+                )
             )
     for check in report.get("checks", []):
         if check["id"] == "github_publication":

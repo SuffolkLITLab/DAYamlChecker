@@ -5,16 +5,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import requests
 
+from dayamlchecker.readiness_report import source_findings
 from dayamlchecker.readiness_research import (
     ResearchOptions,
     collect_material,
     DEFAULT_MODEL,
+    post_responses,
+    resolve_api_key,
+    response_output_text,
 )
+
+MAX_OUTPUT_TOKENS = 12_000
 
 
 @dataclass(frozen=True)
@@ -97,10 +102,13 @@ def prepare_review(report, root, options):
     candidates, documents, gaps = [], [], []
     remaining = 80_000
 
+    seen_documents = set()
+
     def add_document(file, text):
         nonlocal remaining
-        if not text or remaining <= 0:
+        if not text or remaining <= 0 or (file, text) in seen_documents:
             return
+        seen_documents.add((file, text))
         limit = min(12_000, remaining)
         if len(text) > limit:
             gaps.append(f"Review context shortened: {file}")
@@ -126,11 +134,7 @@ def prepare_review(report, root, options):
             )
             ident = hashlib.sha256(identity.encode()).hexdigest()[:20]
             raw = []
-            findings = (
-                (report.get("research") or {}).get("findings", [])
-                if item["source"] == "research"
-                else report["findings"]
-            )
+            findings = source_findings(report, item["source"])
             for index in item.get("finding_indexes", []):
                 finding = findings[index]
                 context = finding.get("context") or {}
@@ -212,13 +216,13 @@ def review_candidates(report, root: Path, options: AIReviewOptions):
         "coverage_gaps": [],
         "limits": {
             "max_candidates": options.max_candidates,
-            "max_output_tokens": 12000,
+            "max_output_tokens": MAX_OUTPUT_TOKENS,
             "max_calls": 1,
             "web_calls": 0,
         },
         "note": "AI second opinion, not human review. Raw findings and release status are unchanged.",
     }
-    key = options.api_key or os.getenv("OPENAI_API_KEY", "")
+    key = resolve_api_key(options.api_key)
     if not key:
         return {
             **result,
@@ -245,28 +249,20 @@ def review_candidates(report, root: Path, options: AIReviewOptions):
     )
     if not originals:
         return {**result, "execution_status": "not_needed"}
-    base = (
-        options.base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-    ).rstrip("/")
-    base = base.removesuffix("/chat/completions")
-    endpoint = base if base.endswith("/responses") else base + "/responses"
     try:
-        response = requests.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
+        response = post_responses(
+            options.base_url,
+            key,
+            {
                 "model": options.model,
                 "instructions": INSTRUCTIONS,
                 "input": json.dumps(material),
                 "text": {"format": _schema()},
                 "reasoning": {"effort": "medium"},
-                "max_output_tokens": 12000,
+                "max_output_tokens": MAX_OUTPUT_TOKENS,
                 "store": False,
             },
-            timeout=(10, options.timeout),
+            options.timeout,
         )
         if not response.ok:
             return {
@@ -280,14 +276,7 @@ def review_candidates(report, root: Path, options: AIReviewOptions):
                 **result,
                 "error": "AI review did not finish. No findings were hidden.",
             }
-        text = "".join(
-            part.get("text", "")
-            for item in payload.get("output", [])
-            if item.get("type") == "message"
-            for part in item.get("content", [])
-            if part.get("type") == "output_text"
-        )
-        decisions = json.loads(text)["decisions"]
+        decisions = json.loads(response_output_text(payload))["decisions"]
         if not isinstance(decisions, list):
             raise ValueError("Invalid decision list")
         docs = {d["id"]: d["text"] for d in material["documents"]}
