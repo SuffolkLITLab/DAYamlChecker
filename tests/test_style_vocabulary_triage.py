@@ -1,6 +1,7 @@
 """High-recall vocabulary candidates and conservative optional model triage."""
 
 import json
+import re
 
 import pytest
 
@@ -13,6 +14,7 @@ def findings(source, llm=False):
     return find_errors_from_string(
         source,
         runtime_options=RuntimeOptions(
+            style_review_level="thorough",
             style_enabled=True,
             style_include_llm=llm,
             style_openai_api_key="test-key" if llm else None,
@@ -39,6 +41,17 @@ def fake_provider(monkeypatch, decide):
 
 
 def decision(candidate, disposition="dismiss", confidence="high", **extra):
+    if disposition == "keep" and extra.get("replacement"):
+        extra.setdefault("original_sentence", candidate["text"])
+        extra.setdefault(
+            "revised_sentence",
+            re.sub(
+                re.escape(candidate["term"]),
+                lambda m: extra["replacement"],
+                candidate["text"],
+                flags=re.I,
+            ),
+        )
     return {
         "candidate_id": candidate["candidate_id"],
         "decision": disposition,
@@ -88,7 +101,7 @@ def test_high_confidence_grounded_dismissal_only_removes_vocabulary(monkeypatch)
     )
     assert len(batches) == 1
     assert vocabulary(result) == []
-    assert any(f.context.get("matched_text") == "Commence" for f in result)
+    assert any(c["term"] == "Commence" for c in batches[0])
 
 
 def test_keep_can_refine_grammatical_alternative_and_records_reason(monkeypatch):
@@ -313,3 +326,57 @@ def test_truncated_question_cannot_authorize_field_label_dismissal(monkeypatch):
     assert len(result) == 1
     assert batches[0][0]["context_truncated"]
     assert result[0].context["vocabulary_triage_status"] == "uncertain"
+
+
+def test_all_replacements_are_triaged_and_literal_case_name_is_dismissed(monkeypatch):
+    batches = fake_provider(
+        monkeypatch,
+        lambda batch: {
+            "decisions": [
+                decision(
+                    c,
+                    "keep" if c["term"].lower() == "commence" else "dismiss",
+                    replacement="start",
+                )
+                for c in batch
+            ]
+        },
+    )
+    result = find_errors_from_string(
+        "question: Commence your form\nsubquestion: Copy the case name as it appears on your notice.\nfield: answer\n",
+        runtime_options=RuntimeOptions(
+            style_enabled=True,
+            style_include_llm=True,
+            style_vocabulary_only=True,
+            style_openai_api_key="test",
+        ),
+    )
+    assert {c["term"].lower() for c in batches[0]} >= {"commence", "it appears"}
+    kept = vocabulary(result)
+    assert [f.context["matched_text"] for f in kept] == ["Commence"]
+    assert kept[0].message.startswith("Replace 'Commence' with 'start'")
+
+
+def test_whole_question_rewrite_is_not_a_phrase_replacement(monkeypatch):
+    fake_provider(
+        monkeypatch,
+        lambda batch: {
+            "decisions": [
+                decision(
+                    c,
+                    "keep",
+                    replacement="Are you an attorney filling out this form for a client, or are you filling it out for yourself?",
+                )
+                for c in batch
+            ]
+        },
+    )
+    result = find_errors_from_string(
+        "question: Are you filling this out on behalf of yourself?\nfield: answer\n",
+        runtime_options=RuntimeOptions(
+            style_include_llm=True,
+            style_vocabulary_only=True,
+            style_openai_api_key="test",
+        ),
+    )
+    assert not vocabulary(result)

@@ -36,6 +36,7 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 dayamlchecker = "dayamlchecker.yaml_structure:main"
+dayamlchecker-readiness = "dayamlchecker.readiness:main"
 dayamlchecker-fmt = "dayamlchecker.code_formatter:main"
 
 [tool.mypy]

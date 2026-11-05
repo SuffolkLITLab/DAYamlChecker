@@ -373,17 +373,21 @@ OPENAI_BASE_URL=https://api.openai.com/v1 OPENAI_API_KEY=... python3 -m dayamlch
 
 `--style-llm` also enables `--style`. It reads `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` from the environment when flags are not provided. The checker only emits sanitized configuration/request errors for LLM-backed style rules and does not print the credential values.
 
-With `--style-llm`, a contextual triage pass reviews those seven vocabulary
-candidates in batches of at most 20, across all screens. This adds one request
-per batch to the existing broad style reviews. A candidate is dismissed only
-when the model supplies a high-confidence dismissal with a literal contextual
-quote. Uncertainty, truncated context, missing credentials, request failures,
-or invalid/incomplete responses retain the deterministic findings. Other
-deterministic checks cannot be dismissed by this pass. Retained candidates
-include the model's reason and quote in their finding context; a confirmed
-candidate can receive a more grammatical suggestion. Response validation
-guards the triage protocol; it does not guarantee the model's judgment is
-correct. Corpus audits run without model calls by default.
+With `--style-llm`, contextual triage reviews **every** plain-language replacement
+candidate in batches of at most 20. Precision mode shows only changes the model
+confirms with high confidence and a literal quote. It hides unconfirmed word
+suggestions, including when AI is off or a request fails; failures are reported
+separately. Thorough mode keeps unconfirmed suggestions for manual review.
+The filter preserves document names, quotes, and wording whose meaning would
+change. It cannot dismiss other kinds of checks.
+
+`--readiness-research` also runs this vocabulary filter with the research model
+(default `gpt-6.1-terra`). These extra requests are separate from the web research
+budget. On the main CLI, `--readiness --style-llm` enables the full AI style review
+without requiring web research; `--openai-model` selects its model.
+Research findings should lead with an action, use short plain sentences, merge
+related issues, and distinguish added risks from limits inherited from the court
+form. Model judgments still need review.
 
 For Python callers, use the module helper instead of shelling out:
 
@@ -483,3 +487,400 @@ Tables quote their first text, images and text boxes quote the paragraph
 beside them, and empty-paragraph runs quote what precedes them. Findings that
 would otherwise read identically are kept separate, so two tables with the
 same problem are two findings rather than one.
+
+### Precision-focused style review and stronger models
+
+`--style` now defaults to `--style-review-level precision`. It omits unknown
+field-count advisories and unconfirmed, context-sensitive vocabulary suggestions.
+For example, generated `users[0].name_fields()` is not itself evidence of an
+unclear screen. Use `--style-review-level thorough` to include those candidates
+for editorial review. Neither mode turns off concrete structural errors.
+
+Choice labels such as Yes, No, and Other are evaluated with their question or
+field label. A dedicated Continue button is normal navigation. Blank and
+symbol-only labels are still checked. Plain field labels such as Other may
+still need a more descriptive accessible name.
+
+LLM review remains optional. It now receives field labels, variables, choices,
+and generated-field expressions, reviews screens in batches rather than silently
+stopping after the first 40 blocks, and accepts only quotes grounded in an
+identified screen. The checker reports at most one finding per screen per LLM
+rule. Interview text is treated as data, not instructions.
+
+```bash
+dayamlchecker ./docassemble --style-llm --openai-model gpt-6.1-terra
+dayamlchecker ./docassemble --style --style-review-level thorough
+```
+
+`OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` configure an
+OpenAI-compatible endpoint; `--openai-model` overrides the environment model.
+Use the deployment ID supported by your provider. The inexpensive default
+remains `gpt-4o-mini`; model selection and review breadth are independent.
+Live evaluations used available provider deployments; availability varies by
+endpoint. See the [validation summary](docs/readiness-validation.md) for the
+sample sizes and limitations. Model output can still contain false positives.
+
+To repeat the deterministic corpus evaluation:
+
+```bash
+python scripts/evaluate_style.py ~/all_interviews/repos --stride 3 --output /tmp/style-results.json
+```
+
+This checks every third sorted repository, all top-level question YAML files,
+and all static style/accessibility rules. Counts are candidate counts, not a
+measurement of precision. `--llm --model MODEL` also enables paid model calls.
+
+### Publication pre-flight
+
+```bash
+dayamlchecker --readiness /path/to/docassemble-package > /tmp/readiness.json
+# Defaults to the current directory:
+dayamlchecker --readiness
+# The separate command remains available:
+dayamlchecker-readiness /path/to/docassemble-package
+# Equivalent without reinstalling the console scripts:
+python -m dayamlchecker.readiness /path/to/docassemble-package
+```
+
+The JSON report returns `pass` (exit 0), `blocked` (exit 1), or `needs_review`
+(exit 2). Individual checks can also be `warning`, `not_checked`, or
+`not_applicable`; warnings do not prevent an overall pass. Schema version 2
+records each check's severity and whether it is a release gate. Findings expose
+publication-policy `severity`, the original `checker_severity`, and `release_gate`.
+The ordinary linter's rules and severities are unchanged.
+
+| Area | Release policy |
+| --- | --- |
+| Templates and filenames | Static PDF field and DOCX Jinja inspection, naming, locally unmatched variables, overflow concerns, DOCX accessibility and tracked-change checks are advisory. No populated document or interview run is required. |
+| Project setup | Weaver initialization is not required. Object conventions and uncertain imported definitions are maintainability advice. |
+| Question design and flow | Structural errors and missing prompts without supplemental screen context can block. Sentence length, vocabulary preferences, and uncertain static inferences remain advisory. Human question/flow review is still required. |
+| Answer review | Missing usable review is a strong warning for short interviews. At **10 or more statically declared input screens**, it blocks if include coverage is complete, or requires review if unresolved includes might provide editing. Use `--long-interview-screens N` to change the threshold. This is an estimate, not an executed path length. |
+| Document delivery | A missing literal local PDF/DOCX template blocks. Literal bundle members are inventoried; empty lists, locally unresolved members, and computed membership are advisory. Dynamic conditions and the actual download set are not proven statically. |
+| Live testing | Not a check or release gate in this tool. No running interview/server/browser is required for local checks. |
+| GitHub publication | Opt in with `--readiness-github`; otherwise explicitly not checked. Naming concerns are advisory. |
+
+These checks reference the
+[authoring checklist](https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/)
+and [maturity model](https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/).
+The level references organize evidence; they do not certify a maturity level or
+constitute official Court Forms Online acceptance.
+
+Use `dayamlchecker --readiness --evidence /path/to/publication-evidence.json`
+to supply a JSON object with `source_sha256` copied from the current report and
+one object for each of `legal_review`, `plain_language_review`,
+`interview_flow_review`, and `publication_review`. Each object requires
+`passed: true` and nonempty `reviewer`, `date`, and `evidence` strings. Store the
+file outside the repository or name it `publication-evidence.json`. Changed
+repository contents invalidate previous evidence. Hidden files/directories,
+Python bytecode, and that evidence filename are excluded from the digest.
+Earlier `scenario_testing`, `template_review`, and `accessibility_review`
+attestations are no longer required gates; they are not substitutes for the new
+static interview-flow review.
+
+The scan includes nested local question YAML and local PDF/DOCX templates.
+It does not execute templates or interviews. A detected review/edit control does
+not prove every answer can be edited safely; the flow review covers that remaining
+uncertainty. The tool records attestations but cannot verify their truth.
+
+### GitHub publication and unpublished Playground sources
+
+```bash
+dayamlchecker --readiness /path/to/repo --readiness-github
+# Override the origin-derived repository or current branch:
+dayamlchecker --readiness /path/to/repo --readiness-github \
+  --github-repository SuffolkLITLab/docassemble-Example --github-ref main
+```
+
+GitHub checking is read-only. It compares local HEAD and working-tree changes
+with the selected remote ref, reports archived/disabled repositories, and gives
+advice about obviously generic/draft repository names. A behind checkout also
+needs review: this check asks whether the analyzed snapshot matches the selected
+published ref, not whether its commit ever existed online. Set `GITHUB_TOKEN`
+or `GH_TOKEN` for private repositories or authenticated rate limits. Network or
+permission failures cannot establish publication. CI, issue triage, releases,
+and commit-message quality are not currently assessed.
+
+To inspect work that has not been committed, set `DOCASSEMBLE_API_KEY` and use:
+
+```bash
+dayamlchecker --readiness \
+  --playground-server https://dev.example.org \
+  --playground-user author@example.org
+# Select projects instead of scanning all of the user's projects:
+dayamlchecker --readiness \
+  --playground-server http://localhost \
+  --playground-user 7 --playground-project Housing --playground-project Benefits
+```
+
+`--playground-user` accepts an email (docassemble's API username) or numeric user
+ID. Omit it to use the API key owner's Playground. The key must have permission
+to read the selected user's projects. The client uses only GET endpoints for
+user lookup, project listing, file listing, and file download from the
+[docassemble API](https://docassemble.org/docs/api.html). It never creates a
+session, runs an interview, uploads files, pulls packages, or modifies the server.
+HTTPS is required except for localhost. Redirects are not followed with the key.
+
+Each project is downloaded to a temporary package-shaped snapshot and checked
+independently, with original project/file identities and content hashes retained
+in the JSON report. Empty/non-interview projects are marked not applicable.
+Unreadable projects remain needs-review results, not clean scans. Temporary
+copies are deleted afterward. Local modules are read as files, never imported;
+installed-library behavior and Playground-specific package references may remain
+unresolved. No `.env` file or API key is written into the snapshot/report.
+
+Playground scans are an alternative to a local root. They cannot use
+`--readiness-github`, because an unpublished snapshot has no trustworthy Git
+commit identity, or one shared `--evidence` file for multiple projects. Research
+can be enabled explicitly with `--readiness-research` and then applies to each
+selected project, with per-project API costs. A live server is used only to read
+source files, not as a requirement to execute the interview.
+
+### Findings for assistant draft repairs
+
+Findings associated with a parsed YAML block carry `context["repair_context"]`:
+version, filename, screen ID, block index/start line, source YAML and its SHA-256,
+rule location/evidence where available, and a generated-field runtime-verification
+flag. The existing stable rule code, message, severity, and line remain available.
+The publication report serializes these fields as JSON. Syntax errors without a
+parsed block retain their normal diagnostics rather than invented source context.
+
+Repair clients should verify the source hash, preserve template/runtime code,
+and validate any proposed patch. For Jinja-rendered findings, honor
+`rendered_jinja`; the block source and line refer to rendered YAML, not necessarily
+the original template. No repair is generated or applied by this interface.
+ALWeaver's current `dayamlchecker_findings()` adapter copies message, severity,
+and line but does not yet forward `context`; that adapter needs to pass through
+`repair_context` when connecting these findings to assistant draft repairs.
+
+### Optional AI research of instructions and next steps
+
+```bash
+# Checks local instructions against cited guidance and supplemental web research:
+dayamlchecker --readiness /path/to/package --readiness-research
+
+# Additionally inventory claims that need corroboration:
+dayamlchecker --readiness /path/to/package --readiness-research \
+  --research-strict-unverified
+
+# Optional starting sources and research budget/model overrides:
+dayamlchecker --readiness /path/to/package --readiness-research \
+  --research-source https://www.example.gov/court/filing-guide \
+  --research-model gpt-6.1-terra --research-timeout 180 \
+  --research-max-tool-calls 12
+```
+
+The default research model is `gpt-6.1-terra`, independent of the style model.
+The same research flags work with `dayamlchecker-readiness`. Research is off by
+default and uses paid Responses API calls with the `web_search` tool. Configure
+`OPENAI_API_KEY` and `OPENAI_BASE_URL`, or the corresponding `--openai-api-key`
+and `--openai-base-url` options. Azure requires a deployment on the selected
+account and an endpoint supporting Responses web search. No model is silently
+substituted if the deployment or tool is unavailable.
+
+Research starts with metadata such as `help_page_url`, other cited URLs, and any
+`--research-source` URLs. It can open pages, follow relevant child articles on
+multi-page sites, and search the web when references are missing, insufficient,
+inaccessible, or conflicting. The agent compares filing/service instructions,
+eligibility, deadlines, fees, hearings, and post-filing steps against relevant
+court/government and legal-aid sources. The implementation uses
+[Responses web search](https://developers.openai.com/api/docs/guides/tools-web-search/),
+not a single-page download or a memory-only model response.
+
+Default mode flags concrete, high-confidence inconsistencies supported by local
+quotes and recorded web sources. **Missing citations are not defects.** It does
+not require every local claim to have an inline citation or every claim to be
+corroborated. Open research questions and partial corroboration appear in
+`research_notes` and `document_reviews`, rather than becoming missing-citation
+findings. A clean research check means no grounded discrepancy was reported;
+it does not establish the truth of every claim.
+
+`--research-strict-unverified` opts into a separate `unverified_claims` inventory.
+Each entry includes a matching local quote, file/hash, reason, and a suggested
+research question. These entries have informational severity: unverified does
+not mean incorrect. Strict mode returns `needs_review` when that optional
+inventory has unresolved items. It cannot pass if the provider omits the requested
+inventory. This mode also leaves the existing human legal-review requirement intact.
+
+Research extracts local question YAML and DOCX/PDF/text templates without executing
+interviews or template code. This opt-in sends that source/template text and
+metadata to the configured model provider; `.env` files and unrelated repository
+files are not collected. It extracts text rather than performing OCR or checking
+rendered layout. Unsupported files, unreadable documents, external symlinks,
+truncation, and unresolved runtime includes are recorded explicitly. The input
+limits are 24,000 characters per document, 120,000 document characters total,
+20,000 serialized metadata characters, and 100 starting URLs. Extraction limits
+are coverage limitations, not findings about legal correctness.
+
+The report's `research` object includes model, timestamp, source-document hashes,
+starting URLs, retrieved sources, web actions, accepted findings, per-document
+reviews, research notes, and coverage limitations. Findings must quote local text
+and cite a URL in provider-supplied browsing provenance. This verifies attribution,
+not the correctness of the model's legal interpretation. DOCX/PDF findings use
+extracted-text locations rather than invented source line numbers. Their repair
+hash covers file bytes, unlike the block-text hashes on ordinary checker findings.
+
+The default budget permits 12 web tool calls and a 180-second provider read
+timeout (plus connection/extraction time). Searches may inspect multiple sources
+per call. Failures, absent browsing evidence, unreadable/truncated input, and
+exhausted budgets remain explicit incomplete results, not clean checks. Notes
+about a claim lacking corroboration alone do not make ordinary mode fail.
+Progress goes to stderr and the JSON report goes to stdout. Interfaces displaying
+findings should render their `source_urls` as clickable citations.
+
+Live Azure validation with `gpt-6.1-terra` successfully searched/opened sources
+and returned candidate issues in interview YAML and next-steps DOCX files.
+Deployment availability and web-search support vary by endpoint. See the
+[validation summary](docs/readiness-validation.md).
+
+AI research itself does not audit GitHub. The separate `--readiness-github` check
+verifies the selected published ref; CI, issues, and releases remain outside its
+scope. No readiness mode publishes the project or replaces legal review.
+
+### Prioritized readiness review
+
+For an instructor-facing report with a short assessment, checklists, supporting
+quotes, source links, and optional advice in expandable sections:
+
+```bash
+dayamlchecker --readiness /path/to/package --readiness-format markdown > review.md
+# Add source-based research (opt-in; uses the configured provider):
+dayamlchecker --readiness /path/to/package --readiness-research \
+  --readiness-format markdown > review.md
+```
+
+The same format flag works with `dayamlchecker-readiness`, including Playground
+scans. JSON remains the default. To keep the full data and format it later
+without repeating research or making API calls:
+
+```bash
+dayamlchecker --readiness /path/to/package --readiness-research > review.json
+python -m dayamlchecker.readiness_report review.json > review.md
+```
+
+For an optional precision pass, add `--readiness-ai-review`:
+
+```bash
+dayamlchecker --readiness /path/to/package --readiness-research \
+  --readiness-ai-review --readiness-format markdown > review.md
+```
+
+This makes one additional paid Responses call per project, defaulting to
+`gpt-6.1-terra`, without another web search. It reviews up to 40 existing
+candidates against bounded local source text and the first research pass's
+evidence. It can keep a concern, mark it advisory, set it aside with quoted
+counterevidence, or leave it uncertain. Use `--readiness-review-model`,
+`--readiness-review-timeout` (default 180 seconds), and
+`--readiness-review-max-candidates` (default 40, maximum 100) to configure it.
+The review works without `--readiness-research`, but cannot independently verify
+external legal sources. Omit `--readiness-ai-review` for the broader original
+candidate list with no second-pass cost. It is off by default.
+
+The JSON retains raw `findings`, research results, `review_unfiltered`, and the
+reviewer's decisions and reasons in `ai_review`. The precision view puts dismissed
+suggestions in `review.ai_dismissed`; Markdown shows these in an expandable section.
+Quotes and candidate IDs are checked, but that cannot prove the model's interpretation.
+Deterministic release blockers, human review requirements, and CLI exit status
+are never downgraded by the AI review. Failed, malformed, or ungrounded reviews
+leave the original view intact. Limits and unreviewed candidates are reported.
+This reviews existing findings; it is not a second full audit for missed defects.
+
+#### Embedding readiness in Weaver or Dashboard
+
+Call `publication_readiness()` on a complete temporary package directory, not on
+one YAML string. Include the current question files, local includes, and PDF/DOCX
+templates in the normal `docassemble/<package>/data/...` layout. For unsaved editor
+work, put the working text into that copy and record that version; a saved project
+export alone does not include browser edits. Bind results to `source_sha256` and
+refresh them when source files change. Do not execute the interview to collect text.
+
+```python
+from pathlib import Path
+from dayamlchecker.readiness import publication_readiness
+from dayamlchecker.readiness_research import ResearchOptions
+from dayamlchecker.readiness_ai_review import AIReviewOptions
+from dayamlchecker.readiness_report import markdown_report
+
+result = publication_readiness(
+    Path(project_directory),
+    research=ResearchOptions(api_key=server_key, base_url=server_endpoint),
+    ai_review=AIReviewOptions(api_key=server_key, base_url=server_endpoint),
+)
+readable_report = markdown_report(result)
+```
+
+The host app should authorize access to the project, pass its server-side provider
+configuration, run paid work in a background job, and safely render the returned
+Markdown. The research provider must support Responses with web search; the optional
+review requires Responses with structured output. No Azure CLI, `agy`, personal
+configuration file, or local Git checkout is required for the core analysis.
+GitHub publication verification is separate from reviewing a saved Playground copy.
+The remote Playground downloader is a CLI convenience; an app on the same server
+can use its authenticated local project/export functions instead of calling itself
+with an administrator API key. External package includes and dynamic content can
+remain unresolved and are reported as limitations.
+
+Current Weaver and Dashboard adapters call `find_errors_from_string` on YAML;
+they do not yet invoke this project-level workflow. Their UI/job integration and
+deployment of this checker version are separate work.
+
+Scan exit codes remain 0 (pass), 1 (blocked), and 2 (needs review), regardless of
+format. The offline formatter exits 0 when rendering succeeds; it does not change
+or certify the saved assessment.
+
+The report separates automated blockers, possible problems to review, optional
+improvements, research limits, and missing human sign-offs. AI research findings
+remain suggestions, even when the model reports high confidence. A quiet report
+is not publication approval. Formatting uses existing evidence, without an extra
+LLM call, and does not recreate the independent instructor review or Argon editing
+used for the student evaluation issues. It does not publish GitHub issues.
+
+Readiness JSON schema 3 adds `review` and `local_scope`. `review.actionable`
+contains the issues to investigate first; `review.cleanup` contains wording,
+layout, naming and translation advice. Coverage failures and missing sign-offs
+have separate lists. All original `findings` and `checks` remain available.
+`review.defect_status` concerns detected defects; the top-level status and CLI
+exit code still account for missing evidence and incomplete checks. Neither
+status is certification that an interview is safe.
+
+Choose the published interviews explicitly when a package also contains drafts
+or helper interviews:
+
+```bash
+dayamlchecker --readiness /path/to/package \
+  --readiness-entrypoint docassemble/MyPackage/data/questions/main.yml
+```
+
+Repeat the entrypoint flag for multiple published interviews. Otherwise roots
+are inferred from local includes and metadata. Answer-review counts exclude
+external library questions. Local bundle tracing labels documents as potentially
+delivered, absent from the selected local bundles, or unknown. These are static
+overapproximations: dynamic code and external includes can change the result.
+Absence from a local bundle lowers priority; it does not prove a file is unused.
+
+Research priorities require an affected user branch, a concrete failure example,
+and a stated consequence. An inherited limitation can still warrant an urgent
+update, such as an obsolete filing address. Research remains proposed advice,
+not an automatic release blocker. Quotes, source hashes and raw finding indexes
+are retained for repair tools.
+
+AI word replacements must include the original sentence and the result of applying
+the replacement. The checker verifies that edit and rejects known invalid patterns,
+including abstract placeholders, doubled words, and full-question rewrites. It
+cannot guarantee grammatical correctness or a measured reading level. Unvalidated
+changes remain hidden in precision mode and available in thorough mode.
+
+The [validation summary](docs/readiness-validation.md) describes static corpus
+reruns and live development/held-out comparisons. Research still missed some
+earlier candidates and under-ranked one possible wrong-court instruction.
+These priorities are not a complete risk assessment; incomplete coverage and
+provider failures stay visible.
+
+Research uses a strict JSON response schema in the existing model request,
+followed by local quote and citation checks. The prompt includes a short coverage
+sweep for destinations, deadlines, service, field mappings, and answer review.
+These changes keep the same one-request, time, output-token, and web-call limits;
+there is no automatic paid retry. Providers must support Responses structured
+outputs together with web search. An advisory label alone cannot move a finding
+with a concrete failure example into cleanup, though it remains a human-review
+proposal. See the [repeat-run summary](docs/readiness-validation.md):
+format failures were absent, but substantive findings still varied between runs.
