@@ -92,6 +92,14 @@ def review_view(report, scope):
             )
             cleanup.append(item)
         elif (
+            f["file"].lower().endswith((".yml", ".yaml"))
+            and f["file"] not in scope["active_local_files"]
+        ):
+            item.update(
+                priority="low", reason="Outside the selected local include graph."
+            )
+            cleanup.append(item)
+        elif (
             f.get("impact") in {"improvement", "inherited_limitation"}
             and not has_failure_evidence
         ):
@@ -124,7 +132,8 @@ def review_view(report, scope):
             }
             (
                 cleanup
-                if c["id"]
+                if not c.get("release_gate")
+                and c["id"]
                 in {"document_templates", "project_setup", "filenames", "metadata"}
                 else actionable
             ).append(item)

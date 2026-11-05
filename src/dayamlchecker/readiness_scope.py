@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import re
 
+from dayamlchecker.style import _include_candidates
+
 
 def _walk(value):
     if isinstance(value, dict):
@@ -51,9 +53,11 @@ def doc_assignments(doc):
     return expressions, True
 
 
-def local_scope(root, parsed, entrypoint_files=()):
+def local_scope(root, parsed, entrypoint_files=(), unparsed=()):
+    """Trace local includes; `unparsed` files may hide their metadata and includes."""
     root = root.resolve()
     paths = {p.resolve(): docs for p, docs in parsed.items()}
+    unparsed = {p.resolve() for p in unparsed}
     edges, unresolved = {}, {}
     for path, docs in paths.items():
         edges[path], unresolved[path] = set(), []
@@ -67,16 +71,16 @@ def local_scope(root, parsed, entrypoint_files=()):
                 if not isinstance(ref, str):
                     unresolved[path].append(str(ref))
                     continue
-                if ":" in ref:
-                    package, name = ref.split(":", 1)
-                    candidate = (
-                        root / package.replace(".", "/") / "data/questions" / name
-                    )
-                else:
-                    candidate = path.parent / ref
-                candidate = candidate.resolve()
-                if candidate in paths:
-                    edges[path].add(candidate)
+                target = next(
+                    (
+                        candidate.resolve()
+                        for candidate in _include_candidates(ref, path)
+                        if candidate.resolve() in paths
+                    ),
+                    None,
+                )
+                if target:
+                    edges[path].add(target)
                 else:
                     unresolved[path].append(ref)
     included = set().union(*edges.values()) if edges else set()
@@ -91,10 +95,13 @@ def local_scope(root, parsed, entrypoint_files=()):
             p
             for p, docs in paths.items()
             if p not in included
-            and any(
-                isinstance(d.doc.get("metadata"), dict)
-                and d.doc["metadata"].get("title")
-                for d in docs
+            and (
+                p in unparsed
+                or any(
+                    isinstance(d.doc.get("metadata"), dict)
+                    and d.doc["metadata"].get("title")
+                    for d in docs
+                )
             )
         ]
         roots = roots or [p for p in paths if p not in included] or list(paths)
@@ -146,6 +153,8 @@ def local_scope(root, parsed, entrypoint_files=()):
                     uncertain = True
             if "attachment code" in doc.doc:
                 uncertain = True
+            # A question's own attachment is delivered without any bundle.
+            direct = "question" in doc.doc
             for block in _walk(doc.doc):
                 for key in ("pdf template file", "docx template file"):
                     ref = block.get(key)
@@ -160,10 +169,15 @@ def local_scope(root, parsed, entrypoint_files=()):
                     name = re.split(r"[.\[]", var)[0] if isinstance(var, str) else ""
                     target = template_path(path, ref).resolve()
                     if target.is_relative_to(root):
-                        attachments.append((str(target.relative_to(root)), name))
+                        attachments.append(
+                            (str(target.relative_to(root)), name, direct)
+                        )
         used = set(
             re.findall(
-                r"\b([A-Za-z_]\w*)\.(?:download_list_html|send_button_html|as_pdf|as_docx)\s*\(",
+                r"\b([A-Za-z_]\w*)(?:\[[^\]]*\])?\."
+                r"(?:(?:download_list_html|send_button_html|send_button_to_html"
+                r"|as_pdf|as_docx|as_zip|as_list|as_editable_list)\s*\("
+                r"|(?:pdf|docx|rtf)\.\w)",
                 source,
             )
         )
@@ -178,10 +192,10 @@ def local_scope(root, parsed, entrypoint_files=()):
         if not used:
             uncertain = True
         # Unknown included libraries might modify a bundle after its declaration.
-        for file, var in attachments:
+        for file, var, direct in attachments:
             state = (
                 "potentially_delivered"
-                if var in reached
+                if direct or var in reached
                 else "unknown" if uncertain else "not_in_local_bundles"
             )
             template_states.setdefault(file, []).append(

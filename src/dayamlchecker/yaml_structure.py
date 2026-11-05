@@ -3159,17 +3159,27 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("--research-strict-unverified requires --readiness-research")
     if args.readiness_research and not args.readiness:
         parser.error("--readiness-research requires --readiness")
-    if not args.readiness and (
-        args.readiness_ai_review
-        or args.readiness_format != "json"
-        or args.readiness_github
-        or args.playground_server
-        or args.playground_user
-        or args.playground_project
-        or args.github_repository
-        or args.github_ref
+    readiness_only_options = (
+        "readiness_ai_review",
+        "readiness_entrypoint",
+        "readiness_evidence",
+        "readiness_format",
+        "readiness_github",
+        "readiness_review_max_candidates",
+        "readiness_review_model",
+        "readiness_review_timeout",
+        "long_interview_screens",
+        "playground_server",
+        "playground_user",
+        "playground_project",
+        "github_repository",
+        "github_ref",
+    )
+    if not args.readiness and any(
+        getattr(args, name) != parser.get_default(name)
+        for name in readiness_only_options
     ):
-        parser.error("GitHub and Playground readiness options require --readiness")
+        parser.error("Readiness options require --readiness")
     if args.readiness:
         if args.playground_server and args.files:
             parser.error("Choose a local directory or --playground-server, not both")

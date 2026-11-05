@@ -133,7 +133,7 @@ def prepare_review(report, root, options):
                 sort_keys=True,
             )
             ident = hashlib.sha256(identity.encode()).hexdigest()[:20]
-            raw = []
+            raw, source_blocks = [], []
             findings = source_findings(report, item["source"])
             for index in item.get("finding_indexes", []):
                 finding = findings[index]
@@ -141,7 +141,7 @@ def prepare_review(report, root, options):
                 repair = (
                     context.get("repair_context") or finding.get("repair_context") or {}
                 )
-                add_document(item.get("file"), repair.get("source_yaml", ""))
+                source_blocks.append(repair.get("source_yaml", ""))
                 raw.append(
                     {
                         k: finding[k]
@@ -175,6 +175,8 @@ def prepare_review(report, root, options):
             candidate_budget -= size
             candidates.append(candidate)
             original_items[ident] = (category, item)
+            for block in source_blocks:
+                add_document(item.get("file"), block)
     if candidates:
         material = collect_material(
             root,

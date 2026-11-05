@@ -2097,6 +2097,12 @@ def _triage_vocabulary_candidates(
     ] + errors
 
 
+def _match_initial_case(matched: str, replacement: str) -> str:
+    if matched[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
 def _uncertain_decision(decision: dict[str, Any], reason: str) -> dict[str, Any]:
     downgraded = {**decision, "decision": "uncertain", "reason": reason}
     downgraded.pop("replacement", None)
@@ -2171,7 +2177,16 @@ def _validated_vocabulary_decisions(
                 and isinstance(replacement, str)
                 and bool(replacement.strip())
                 and re.search(pattern, before, re.I) is not None
-                and re.sub(pattern, lambda m: replacement, before, flags=re.I) == after
+                and after
+                in {
+                    re.sub(pattern, lambda m: replacement, before, flags=re.I),
+                    re.sub(
+                        pattern,
+                        lambda m: _match_initial_case(m.group(0), replacement),
+                        before,
+                        flags=re.I,
+                    ),
+                }
                 and not re.search(r"\b([a-z]+)\s+\1\b", after, re.I)
                 and not re.search(
                     r"\b(?:a|an|the)\s+(?:you|we|they)\s+(?:must|should|need)\b",
@@ -2276,6 +2291,10 @@ def _run_llm_rules(
     return findings
 
 
+def _normalized_text(text: str) -> str:
+    return " ".join(_plain_text(text).split())
+
+
 def _build_llm_finding(
     *,
     parsed_docs: list[ParsedInterviewDocument],
@@ -2296,10 +2315,13 @@ def _build_llm_finding(
     if len(matches) != 1 or not problematic_text:
         return None
     parsed_doc = matches[0]
+    # The model sees normalized text, so its quote may not match the raw source.
+    normalized_quote = _normalized_text(problematic_text)
     entries = [
         entry
         for entry in _iter_doc_texts([parsed_doc])
         if problematic_text in entry.text
+        or (normalized_quote and normalized_quote in _normalized_text(entry.text))
     ]
     if not entries:
         return None
@@ -2741,6 +2763,30 @@ def _find_metadata(docs: list[ParsedInterviewDocument]) -> dict[str, Any]:
     return metadata
 
 
+def _include_candidates(reference: str, source: Path) -> list[Path]:
+    """List local paths an include may name, in docassemble's lookup order."""
+    if ":" not in reference:
+        return [source.parent / reference] + [
+            parent / reference
+            for parent in source.parents
+            if parent.name == "questions" and parent.parent.name == "data"
+        ]
+    package, filename = reference.split(":", 1)
+    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
+        return []
+    name = package.split(".")[1]
+    relative = Path("docassemble", name, "data", "questions")
+    relative /= filename.removeprefix("data/questions/")
+    return [
+        candidate
+        for ancestor in source.parents
+        for candidate in (
+            ancestor / relative,
+            ancestor / ("docassemble-" + name) / relative,
+        )
+    ]
+
+
 def _include_evidence(
     docs: list[ParsedInterviewDocument], input_file: str | None
 ) -> tuple[list[ParsedInterviewDocument], bool]:
@@ -2782,37 +2828,10 @@ def _include_evidence(
                 ):
                     complete = False
                     continue
-                candidates: list[Path] = []
-                if ":" in reference:
-                    package, filename = reference.split(":", 1)
-                    if not re.fullmatch(r"docassemble\.[A-Za-z0-9_]+", package):
-                        complete = False
-                        continue
-                    name = package.split(".")[1]
-                    for ancestor in source.parents:
-                        candidates.append(
-                            ancestor
-                            / "docassemble"
-                            / name
-                            / "data"
-                            / "questions"
-                            / filename
-                        )
-                        candidates.append(
-                            ancestor
-                            / ("docassemble-" + name)
-                            / "docassemble"
-                            / name
-                            / "data"
-                            / "questions"
-                            / filename
-                        )
-                else:
-                    candidates.append(source.parent / reference)
                 target = next(
                     (
                         candidate.resolve()
-                        for candidate in candidates
+                        for candidate in _include_candidates(reference, source)
                         if candidate.is_file()
                     ),
                     None,

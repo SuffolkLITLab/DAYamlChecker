@@ -47,6 +47,14 @@ CHECKLIST_URL = (
 )
 MATURITY_URL = "https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/"
 EXIT_CODES = {"pass": 0, "blocked": 1, "needs_review": 2}
+PACKAGE_FILES = (
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml",
+    "setup.cfg",
+    "setup.py",
+)
 # These are project evidence requirements, not an official Court Forms Online policy.
 REVIEWS = {
     "legal_review": (
@@ -203,6 +211,27 @@ def _has_local_default(finding, parsed):
     return False
 
 
+def _source_digest(root: Path) -> str:
+    """Bind human reviews to package source, not reports or local build output."""
+    paths = [root / name for name in PACKAGE_FILES]
+    paths += (root / "docassemble").rglob("*")
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        relative = path.relative_to(root)
+        if (
+            not path.is_file()
+            or any(part.startswith(".") for part in relative.parts)
+            or "__pycache__" in relative.parts
+            or path.suffix == ".pyc"
+            or path.name == "publication-evidence.json"
+        ):
+            continue
+        digest.update(relative.as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def publication_readiness(
     root: Path,
     *,
@@ -232,30 +261,19 @@ def publication_readiness(
     root = root.resolve()
     evidence = evidence or {}
     files = question_files(root)
-    # Bind human reviews to the package contents, including templates and tests.
-    digest = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(
-            part.startswith(".") for part in path.relative_to(root).parts
-        ):
-            continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
-            continue
-        if path.name == "publication-evidence.json":
-            continue
-        digest.update(str(path.relative_to(root)).encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-    revision = digest.hexdigest()
+    revision = _source_digest(root)
     evidence_current = evidence.get("source_sha256") == revision
     findings = []
     parsed = {}
+    unparsed: list[Path] = []
     entrypoints = []
     checks: list[dict[str, Any]] = []
     for path in files:
         source = path.read_text(encoding="utf-8")
-        docs, _ = parse_interview_documents(source, str(path))
+        docs, load_errors = parse_interview_documents(source, str(path))
         parsed[path] = docs
+        if load_errors:
+            unparsed.append(path)
         findings.extend(
             find_errors_from_string(
                 source,
@@ -290,7 +308,7 @@ def publication_readiness(
                     "source": CHECKLIST_URL,
                 }
             )
-    scope = local_scope(root, parsed, entrypoint_files)
+    scope = local_scope(root, parsed, entrypoint_files, unparsed)
     active = {str(root / p) for p in scope["active_local_files"]}
     # Unselected source remains in raw findings but cannot block selected publication.
     checks = [c for c in checks if str(root / c["file"]) in active]

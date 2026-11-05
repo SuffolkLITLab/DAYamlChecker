@@ -22,6 +22,7 @@ from dayamlchecker.readiness_scope import (
     template_path,
 )
 from dayamlchecker.style import ParsedInterviewDocument, _is_review_screen
+from dayamlchecker.yaml_structure import _QUESTION_INPUT_KEYS
 
 
 def check_policy(status: str) -> dict[str, Any]:
@@ -134,17 +135,7 @@ def static_checks(
         screens = [
             d
             for d in docs
-            if any(
-                k in d.doc
-                for k in (
-                    "fields",
-                    "field",
-                    "yesno",
-                    "noyes",
-                    "yesnomaybe",
-                    "signature",
-                )
-            )
+            if any(k in d.doc for k in _QUESTION_INPUT_KEYS)
             and not _is_review_screen(d)
         ]
         review = any(

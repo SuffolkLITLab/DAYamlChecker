@@ -17,7 +17,11 @@ import requests
 from docx2python import docx2python
 from pypdf import PdfReader
 
-from dayamlchecker.readiness_scope import local_scope, question_files
+from dayamlchecker.readiness_scope import (
+    local_scope,
+    question_files,
+    template_exposure,
+)
 from dayamlchecker.style import (
     _DEFAULT_OPENAI_BASE_URL,
     _OPENAI_API_KEY_ENV,
@@ -246,6 +250,8 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
     metadata: list[dict[str, Any]] = []
     gaps: list[str] = []
     parsed_local = {}
+    unparsed = []
+    extracted: list[dict[str, Any]] = []
     seeds = {url: "explicit" for raw in options.source_urls if (url := _url(raw))}
 
     def add_seeds(text: str, origin: str) -> None:
@@ -286,50 +292,72 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
                 docs, errors = parse_interview_documents(text, str(path))
                 if errors:
                     gaps.append(f"YAML could not be fully parsed: {relative}")
+                    unparsed.append(path)
                 parsed_local[path] = docs
-                for doc in docs:
-                    meta = doc.doc.get("metadata")
-                    if isinstance(meta, dict):
-                        # Keep jurisdiction/form identity paired with its entrypoint.
-                        meta_text = json.dumps(meta, default=str)
-                        if len(meta_text) <= metadata_remaining:
-                            metadata.append({"file": relative, "metadata": meta})
-                            metadata_remaining -= len(meta_text)
-                        else:
-                            gaps.append(f"Metadata budget omitted: {relative}")
-                        add_seeds(meta_text, "metadata")
-                    if doc.doc.get("include"):
-                        gaps.append(
-                            f"Runtime includes are not expanded: {relative} block {doc.index}"
-                        )
-            if not text.strip():
-                gaps.append(f"No extractable text (may require OCR): {relative}")
-                continue
-            add_seeds(text, "interview_or_template")
-            limit = min(MAX_DOCUMENT_CHARS, remaining)
-            if limit <= 0:
-                gaps.append(f"Input budget omitted: {relative}")
-                continue
-            truncated = len(text) > limit
-            if truncated:
-                gaps.append(f"Text truncated: {relative}")
-            documents.append(
+            else:
+                docs = []
+            extracted.append(
                 {
-                    "id": f"document-{len(documents)}",
-                    "file": relative,
-                    "source_sha256": hashlib.sha256(raw).hexdigest(),
-                    "text": text[:limit],
-                    "truncated": truncated,
-                    "location_kind": (
-                        "yaml_source"
-                        if suffix in {".yaml", ".yml"}
-                        else "extracted_template_text"
-                    ),
+                    "relative": relative,
+                    "yaml": suffix in {".yaml", ".yml"},
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "text": text,
+                    "docs": docs,
                 }
             )
-            remaining -= min(limit, len(text))
         except Exception as exc:
             gaps.append(f"Extraction failed: {relative} ({type(exc).__name__})")
+    scope = local_scope(root, parsed_local, options.entrypoint_files, unparsed)
+    active = set(scope["active_local_files"])
+
+    def budget_rank(item: dict[str, Any]) -> int:
+        if item["yaml"]:
+            return 0 if item["relative"] in active else 3
+        exposure = template_exposure(scope, item["relative"])
+        return {"potentially_delivered": 1, "unknown": 2}.get(exposure, 3)
+
+    # Budgets go to the selected interview first, not to alphabetical order.
+    for item in sorted(extracted, key=budget_rank):
+        relative, text = item["relative"], item["text"]
+        for doc in item["docs"]:
+            meta = doc.doc.get("metadata")
+            if isinstance(meta, dict):
+                # Keep jurisdiction/form identity paired with its entrypoint.
+                meta_text = json.dumps(meta, default=str)
+                if len(meta_text) <= metadata_remaining:
+                    metadata.append({"file": relative, "metadata": meta})
+                    metadata_remaining -= len(meta_text)
+                else:
+                    gaps.append(f"Metadata budget omitted: {relative}")
+                add_seeds(meta_text, "metadata")
+            if doc.doc.get("include"):
+                gaps.append(
+                    f"Runtime includes are not expanded: {relative} block {doc.index}"
+                )
+        if not text.strip():
+            gaps.append(f"No extractable text (may require OCR): {relative}")
+            continue
+        add_seeds(text, "interview_or_template")
+        limit = min(MAX_DOCUMENT_CHARS, remaining)
+        if limit <= 0:
+            gaps.append(f"Input budget omitted: {relative}")
+            continue
+        truncated = len(text) > limit
+        if truncated:
+            gaps.append(f"Text truncated: {relative}")
+        documents.append(
+            {
+                "id": f"document-{len(documents)}",
+                "file": relative,
+                "source_sha256": item["sha256"],
+                "text": text[:limit],
+                "truncated": truncated,
+                "location_kind": (
+                    "yaml_source" if item["yaml"] else "extracted_template_text"
+                ),
+            }
+        )
+        remaining -= min(limit, len(text))
     if not documents:
         gaps.append("No reviewable interview or template text was found.")
     if len(seeds) > 100:
@@ -341,7 +369,6 @@ def collect_material(root: Path, options: ResearchOptions) -> dict[str, Any]:
             pair[1]
         ],
     )[:100]
-    scope = local_scope(root, parsed_local, options.entrypoint_files)
     return {
         "local_scope": scope,
         "metadata": metadata,

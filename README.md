@@ -571,8 +571,11 @@ one object for each of `legal_review`, `plain_language_review`,
 `interview_flow_review`, and `publication_review`. Each object requires
 `passed: true` and nonempty `reviewer`, `date`, and `evidence` strings. Store the
 file outside the repository or name it `publication-evidence.json`. Changed
-repository contents invalidate previous evidence. Hidden files/directories,
-Python bytecode, and that evidence filename are excluded from the digest.
+package contents invalidate previous evidence. The digest covers the `docassemble/`
+directory and top-level `LICENSE`, `MANIFEST.in`, `README.md`, `pyproject.toml`,
+`setup.cfg`, and `setup.py`. Hidden files/directories, Python bytecode, and that
+evidence filename are excluded, so reports and local build output do not
+invalidate reviews.
 Earlier `scenario_testing`, `template_review`, and `accessibility_review`
 attestations are no longer required gates; they are not substitutes for the new
 static interview-flow review.
