@@ -166,6 +166,37 @@ def test_text_docassemble_does_not_compile_as_mako_is_ignored(line):
     assert mako_findings(source) == []
 
 
+@pytest.mark.parametrize(
+    "source,location,line_number",
+    [
+        (
+            "attachment:\n  name: ok\n  docx template file: a.docx\n  fields:\n"
+            "    <<: *shared\n    other: fine\n",
+            "attachment.fields.title",
+            8,
+        ),
+        (
+            "attachment:\n  name: ok\n  docx template file: a.docx\n  fields:\n"
+            "    <<: *shared\n",
+            "attachment.fields.title",
+            8,
+        ),
+        (
+            "attachment:\n  <<: *shared_name\n  content: x\n",
+            "attachment.name",
+            5,
+        ),
+    ],
+)
+def test_merged_values_report_the_merge_line(source, location, line_number):
+    shared = "shared: &shared\n  title: ${ a b }\n"
+    if "shared_name" in source:
+        shared = "shared: &shared_name\n  name: ${ a b }\n"
+    (finding,) = mako_findings("question: Document\n" + shared + source)
+    assert finding.context["location"] == location
+    assert finding.line_number == line_number
+
+
 def test_compiling_does_not_run_module_level_blocks():
     source = (
         "question: Document\nattachment:\n  name: ok\n  content: |\n"

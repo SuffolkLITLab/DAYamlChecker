@@ -2115,10 +2115,14 @@ def _yaml_path_line(root: Any, path: tuple[Any, ...], text_line: int) -> int:
     for part in path[:-1]:
         parent = parent[part]
     last = path[-1]
-    if isinstance(last, int):
-        value_line = parent.lc.item(last)[0]
-    else:
-        value_line = parent.lc.value(last)[0]
+    try:
+        if isinstance(last, int):
+            value_line = parent.lc.item(last)[0]
+        else:
+            value_line = parent.lc.value(last)[0]
+    except (KeyError, TypeError):
+        # A key inherited through `<<:` has no position of its own.
+        return parent.lc.line
     if isinstance(parent[last], LiteralScalarString):
         return value_line + text_line
     return value_line
