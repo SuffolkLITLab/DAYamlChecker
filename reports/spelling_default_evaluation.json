@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-07",
+  "corpus": "~/all_interviews",
+  "default_configuration": {
+    "spellcheck_enabled": true,
+    "severity": "warning",
+    "languages": [
+      "en"
+    ]
+  },
+  "english": {
+    "summary": {
+      "files_discovered": 180,
+      "files_parsed": 180,
+      "blocks": 5231,
+      "text_entries": 9805,
+      "raw_word_tokens": 155550,
+      "parse_or_render_issues": 0,
+      "elapsed_seconds": 5.97,
+      "baseline": {
+        "warnings": 2979,
+        "unique_words": 394,
+        "files_with_warnings": 135
+      },
+      "filtered": {
+        "warnings": 50,
+        "unique_words": 39,
+        "files_with_warnings": 31
+      }
+    },
+    "previously_reviewed_typos": 44,
+    "new_legal_spelling_recommendations": 5,
+    "reviewed_false_positives": 1
+  },
+  "mixed": {
+    "languages": [
+      "en",
+      "es"
+    ],
+    "summary": {
+      "files_discovered": 180,
+      "files_parsed": 180,
+      "blocks": 5231,
+      "text_entries": 9809,
+      "raw_word_tokens": 155856,
+      "parse_or_render_issues": 0,
+      "elapsed_seconds": 6.79,
+      "baseline": {
+        "warnings": 2824,
+        "unique_words": 366,
+        "files_with_warnings": 134
+      },
+      "filtered": {
+        "warnings": 49,
+        "unique_words": 38,
+        "files_with_warnings": 31
+      }
+    },
+    "previously_reviewed_typos": 44,
+    "new_legal_spelling_recommendations": 5,
+    "reviewed_false_positives": 0
+  },
+  "new_legal_spelling_findings": [
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/section-iv.yml",
+      "line": 359,
+      "word": "judgements",
+      "suggestion": "judgments",
+      "location": "fields[2].first_key",
+      "screen_id": "assets amounts",
+      "snippet": "Value of all judgements or settlements"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppellantBriefForm/docassemble/MAInformalAppellantBriefForm/data/questions/appellant_brief.yml",
+      "line": 496,
+      "word": "judgement",
+      "suggestion": "judgment",
+      "location": "question",
+      "screen_id": "Challenged judgments",
+      "snippet": "What order(s), decision(s), and judgement(s) are you challenging?"
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 182,
+      "word": "judgement",
+      "suggestion": "judgment",
+      "location": "subquestion",
+      "screen_id": "call the clerk",
+      "snippet": "Call the clerk at the Ask the clerk how you can get a copy of the judgement. If you cannot get an actual copy you will need the following information: * The plaintiff's name in your case * Th"
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 209,
+      "word": "judgement",
+      "suggestion": "judgment",
+      "location": "subquestion",
+      "screen_id": "original date",
+      "snippet": ", look at the judgment you got. Look for the line that tells you the Date the judgement was entered."
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 445,
+      "word": "Judgement",
+      "suggestion": "Judgment",
+      "location": "subquestion",
+      "screen_id": "download",
+      "snippet": "your answer to give to the court with this Motion to Remove Default and Vacate Judgement. Print or save your documents and the instructions. The instructions sheet includes your next steps."
+    }
+  ],
+  "previous_findings_removed": [],
+  "assessment": "All five new findings use judgement/judgements for court judgments and match the requested US legal spelling preference. No HIPPA occurrences were found in visible corpus text; that correction is covered by targeted tests. The previous warning sets are preserved. English-Spanish still suppresses only Urbana via dictionary acceptance. These are reviewed in-sample results, not independent accuracy estimates.",
+  "commands": [
+    "python scripts/evaluate_spelling.py ~/all_interviews --output /tmp/spelling-default-en.json",
+    "python scripts/evaluate_spelling.py ~/all_interviews --language en --language es --output /tmp/spelling-default-mixed.json"
+  ]
+}

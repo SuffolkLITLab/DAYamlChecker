@@ -178,3 +178,6 @@ uv.lock
 /finish_prs.py
 /create_prs.sh
 /push_all.sh
+
+# Local readiness/style evaluation runs (large; summarized in docs/readiness-validation.md)
+/evaluations/
