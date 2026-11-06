@@ -721,6 +721,7 @@ class DAFields:
     def __init__(self, x):
         self.errors = []
         self.has_dynamic_fields_code = False
+        self.dynamic_field_objects: set[str] = set()
         if isinstance(x, dict):
             if "code" not in x:
                 self.errors = [draft(MessageId.FIELDS_DICT_KEYS, value_repr=repr(x))]
@@ -816,6 +817,22 @@ class DAFields:
                     return True
             return False
 
+        def report_unknown_variable(variable, message_id, partial_message_id):
+            if self._is_on_dynamic_field_object(variable):
+                return
+            self.errors.append(
+                draft(
+                    (
+                        partial_message_id
+                        if self.has_dynamic_fields_code
+                        else message_id
+                    ),
+                    line_number=self._line_for(field_item),
+                    modifier_key=modifier_key,
+                    variable=variable,
+                )
+            )
+
         if isinstance(modifier_value, dict):
             if "variable" in modifier_value and "code" not in modifier_value:
                 ref_var = modifier_value.get("variable")
@@ -829,13 +846,10 @@ class DAFields:
                         )
                     )
                 elif not references_screen_variable(ref_var):
-                    self.errors.append(
-                        draft(
-                            MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT,
-                            line_number=self._line_for(field_item),
-                            modifier_key=modifier_key,
-                            variable=ref_var,
-                        )
+                    report_unknown_variable(
+                        ref_var,
+                        MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT,
+                        MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT_PARTIAL,
                     )
                 if "is" not in modifier_value:
                     displayed_keys = [
@@ -907,13 +921,10 @@ class DAFields:
                 )
         elif isinstance(modifier_value, str) and ":" not in modifier_value:
             if not references_screen_variable(modifier_value):
-                self.errors.append(
-                    draft(
-                        MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING,
-                        line_number=self._line_for(field_item),
-                        modifier_key=modifier_key,
-                        variable=modifier_value,
-                    )
+                report_unknown_variable(
+                    modifier_value,
+                    MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING,
+                    MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING_PARTIAL,
                 )
 
     def _find_screen_variable_references_in_code(self, code_text, screen_variables):
@@ -933,14 +944,43 @@ class DAFields:
                 matches.add(screen_var)
         return matches
 
+    def _is_on_dynamic_field_object(self, var_expr):
+        """Whether var_expr belongs to an object whose method builds fields here.
+
+        `- code: person.name_fields()` can add `person.person_type` to the
+        screen, so a condition on that variable cannot be called undefined.
+        """
+        return any(
+            _normalize_expr(candidate) in self.dynamic_field_objects
+            for candidate in self._variable_candidates(var_expr)
+        )
+
+    def _dynamic_field_method_receivers(self, code_text):
+        try:
+            tree = ast.parse(code_text)
+        except SyntaxError:
+            return set()
+        return {
+            _normalize_expr(ast.unparse(node.func.value))
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+
     def _validate_field_modifiers(self, fields_list):
-        self.has_dynamic_fields_code = any(  # looking for any example in the field list. Note that there can be `code` and traditional non-code mixed in the same field list
-            isinstance(field_item, dict)
+        dynamic_field_items = [  # Note that there can be `code` and traditional non-code mixed in the same field list
+            field_item
+            for field_item in fields_list
+            if isinstance(field_item, dict)
             and "code" in field_item
             and len(set(field_item.keys()) - {"code", "__line__"})
             == 0  # "code" is the only key other than __line__, so this is a dynamic fields block
-            for field_item in fields_list
-        )
+        ]
+        self.has_dynamic_fields_code = bool(dynamic_field_items)
+        for field_item in dynamic_field_items:
+            if isinstance(field_item["code"], str):
+                self.dynamic_field_objects |= self._dynamic_field_method_receivers(
+                    field_item["code"]
+                )
         screen_variables = set()
         for field_item in fields_list:
             field_var_name = self._extract_field_name(field_item)

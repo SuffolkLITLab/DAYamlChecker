@@ -76,11 +76,17 @@ class MessageId(StrEnum):
     FIELD_EMPTY_VARIABLE_TARGET = "field_empty_variable_target"
     FIELD_MODIFIER_VARIABLE_TYPE = "field_modifier_variable_type"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT = "field_modifier_unknown_variable_dict"
+    FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT_PARTIAL = (
+        "field_modifier_unknown_variable_dict_partial"
+    )
     FIELD_MODIFIER_CODE_ERROR = "field_modifier_code_error"
     FIELD_MODIFIER_SAME_SCREEN_CODE = "field_modifier_same_screen_code"
     FIELD_MODIFIER_DICT_KEYS = "field_modifier_dict_keys"
     FIELD_MODIFIER_MISSING_IS = "field_modifier_missing_is"
     FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING = "field_modifier_unknown_variable_string"
+    FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING_PARTIAL = (
+        "field_modifier_unknown_variable_string_partial"
+    )
     FIELD_MODIFIER_CASE = "field_modifier_case"
     MISSING_QUESTION_ID = "missing_question_id"
     MULTIPLE_MANDATORY_BLOCKS = "multiple_mandatory_blocks"
@@ -710,6 +716,19 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "Use {modifier_key}: {{ code: ... }} instead for variables from previous screens"
         ),
     ),
+    MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_DICT_PARTIAL: MessageDefinition(
+        code="WG408",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Field modifier variable could not be fully validated",
+        template=(
+            '{modifier_key}: variable "{variable}" is not defined in the fields listed on '
+            "this screen (unable to fully validate screen variables because this "
+            "screen uses fields: code). Keep this condition if the code generates "
+            "that field; use {modifier_key}: {{ code: ... }} only for a variable "
+            "from a previous screen"
+        ),
+    ),
     MessageId.FIELD_MODIFIER_CODE_ERROR: MessageDefinition(
         code="EG409",
         severity=Severity.ERROR,
@@ -754,6 +773,19 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         template=(
             '{modifier_key}: "{variable}" is not defined on this screen. Use '
             "{modifier_key}: {{ code: ... }} instead for variables from previous screens"
+        ),
+    ),
+    MessageId.FIELD_MODIFIER_UNKNOWN_VARIABLE_STRING_PARTIAL: MessageDefinition(
+        code="WG412",
+        severity=Severity.WARNING,
+        finding_class=FindingClass.GENERAL,
+        summary="Field modifier shorthand could not be fully validated",
+        template=(
+            '{modifier_key}: "{variable}" is not defined in the fields listed on '
+            "this screen (unable to fully validate screen variables because this "
+            "screen uses fields: code). Keep this condition if the code generates "
+            "that field; use {modifier_key}: {{ code: ... }} only for a variable "
+            "from a previous screen"
         ),
     ),
     MessageId.FIELD_MODIFIER_CASE: MessageDefinition(

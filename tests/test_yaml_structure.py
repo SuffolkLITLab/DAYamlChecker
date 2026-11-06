@@ -1409,6 +1409,89 @@ fields:
             f"Expected downgraded warning for dynamic fields: code, got: {errs}",
         )
 
+    def test_show_if_on_object_generating_fields_with_code_is_accepted(self):
+        """A generated field on the code's object is not an undefined variable"""
+        generated = """
+question: |
+  Who is the other party?
+fields:
+  - code: |
+      other_parties[0].name_fields(person_or_business="unsure")
+  - "Contact person": other_parties[0].contact_person_name
+    show if:
+      variable: other_parties[0].person_type
+      is: business
+  - "Business notes": other_parties[0].business_notes
+    show if: other_parties[0].is_business
+  - "Keyed notes": parties["other"].notes
+    hide if:
+      variable: parties['other'].person_type
+      is: individual
+  - code: |
+      parties["other"].name_fields()
+"""
+        errs = find_errors_from_string(generated, input_file="<string_generated>")
+        self.assertEqual(
+            [],
+            [e for e in errs if e.code in {"EG408", "EG412", "WG408", "WG412"}],
+        )
+
+    def test_show_if_unrelated_to_field_code_object_warns(self):
+        """Other variables are unverifiable, so warn without recommending code:"""
+        for modifier, expected_code in (
+            (
+                "show if:\n      variable: other_parties[1].person_type\n      is: x",
+                "WG408",
+            ),
+            ("show if: spouse.person_type", "WG412"),
+        ):
+            with self.subTest(expected_code=expected_code):
+                unrelated = f"""
+question: |
+  Who is the other party?
+fields:
+  - code: |
+      other_parties[0].name_fields()
+  - "Contact person": contact_person_name
+    {modifier}
+"""
+                errs = find_errors_from_string(unrelated, input_file="<string_warn>")
+                finding = next(e for e in errs if e.code == expected_code)
+                self.assertIn(
+                    "unable to fully validate screen variables", finding.err_str
+                )
+                self.assertIn("Keep this condition", finding.err_str)
+                self.assertFalse(_has_code(errs, "EG408"))
+                self.assertFalse(_has_code(errs, "EG412"))
+
+    def test_show_if_with_field_code_list_without_method_call_warns(self):
+        """A plain variable of field definitions names no generating object"""
+        field_list = """
+question: |
+  Who is the other party?
+fields:
+  - code: generated_field_list
+  - "Contact person": contact_person_name
+    show if: person_type
+"""
+        errs = find_errors_from_string(field_list, input_file="<string_warn>")
+        self.assertTrue(_has_code(errs, "WG412"), f"Got: {errs}")
+
+    def test_show_if_unknown_variable_without_field_code_is_still_an_error(self):
+        """Screens with only static fields keep the strict same-screen check"""
+        static = """
+question: |
+  Who is the other party?
+fields:
+  - "Name": other_parties[0].name
+  - "Contact person": other_parties[0].contact_person_name
+    show if:
+      variable: other_parties[0].person_type
+      is: business
+"""
+        errs = find_errors_from_string(static, input_file="<string_error>")
+        self.assertTrue(_has_code(errs, "EG408"), f"Got: {errs}")
+
     def test_js_show_if_unquoted_val_dot_argument(self):
         """Error when val() uses unquoted dotted argument"""
         invalid = """
