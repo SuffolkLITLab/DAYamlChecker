@@ -298,6 +298,18 @@ To globally suppress findings across all files being checked, pass a comma-separ
 python3 -m dayamlchecker --suppress accessibility,EG101 path/to/interview.yml
 ```
 
+## Attachment Mako checks
+
+Normal validation compiles the Mako in `attachment` and `attachments` text, including
+nested `fields` and `metadata` values. A syntax or compile failure reports EG111 or
+EG112 with the file line, the YAML path and the offending expression. These are
+errors even with `skip undefined: True`, and they block `--readiness`.
+
+Interview code is not rendered or run, so valid expressions pass without their
+variables being defined. Like docassemble, the check skips text without a Mako marker,
+so a value such as `% of income` stays plain text. It does not read external
+`content file` or template files.
+
 ## WCAG checks
 
 The checker includes WCAG-style checks for clear static accessibility failures in interview source. These checks run by default; use `--no-wcag` to disable them.
