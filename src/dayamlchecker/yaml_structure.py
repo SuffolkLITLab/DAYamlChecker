@@ -2125,7 +2125,7 @@ def _yaml_path_line(root: Any, path: tuple[Any, ...], text_line: Optional[int]) 
         parent = parent[part]
     last = path[-1]
     try:
-        if isinstance(parent, list):
+        if isinstance(parent, CommentedSeq):
             value_line = parent.lc.item(last)[0]
         else:
             value_line = parent.lc.value(last)[0]
@@ -2153,7 +2153,10 @@ def _find_attachment_mako_errors(
     root = _make_yaml_parser().load(source_code)
     findings = []
     for path, text, message_id, text_line, error in failures:
-        context = {"location": _yaml_path_label(root, path), "error": error}
+        context: dict[str, Any] = {
+            "location": _yaml_path_label(root, path),
+            "error": error,
+        }
         if text_line is not None:
             lines = text.splitlines()
             expression = lines[text_line - 1] if text_line <= len(lines) else text
