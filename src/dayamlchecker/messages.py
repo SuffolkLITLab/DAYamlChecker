@@ -35,6 +35,8 @@ class MessageId(StrEnum):
     MAKO_MALFORMED_MARKDOWN_LINK = "mako_malformed_markdown_link"
     FIELD_VALUE_MAKO_SYNTAX_ERROR = "field_value_mako_syntax_error"
     FIELD_VALUE_MAKO_COMPILE_ERROR = "field_value_mako_compile_error"
+    ATTACHMENT_MAKO_SYNTAX_ERROR = "attachment_mako_syntax_error"
+    ATTACHMENT_MAKO_COMPILE_ERROR = "attachment_mako_compile_error"
 
     PYTHON_CODE_TYPE = "python_code_type"
     PYTHON_SYNTAX_ERROR = "python_syntax_error"
@@ -410,6 +412,28 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
         finding_class=FindingClass.GENERAL,
         summary="Mako compile error",
         template="{field_key} value has {error}",
+    ),
+    MessageId.ATTACHMENT_MAKO_SYNTAX_ERROR: MessageDefinition(
+        code="EG111",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Invalid Mako syntax",
+        template=(
+            "{location} has invalid Mako in `{expression}`: {error}. docassemble "
+            "compiles this text before assembling the document, so "
+            "`skip undefined` cannot repair it"
+        ),
+    ),
+    MessageId.ATTACHMENT_MAKO_COMPILE_ERROR: MessageDefinition(
+        code="EG112",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Mako compile error",
+        template=(
+            "{location} has invalid Mako in `{expression}`: {error}. docassemble "
+            "compiles this text before assembling the document, so "
+            "`skip undefined` cannot repair it"
+        ),
     ),
     MessageId.PYTHON_CODE_TYPE: MessageDefinition(
         code="EG121",

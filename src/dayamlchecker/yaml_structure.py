@@ -34,14 +34,18 @@ from dayamlchecker.spelling import (
     find_spelling_findings,
     options_from_cli,
 )
+from mako import codegen as mako_codegen  # type: ignore[import-untyped]
+from mako.lexer import Lexer as MakoLexer  # type: ignore[import-untyped]
 from mako.template import Template as MakoTemplate  # type: ignore[import-untyped]
 from mako.exceptions import (  # type: ignore[import-untyped]
     SyntaxException,
     CompileException,
+    MakoException,
 )
 import esprima  # type: ignore[import-untyped]
 from dayamlchecker._jinja import is_unknown_jinja_value, uses_jinja
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import MarkedYAMLError
 from dayamlchecker.check_questions_urls import (
@@ -2008,6 +2012,150 @@ def _find_unmatched_attachment_content_references(
     return unmatched
 
 
+# Attachment properties docassemble builds TextObjects from. The others hold file
+# references, Python, or plain options. See process_attachment in docassemble's parse.py.
+_ATTACHMENT_MAKO_KEYS = frozenset(
+    {
+        "checkbox export value",
+        "content",
+        "decimal places",
+        "description",
+        "fields",
+        "filename",
+        "hyperlink style",
+        "metadata",
+        "name",
+        "owner password",
+        "password",
+        "rendering font",
+        "template password",
+    }
+)
+# docassemble's match_mako: other text is never compiled, so a PDF field value of
+# "% of income" is plain text even though Mako would reject it as a control line.
+_DOCASSEMBLE_MAKO_RE = re.compile(r"<%|\${|% if|% for|% while|##")
+
+
+def _compile_mako_without_running(text: str) -> None:
+    """Compile Mako as Template() does, without Template()'s exec of the module.
+
+    That exec would run any `<%! %>` block in the interview being checked.
+    """
+    node = MakoLexer(text, input_encoding="utf-8").parse()
+    source = mako_codegen.compile(
+        node,
+        "attachment",
+        default_filters=["str"],
+        strict_undefined=True,
+        reserved_names=mako_codegen.RESERVED_NAMES,
+    )
+    compile(source, "<attachment mako>", "exec")
+
+
+def _attachment_mako_failure(text: str) -> Optional[tuple[MessageId, int, str]]:
+    """Return (message, line in text, diagnostic), or None if text compiles."""
+    try:
+        _compile_mako_without_running(text)
+    except SyntaxException as ex:
+        return MessageId.ATTACHMENT_MAKO_SYNTAX_ERROR, ex.lineno or 1, str(ex)
+    except MakoException as ex:
+        line = getattr(ex, "lineno", None) or 1
+        return MessageId.ATTACHMENT_MAKO_COMPILE_ERROR, line, str(ex)
+    except SyntaxError as ex:
+        # Rejected in Mako's generated module, so ex.lineno is not a line of text.
+        return MessageId.ATTACHMENT_MAKO_COMPILE_ERROR, 1, str(ex.msg)
+    return None
+
+
+def _iter_text_values(
+    value: Any, path: tuple[Any, ...]
+) -> Iterator[tuple[tuple[Any, ...], str]]:
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != "__line__":
+                yield from _iter_text_values(item, (*path, key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _iter_text_values(item, (*path, index))
+
+
+def _iter_attachment_mako_text(
+    doc: dict[str, Any],
+) -> Iterator[tuple[tuple[Any, ...], str]]:
+    for block_key in ("attachment", "attachments"):
+        original_key = _lowercase_key_map(doc).get(block_key)
+        if original_key is None:
+            continue
+        block = doc[original_key]
+        attachments: list[tuple[tuple[Any, ...], Any]] = [((original_key,), block)]
+        if isinstance(block, list):
+            attachments = [
+                ((original_key, index), item) for index, item in enumerate(block)
+            ]
+        for path, attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            for key, value in attachment.items():
+                if isinstance(key, str) and key.lower() in _ATTACHMENT_MAKO_KEYS:
+                    yield from _iter_text_values(value, (*path, key))
+
+
+def _yaml_path_label(path: tuple[Any, ...]) -> str:
+    label = str(path[0])
+    for part in path[1:]:
+        label += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return label
+
+
+def _yaml_path_line(root: Any, path: tuple[Any, ...], text_line: int) -> int:
+    """Return the 0-based line of a text line in the value at path."""
+    parent = root
+    for part in path[:-1]:
+        parent = parent[part]
+    last = path[-1]
+    if isinstance(last, int):
+        value_line = parent.lc.item(last)[0]
+    else:
+        value_line = parent.lc.value(last)[0]
+    if isinstance(parent[last], LiteralScalarString):
+        return value_line + text_line
+    return value_line
+
+
+def _find_attachment_mako_errors(
+    doc: dict[str, Any], source_code: str, document_start_line: int, input_file: str
+) -> list[YAMLError]:
+    failures = []
+    for path, text in _iter_attachment_mako_text(doc):
+        if _DOCASSEMBLE_MAKO_RE.search(text):
+            failure = _attachment_mako_failure(text)
+            if failure is not None:
+                failures.append((path, text, *failure))
+    if not failures:
+        return []
+
+    # Only failures need source positions, which the parsed document no longer has.
+    root = _make_yaml_parser().load(source_code)
+    findings = []
+    for path, text, message_id, text_line, error in failures:
+        lines = text.splitlines()
+        expression = lines[text_line - 1] if text_line <= len(lines) else text
+        findings.append(
+            make_finding(
+                message_id,
+                file_name=input_file,
+                line_number=document_start_line
+                + _yaml_path_line(root, path, text_line),
+                location=_yaml_path_label(path),
+                expression=_shorten(expression.strip()),
+                error=error,
+            )
+        )
+    return findings
+
+
 def _find_unmatched_interview_order_references(
     doc: dict[str, Any], conditional_fields: list[dict[str, Any]]
 ) -> list[tuple[str, int]]:
@@ -2427,6 +2575,10 @@ def _find_errors_from_yaml(
                             + line_number,
                         )
                     )
+
+        all_errors.extend(
+            _find_attachment_mako_errors(doc, source_code, line_number, input_file)
+        )
 
         block_id = _get_case_insensitive(doc, "id")
         if isinstance(block_id, str) and block_id.strip():
