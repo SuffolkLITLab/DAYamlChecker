@@ -37,6 +37,7 @@ class MessageId(StrEnum):
     FIELD_VALUE_MAKO_COMPILE_ERROR = "field_value_mako_compile_error"
     ATTACHMENT_MAKO_SYNTAX_ERROR = "attachment_mako_syntax_error"
     ATTACHMENT_MAKO_COMPILE_ERROR = "attachment_mako_compile_error"
+    ATTACHMENT_MAKO_UNLOCATED_ERROR = "attachment_mako_unlocated_error"
 
     PYTHON_CODE_TYPE = "python_code_type"
     PYTHON_SYNTAX_ERROR = "python_syntax_error"
@@ -433,6 +434,16 @@ MESSAGE_DEFINITIONS: dict[str, MessageDefinition] = {
             "{location} has invalid Mako in `{expression}`: {error}. docassemble "
             "compiles this text before assembling the document, so "
             "`skip undefined` cannot repair it"
+        ),
+    ),
+    MessageId.ATTACHMENT_MAKO_UNLOCATED_ERROR: MessageDefinition(
+        code="EG112",
+        severity=Severity.ERROR,
+        finding_class=FindingClass.GENERAL,
+        summary="Mako compile error",
+        template=(
+            "{location} has invalid Mako: {error}. docassemble compiles this text "
+            "before assembling the document, so `skip undefined` cannot repair it"
         ),
     ),
     MessageId.PYTHON_CODE_TYPE: MessageDefinition(

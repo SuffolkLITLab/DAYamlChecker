@@ -2052,18 +2052,21 @@ def _compile_mako_without_running(text: str) -> None:
     compile(source, "<attachment mako>", "exec")
 
 
-def _attachment_mako_failure(text: str) -> Optional[tuple[MessageId, int, str]]:
-    """Return (message, line in text, diagnostic), or None if text compiles."""
+def _attachment_mako_failure(
+    text: str,
+) -> Optional[tuple[MessageId, Optional[int], str]]:
+    """Return (message, line in text if known, diagnostic), or None if text compiles."""
     try:
         _compile_mako_without_running(text)
     except SyntaxException as ex:
         return MessageId.ATTACHMENT_MAKO_SYNTAX_ERROR, ex.lineno or 1, str(ex)
+    except CompileException as ex:
+        return MessageId.ATTACHMENT_MAKO_COMPILE_ERROR, ex.lineno or 1, str(ex)
     except MakoException as ex:
-        line = getattr(ex, "lineno", None) or 1
-        return MessageId.ATTACHMENT_MAKO_COMPILE_ERROR, line, str(ex)
+        return MessageId.ATTACHMENT_MAKO_UNLOCATED_ERROR, None, str(ex)
     except SyntaxError as ex:
         # Rejected in Mako's generated module, so ex.lineno is not a line of text.
-        return MessageId.ATTACHMENT_MAKO_COMPILE_ERROR, 1, str(ex.msg)
+        return MessageId.ATTACHMENT_MAKO_UNLOCATED_ERROR, None, str(ex.msg)
     return None
 
 
@@ -2102,28 +2105,34 @@ def _iter_attachment_mako_text(
                     yield from _iter_text_values(value, (*path, key))
 
 
-def _yaml_path_label(path: tuple[Any, ...]) -> str:
+def _yaml_path_label(root: Any, path: tuple[Any, ...]) -> str:
     label = str(path[0])
+    node = root[path[0]]
     for part in path[1:]:
-        label += f"[{part}]" if isinstance(part, int) else f".{part}"
+        # Mappings can have integer keys, so only the container identifies an index.
+        label += f"[{part}]" if isinstance(node, list) else f".{part}"
+        node = node[part]
     return label
 
 
-def _yaml_path_line(root: Any, path: tuple[Any, ...], text_line: int) -> int:
-    """Return the 0-based line of a text line in the value at path."""
+def _yaml_path_line(root: Any, path: tuple[Any, ...], text_line: Optional[int]) -> int:
+    """Return the 0-based line of a text line in the value at path.
+
+    Without a text line, this is the line that starts the value.
+    """
     parent = root
     for part in path[:-1]:
         parent = parent[part]
     last = path[-1]
     try:
-        if isinstance(last, int):
+        if isinstance(parent, list):
             value_line = parent.lc.item(last)[0]
         else:
             value_line = parent.lc.value(last)[0]
     except (KeyError, TypeError):
         # A key inherited through `<<:` has no position of its own.
         return parent.lc.line
-    if isinstance(parent[last], LiteralScalarString):
+    if text_line is not None and isinstance(parent[last], LiteralScalarString):
         return value_line + text_line
     return value_line
 
@@ -2144,17 +2153,18 @@ def _find_attachment_mako_errors(
     root = _make_yaml_parser().load(source_code)
     findings = []
     for path, text, message_id, text_line, error in failures:
-        lines = text.splitlines()
-        expression = lines[text_line - 1] if text_line <= len(lines) else text
+        context = {"location": _yaml_path_label(root, path), "error": error}
+        if text_line is not None:
+            lines = text.splitlines()
+            expression = lines[text_line - 1] if text_line <= len(lines) else text
+            context["expression"] = _shorten(expression.strip())
         findings.append(
             make_finding(
                 message_id,
                 file_name=input_file,
                 line_number=document_start_line
                 + _yaml_path_line(root, path, text_line),
-                location=_yaml_path_label(path),
-                expression=_shorten(expression.strip()),
-                error=error,
+                **context,
             )
         )
     return findings

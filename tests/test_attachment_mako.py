@@ -137,8 +137,6 @@ def test_valid_multiline_and_literal_mako_passes(content):
         ("% if a:\nnever closed", "EG111", 5),
         ("${ unterminated", "EG111", 5),
         ("<%foo>", "EG112", 5),
-        ("% for loop in items:\nx\n% endfor", "EG112", 5),
-        ("<%! return %>", "EG112", 5),
     ],
 )
 def test_invalid_multiline_mako_fails(content, code, line_number):
@@ -146,6 +144,44 @@ def test_invalid_multiline_mako_fails(content, code, line_number):
     source = f"question: Document\nattachment:\n  name: ok\n  content: |\n{indented}\n"
     (finding,) = mako_findings(source)
     assert finding.code == code
+    assert finding.line_number == line_number
+
+
+@pytest.mark.parametrize(
+    "bad_line,error",
+    [
+        ("<%! return %>", "outside function"),
+        ("% for loop in items:\n    % endfor", "Reserved"),
+    ],
+)
+def test_failure_without_a_text_line_does_not_blame_other_text(bad_line, error):
+    source = (
+        "question: Document\nattachment:\n  name: ok\n  content: |\n"
+        f"    Welcome.\n    Valid text.\n    {bad_line}\n"
+    )
+    (finding,) = mako_findings(source)
+    assert finding.code == "EG112"
+    assert finding.line_number == 4
+    assert "expression" not in finding.context
+    assert "Welcome" not in finding.err_str
+    assert error in finding.err_str
+
+
+@pytest.mark.parametrize(
+    "value,line_number",
+    [
+        (" ${ a b }", 6),
+        ("\n      ${ a b }", 7),
+        (" |\n      ok\n      ${ a b }", 8),
+    ],
+)
+def test_integer_mapping_keys_are_not_treated_as_list_indexes(value, line_number):
+    source = (
+        "question: Document\nattachment:\n  name: ok\n"
+        f"  docx template file: a.docx\n  fields:\n    1:{value}\n"
+    )
+    (finding,) = mako_findings(source)
+    assert finding.context["location"] == "attachment.fields.1"
     assert finding.line_number == line_number
 
 
@@ -212,6 +248,23 @@ def test_question_mako_errors_are_reported_once():
     assert sum("attachment.name" in finding.err_str for finding in findings) == 1
 
 
+@pytest.mark.parametrize(
+    "name,code",
+    [("${ a b }", "EG111"), ("<%foo>", "EG112")],
+)
+def test_attachment_mako_errors_can_be_suppressed(tmp_path, capsys, name, code):
+    path = tmp_path / "interview.yml"
+    source = "question: Document\nattachment:\n  name: {name}{comment}\n  content: x\n"
+
+    path.write_text(source.format(name=name, comment=f" # no-dayc: {code}"))
+    assert main([str(path), "--no-url-check"]) == 0
+    assert code not in capsys.readouterr().out
+
+    path.write_text(source.format(name=name, comment=""))
+    assert main([str(path), "--no-url-check", "--suppress", code]) == 0
+    assert code not in capsys.readouterr().out
+
+
 def test_cli_reports_attachment_mako_error(tmp_path, capsys):
     path = tmp_path / "interview.yml"
     path.write_text(ATTACHMENT.format(expression=BAD_EXPRESSION))
@@ -225,7 +278,16 @@ def test_cli_reports_attachment_mako_error(tmp_path, capsys):
     assert "EG111" not in capsys.readouterr().out
 
 
-def test_readiness_gates_on_attachment_mako_error(tmp_path, capsys):
+@pytest.mark.parametrize(
+    "bad_expression,message_id",
+    [
+        (BAD_EXPRESSION, "attachment_mako_syntax_error"),
+        ("<%foo>", "attachment_mako_compile_error"),
+    ],
+)
+def test_readiness_gates_on_attachment_mako_error(
+    tmp_path, capsys, bad_expression, message_id
+):
     path = tmp_path / "docassemble/demo/data/questions/main.yml"
     path.parent.mkdir(parents=True)
     source = (
@@ -244,10 +306,9 @@ def test_readiness_gates_on_attachment_mako_error(tmp_path, capsys):
         return [
             finding
             for finding in report["findings"]
-            if finding["message_id"] == "attachment_mako_syntax_error"
-            and finding["release_gate"]
+            if finding["message_id"] == message_id and finding["release_gate"]
         ]
 
     assert mako_gates(run_readiness(GOOD_EXPRESSION)) == []
-    (gate,) = mako_gates(run_readiness(BAD_EXPRESSION))
+    (gate,) = mako_gates(run_readiness(bad_expression))
     assert gate["line_number"] == 20
