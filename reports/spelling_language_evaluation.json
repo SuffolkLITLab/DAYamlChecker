@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-07",
+  "corpus": "~/all_interviews",
+  "english": {
+    "languages": [
+      "en"
+    ],
+    "summary": {
+      "files_discovered": 180,
+      "files_parsed": 180,
+      "blocks": 5231,
+      "text_entries": 9805,
+      "raw_word_tokens": 155550,
+      "parse_or_render_issues": 0,
+      "elapsed_seconds": 6.06,
+      "baseline": {
+        "warnings": 2979,
+        "unique_words": 394,
+        "files_with_warnings": 135
+      },
+      "filtered": {
+        "warnings": 45,
+        "unique_words": 37,
+        "files_with_warnings": 30
+      }
+    },
+    "reviewed_typos": 44,
+    "reviewed_false_positives": 1
+  },
+  "mixed": {
+    "languages": [
+      "en",
+      "es"
+    ],
+    "summary": {
+      "files_discovered": 180,
+      "files_parsed": 180,
+      "blocks": 5231,
+      "text_entries": 9809,
+      "raw_word_tokens": 155856,
+      "parse_or_render_issues": 0,
+      "elapsed_seconds": 6.76,
+      "baseline": {
+        "warnings": 2824,
+        "unique_words": 366,
+        "files_with_warnings": 134
+      },
+      "filtered": {
+        "warnings": 44,
+        "unique_words": 36,
+        "files_with_warnings": 30
+      }
+    },
+    "reviewed_typos": 44,
+    "reviewed_false_positives": 0
+  },
+  "removed_warnings": [
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 892,
+      "word": "Urbana",
+      "location": "subquestion",
+      "screen_id": "organizing",
+      "snippet": "nant unions that cover the city the tenant lives in: #### City Life/Vida Urbana 284 Amory Street, First Floor, Jamaica Plain, MA 02130 #### La Colaborativa / Chelsea Collaborative 318 Broad"
+    }
+  ],
+  "added_warnings": [],
+  "assessment": "English warnings exactly match the previous contextual review. The mixed-language run removes only Urbana, an ordinary Spanish word in the organization name City Life/Vida Urbana. All remaining warnings are the same 44 previously reviewed likely typos. This is an in-sample comparison, not an independent accuracy measurement. Additional dictionaries can hide real typos that are valid words in another language.",
+  "commands": [
+    "python scripts/evaluate_spelling.py ~/all_interviews --output /tmp/spelling-en.json",
+    "python scripts/evaluate_spelling.py ~/all_interviews --language en --language es --output /tmp/spelling-mixed.json"
+  ]
+}

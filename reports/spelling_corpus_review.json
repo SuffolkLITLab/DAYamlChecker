@@ -1,0 +1,1339 @@
+{
+  "date": "2026-10-07",
+  "corpus": "~/all_interviews",
+  "scope": "180 YAML files discovered using normal checker directory exclusions; eight data/sources YAML files excluded. Visible screen text and template content only, with English eligibility filters. No corpus files modified.",
+  "dictionary": "Spylls 0.1.7 bundled en_US Hunspell dictionary plus data/spelling_words.txt",
+  "default_run": {
+    "files_discovered": 180,
+    "files_parsed": 180,
+    "blocks": 5231,
+    "text_entries": 9805,
+    "raw_word_tokens": 155550,
+    "parse_or_render_issues": 0,
+    "elapsed_seconds": 5.57,
+    "baseline": {
+      "warnings": 2979,
+      "unique_words": 394,
+      "files_with_warnings": 135
+    },
+    "filtered": {
+      "warnings": 45,
+      "unique_words": 37,
+      "files_with_warnings": 30
+    }
+  },
+  "review": {
+    "reviewer": "Codex manual contextual review",
+    "baseline_sample_size": 100,
+    "baseline_sample_seed": 20261007,
+    "baseline_sample_false_positives": 99,
+    "baseline_sample_typos": 1,
+    "default_warnings_reviewed": 45,
+    "default_false_positives": 1,
+    "default_typos": 44,
+    "default_unique_typo_words": 36,
+    "notes": [
+      "There is no corpus-specific name allowlist in this pass.",
+      "Capitalized geographic choice labels are suppressed using field labels, variables and help as evidence. Metadata is not scanned. Names declared in metadata.authors and name spans in explicit attribution sections are excluded from visible prose checks.",
+      "Unfamiliar capitalized words at all sentence positions require a nearby lowercase dictionary word (single insertion, deletion or transposition) before warning. This abstains on most names and misses some capitalized typos.",
+      "The remaining false positive is Urbana in the organization heading City Life/Vida Urbana; it resembles the English word urban.",
+      "Two previously flagged brand-name typos (Izuzu and Volkswagon) are no longer reported because their intended spellings cannot be established with this English dictionary. Both were reported upstream.",
+      "Every final warning was reviewed in context. Counts are deduplicated per visible text entry, not raw token occurrences.",
+      "Rules were developed on this corpus. These are in-sample results, not independent validation. No complete spelling-error gold standard is available, so recall cannot be measured.",
+      "Known additional missed examples include Sanitory, Masachussetts and two occurrences of Admininistration due to conservative capitalized-word filters.",
+      "Valid-word errors, grammar, punctuation, code strings, attachment prose, metadata and explicit translations are outside the measured scope."
+    ]
+  },
+  "default_warning_review": [
+    {
+      "file": "repos/docassemble-ALAffidavitOfIndigency/docassemble/ALAffidavitOfIndigency/data/questions/affidavit_of_indigency_supplement_body.yml",
+      "line": 336,
+      "word": "recieve",
+      "location": "fields[2].first_key",
+      "screen_id": "income-source-amount",
+      "snippet": "Times per year you recieve this income",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-ALAffidavitOfIndigency/docassemble/ALAffidavitOfIndigency/data/questions/affidavit_of_indigency_supplement_body.yml",
+      "line": 346,
+      "word": "recieve",
+      "location": "subquestion",
+      "screen_id": "nonemployment-income-amount",
+      "snippet": "For example, you might recieve disability benefits (SSDI) for $1000 once a month. You have already told us about your from .",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/caregiver_authorization_affidavit.yml",
+      "line": 324,
+      "word": "acknowlede",
+      "location": "subquestion",
+      "screen_id": "acknowledge what you affirm by signing",
+      "snippet": "When you sign this document, you need to acknowlede the following: * There are no court orders in effect that would prohibit me from exercising or conferring the rights a",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/standalone_affidavit_disclosing_care_or_custody.yml",
+      "line": 111,
+      "word": "childrens",
+      "location": "subquestion",
+      "screen_id": "intro",
+      "snippet": "r custody of your children. This helps the court get a better picture of your childrens' situations. You may have to complete this form even if you do not have any cases to tell the court about. You will ne",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-CivilActionCoverSheet/docassemble/CivilActionCoverSheet/data/questions/Civil_Action_Cover_Sheet.yml",
+      "line": 334,
+      "word": "descibes",
+      "location": "fields[0].help",
+      "screen_id": "other documented damages",
+      "snippet": "Insert help text that descibes other documented damages.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/Repair_Letter_Tenant_standalone.yml",
+      "line": 48,
+      "word": "lettter",
+      "location": "question",
+      "screen_id": "download_tenant_repair_request",
+      "snippet": "Your lettter is ready to download",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 456,
+      "word": "disctricts",
+      "location": "content",
+      "screen_id": "property_ownership_guidance",
+      "snippet": "Massachusetts is divided into **21 registry disctricts**. Each district has a **Register of Deeds** that records all documents about property ownership. To find out who owns",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 892,
+      "word": "Urbana",
+      "location": "subquestion",
+      "screen_id": "organizing",
+      "snippet": "nant unions that cover the city the tenant lives in: #### City Life/Vida Urbana 284 Amory Street, First Floor, Jamaica Plain, MA 02130 #### La Colaborativa / Chelsea Collaborative 318 Broad",
+      "review_label": "false_positive",
+      "review_reason": "Legitimate person, place, organization, brand or product name."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 2196,
+      "word": "recieve",
+      "location": "subquestion",
+      "screen_id": "about non-employment incomes",
+      "snippet": "For example, you might recieve disability benefits (SSDI) for $1000 once a month. You have already told us about your from . For example, the",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 1671,
+      "word": "tenant'shome",
+      "location": "subquestion",
+      "screen_id": "review conditions",
+      "snippet": "order Change answers Problems in your home Problems in the tenant'shome",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 2247,
+      "word": "seperately",
+      "location": "subquestion",
+      "screen_id": "download_conditions_checklist_docs",
+      "snippet": "Services was sent successfully. You do not need to send your inspection request seperately. You can wait for the inspector to reach out to you, but their contact info is also available below. 1. The email t",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 3361,
+      "word": "properaly",
+      "location": "content",
+      "screen_id": "block-114",
+      "snippet": "f an inspection finds it to be: * **An illegal unit** - Your unit has not been properaly registered with the City or Town. Illegal units are often converted attics or basements that do not meet basic safety o",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_affidavit_disclosing_care_or_custody_proceedings.yml",
+      "line": 1118,
+      "word": "childrens",
+      "location": "subquestion",
+      "screen_id": "care or custody intro",
+      "snippet": "or custody of your children. This helps the court get a better picture of your childrens' situations.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_child-support.yml",
+      "line": 277,
+      "word": "oher",
+      "location": "help",
+      "screen_id": "your income",
+      "snippet": "matter if the Internal Revenue Code, Massachusetts Department of Revenue or any oher taxing authority counts the income. But do not count any income from a means-tested public assistance program like, TAF",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_filler.yml",
+      "line": 75,
+      "word": "activley",
+      "location": "subquestion",
+      "screen_id": "filler",
+      "snippet": "Note: {You will have to activley support the properties you pick.} You can always edit pre-filled information as long as you see the screen that it's on",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_2.yml",
+      "line": 155,
+      "word": "quesiton",
+      "location": "subquestion",
+      "screen_id": "protecting your children",
+      "snippet": "TODO: SME consult because of previous quesiton added: Complete this form if you are applying for 209A restraining order and you have children under 18.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_2.yml",
+      "line": 327,
+      "word": "responsiblity",
+      "location": "question",
+      "screen_id": "non_parent_children",
+      "snippet": "Tell us about the child in your home who you care and take responsiblity for Tell us about the oldest child in your home who you care and take responsiblity for Tell us about the child",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_2.yml",
+      "line": 597,
+      "word": "vistitation",
+      "location": "fields[14].first_key",
+      "screen_id": "safe_visits",
+      "snippet": "I need the vistitation order to include some other things also.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_plaintiff-confidential.yml",
+      "line": 10,
+      "word": "interpeter",
+      "location": "subquestion",
+      "screen_id": "interpreter request",
+      "snippet": "not be able to understand you. Ask. You do not have to speak only through the interpeter, but you will have one if you need one.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAAffidavitDisclosingCareOrCustody/docassemble/MAAffidavitDisclosingCareOrCustody/data/questions/209A_affidavit_disclosing_care_or_custody_proceedings.yml",
+      "line": 1530,
+      "word": "childrens",
+      "location": "subquestion",
+      "screen_id": "care or custody intro",
+      "snippet": "or custody of your children. This helps the court get a better picture of your childrens' situations.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAAffidavitDisclosingCareOrCustody/docassemble/MAAffidavitDisclosingCareOrCustody/data/questions/standalone.yml",
+      "line": 108,
+      "word": "childrens",
+      "location": "subquestion",
+      "screen_id": "intro",
+      "snippet": "r custody of your children. This helps the court get a better picture of your childrens' situations. You may have to complete this form even if you do not have any cases to tell the court about. You will ne",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAAffidavitofAddressVerification/docassemble/MAAffidavitofAddressVerification/data/questions/affidavit_of_address_verification.yml",
+      "line": 212,
+      "word": "verfied",
+      "location": "fields[0].first_key",
+      "screen_id": "How did you verify the defendant s address",
+      "snippet": "I verfied the defendant's address when",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 451,
+      "word": "bettter",
+      "location": "help",
+      "screen_id": "reminders",
+      "snippet": "it may be used to identify trends to help the non-profit legal aid organization bettter decide how to use its resources to prevent evictions. Sharing your information is optional. You can use this service f",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 862,
+      "word": "addres",
+      "location": "fields[2].first_key",
+      "screen_id": "additional tenant names",
+      "snippet": "Street addres",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 2238,
+      "word": "violance",
+      "location": "fields[6].first_key",
+      "screen_id": "retaliation",
+      "snippet": "I or someone in my household reported an incident of domestic violance, rape, sexual assault or stalking to law enforcement, or report a violation of a protection or harassment prevention or",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppellantBriefForm/docassemble/MAInformalAppellantBriefForm/data/questions/appellant_brief.yml",
+      "line": 985,
+      "word": "Alternativly",
+      "location": "subquestion",
+      "screen_id": "download appellant_brief",
+      "snippet": "dit anything, you can click the \"Edit answers\" button to edit your answers. Alternativly, you can email yourself an editable copy (Word doc) of your brief by clicking *Include an editable copy* under *Get a c",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppelleeBrief/docassemble/MAInformalAppelleeBrief/data/questions/informal_appellee_brief_form.yml",
+      "line": 957,
+      "word": "Alternativly",
+      "location": "subquestion",
+      "screen_id": "download appellee_brief",
+      "snippet": "dit anything, you can click the \"Edit answers\" button to edit your answers. Alternativly, you can email yourself an editable copy (Word doc) of your brief by clicking *Include an editable copy* under *Get a c",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MATCTaxLienAnswer/docassemble/MATCTaxLienAnswer/data/questions/taxlien_answer.yml",
+      "line": 212,
+      "word": "forclosures",
+      "location": "subquestion",
+      "screen_id": "Taxlien_answer",
+      "snippet": "correct places. This interview is free to use. For more information on tax lien forclosures and frequently asked questions visit this Land Court page. * Defendant means the person who has been sued because of",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MLRILettertoDCFforADA/docassemble/MLRILettertoDCFforADA/data/questions/dcf_disability_accommodations.yml",
+      "line": 212,
+      "word": "tacticle",
+      "location": "help.label",
+      "screen_id": "do you need any types of adaptive parenting equipment",
+      "snippet": "What is a tacticle medicine dispenser?",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MLRILettertoDCFforADA/docassemble/MLRILettertoDCFforADA/data/questions/dcf_disability_accommodations.yml",
+      "line": 229,
+      "word": "intrepreter",
+      "location": "help.content",
+      "screen_id": "do you need any services for the hearing speaking impaired",
+      "snippet": "ASL, who can translate for you, if you use ASL to communicate A certified deaf intrepreter is a someone who is a professional who works with an ASL interpreter to help deaf people communicate with the DCF with",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 182,
+      "word": "sherrif",
+      "location": "subquestion",
+      "screen_id": "call the clerk",
+      "snippet": "onstable that says you will be “removed has been issued * If a notice from the sherrif of constable has been issued, when does the notice say the sheriff or constable will move you out * How to deliver the",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 267,
+      "word": "Remmember",
+      "location": "fields[1].help",
+      "screen_id": "removal notice date and time",
+      "snippet": "Enter the time on the notice. Remmember to include AM or PM.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 276,
+      "word": "recieve",
+      "location": "fields[0].choices",
+      "screen_id": "reason for missing",
+      "snippet": "I did not recieve notice of the Zoom hearing.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MotionToDismissCRA/docassemble/MotionToDismissCRA/data/questions/CRA_Motion_to_Dismiss.yml",
+      "line": 441,
+      "word": "quarterwithout",
+      "location": "subquestion",
+      "screen_id": "Reason for CRA filed by school employee",
+      "snippet": "Habitual Truant**: a child who fails to attend school for more than 8 days in a quarterwithout a proper excuse. * **Habitual School Offender**: a child who fails to obey the lawful and reasonable commands of t",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MotionToSingleJusticeAppeals/docassemble/MotionToSingleJusticeAppeals/data/questions/PetitionforSingleJusticeReview.yml",
+      "line": 316,
+      "word": "Plantiff",
+      "location": "fields[0].first_key",
+      "screen_id": "plaintiff",
+      "snippet": "Plantiff(s)",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-MotionToStayEviction/docassemble/MotionToStayEviction/data/questions/SP6A.yml",
+      "line": 500,
+      "word": "Appels",
+      "location": "content",
+      "screen_id": "block-44",
+      "snippet": "The docket number is a number that the court assigns your case. The Appels Court docket number will be similar to this: 2022-P-0001 It has 3 parts, each separated by a hyphen (\"-\"). * the fir",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-NoticeOfLimitedAppearance/docassemble/NoticeOfLimitedAppearance/data/questions/notice_of_limited_appearance.yml",
+      "line": 206,
+      "word": "Petitoner",
+      "location": "fields[0].first_key",
+      "screen_id": "parties question",
+      "snippet": "Name of Plaintiff/Petitoner",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-SecurityDepositDemandLetterForTenantsMovingOut/docassemble/SecurityDepositDemandLetterForTenantsMovingOut/data/questions/security_deposit_demand_letter_for_tenants_moving_out.yml",
+      "line": 111,
+      "word": "seperately",
+      "location": "subquestion",
+      "screen_id": "Security Deposit Demand Letter for Tenants Moving Out",
+      "snippet": "lived with other people and you each paid your portion of the security deposit seperately, you should each send your own Demand Letter. You may choose send this letter to your landlord via certified mail, b",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_basic_information.yml",
+      "line": 439,
+      "word": "languague",
+      "location": "under",
+      "screen_id": "kick out language",
+      "snippet": "This resource is not available in your preferred languague right now. Please call MAC's Helpline at 617-357-8431 if you need help filling out this form. You can leave a message",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_basic_information.yml",
+      "line": 490,
+      "word": "felings",
+      "location": "content",
+      "screen_id": "block-30",
+      "snippet": "ering (difficulty saying words smoothly) * How your child share information or felings with others (can include eye contact, taking turns, voice volume) An **occupational therapy evaluation** looks at your",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_basic_information.yml",
+      "line": 490,
+      "word": "schoool",
+      "location": "content",
+      "screen_id": "block-30",
+      "snippet": "going * Uses their arms, legs, and middle part of the body * Moves around in schoool and other places An **augmentative and alternative communication (AAC) evaluation** looks at the tool(s) that can help",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_basic_information.yml",
+      "line": 490,
+      "word": "Transistion",
+      "location": "content",
+      "screen_id": "block-30",
+      "snippet": "ealth assessment** looks at medical issues that affect a student's learning. **Transistion assessment** is a process that starts before your child turns 14. It can help determine your child's strengths, prefere",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-ssareportchangesletter/docassemble/ssareportchangesletter/data/questions/ssa_report_of_dedicated_account.yml",
+      "line": 469,
+      "word": "checkings",
+      "location": "fields[0].choices",
+      "screen_id": "type of account saved in",
+      "snippet": "Collective savings/checkings account",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-ssioverpaymentwaiver/docassemble/ssioverpaymentwaiver/data/questions/financial_statement.yml",
+      "line": 443,
+      "word": "motorcyle",
+      "location": "fields[2].help",
+      "screen_id": "asset types",
+      "snippet": "Select if someone in your household owns a car, motorcyle, boat or any other vehicle.",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-ssioverpaymentwaiver/docassemble/ssioverpaymentwaiver/data/questions/ssi_overpayment_waiver.yml",
+      "line": 479,
+      "word": "overypayment",
+      "location": "subquestion",
+      "screen_id": "intro",
+      "snippet": "e them money, this website can help you ask Social Security to: 1. **waive an overypayment**, meaning that you don't have to pay the money back, or 1. **lower the repayment rate**, meaning that you have to pay",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    }
+  ],
+  "known_brand_typos_not_reported": [
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/section-iv.yml",
+      "line": 99,
+      "word": "Izuzu",
+      "location": "fields[2].choices",
+      "screen_id": "vehicle info",
+      "snippet": "Izuzu",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/section-iv.yml",
+      "line": 99,
+      "word": "Volkswagon",
+      "location": "fields[2].choices",
+      "screen_id": "vehicle info",
+      "snippet": "Volkswagon",
+      "review_label": "typo",
+      "review_reason": "Misspelled word or missing space/apostrophe in visible prose."
+    }
+  ],
+  "baseline_random_sample_review": [
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 2530,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": You have already told us about your ${ list_accounts_full(users[0].accounts.complete_elements()) }. % else: You have already told us about the tenant's ${ list_accounts_full(users[0].accounts.complete_elements()) }. % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_1.yml",
+      "line": 199,
+      "location": "subquestion",
+      "word": "SafeLink",
+      "snippet": "People **can** abuse you emotionally, financially, psychologically, and spiritually, but you can only ask the court for a 209A restraining order if the abusive person: - **hurt** you physically, - **tried** to hurt you physically, - **made you scared** of getting physically hurt, - **forced you** to",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_appointment_of_guardian.yml",
+      "line": 1407,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if who_is_making_petition == \"minor\": Select Yes if you either **have a conservator** or **will ask the court for one**. % else: Select Yes if ${ children.familiar() } either **has a conservator** or **will ask the court for one**. % endif ${ collapse_template(explain_conservators)}",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 2247,
+      "location": "subquestion",
+      "word": "br",
+      "snippet": "% if person_answering == \"tenant\": 1. Download and **print** your documents below. You can also send yourself or someone else a copy of the documents in an email. 1. Read the instructions to learn how to file and deliver your documents. % if direct_inspection_email == True and direct_inspection_emai",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MotionToStayGeneral/docassemble/MotionToStayGeneral/data/questions/motiontostaygeneral.yml",
+      "line": 563,
+      "location": "subquestion",
+      "word": "pdf",
+      "snippet": "% if not defined('email_success') or not email_success: Your form is ready to send to the ${ appeals_court }. It is not delivered until you complete the delivery process. % if no_notice_of_appeal_filed: **You have two documents to deliver:** 1. The [:file-download: Notice of Appeal]( ${ Notice_of_Ap",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-NoticeOfLimitedAppearance/docassemble/NoticeOfLimitedAppearance/data/questions/signer.yml",
+      "line": 560,
+      "location": "content",
+      "word": "len",
+      "snippet": "% if len( who_sign_with_pen ) > 0: :pen-alt: ${ comma_and_list( who_sign_with_pen ) } will sign on the document when you print it. % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-ssioverpaymentwaiver/docassemble/ssioverpaymentwaiver/data/questions/ssi_overpayment_waiver.yml",
+      "line": 479,
+      "location": "subquestion",
+      "word": "htm",
+      "snippet": "If Social Security says you owe them money, this website can help you ask Social Security to: 1. **waive an overypayment**, meaning that you don’t have to pay the money back, or 1. **lower the repayment rate**, meaning that you have to pay less back to Social Security every month <div class=\"alert a",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MassHealthFairHearingRequestForm/docassemble/MassHealthFairHearingRequestForm/data/questions/mass_health_fair_hearing_request_fo.yml",
+      "line": 692,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if al_person_answering == \"user\": What is your preferred language? % else: What is ${ users[0] }'s preferred language? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-EnlargeTimeToFile/docassemble/EnlargeTimeToFile/data/questions/motion_to_enlarge.yml",
+      "line": 347,
+      "location": "dropdown",
+      "word": "eFile",
+      "snippet": "eFile and serve (efilema.com)",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 1824,
+      "location": "fields[3].note",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": **Okay.** First, tell your landlord about the problem. We can help you write a letter to your landlord that gives them 'legal notice'. % else: **Okay.** First, the tenant should tell their landlord about the problem. We can help write a letter to their landlord tha",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-03-reasons-for-error.yml",
+      "line": 31,
+      "location": "subquestion",
+      "word": "CSE",
+      "snippet": "Your child support order could have changed and: * you did not know about it, or * DOR/CSE did not know about it. This could explain why the child support order you have and the information on the Notice of Delinquency do not match. Or there may be other reasons. Check any box that is true or you **",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAPetitionToSealEviction/docassemble/MAPetitionToSealEviction/data/questions/petition_to_seal_eviction.yml",
+      "line": 1100,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "${ collapse_template(find_my_docket_number_template) } % if trial_court.name == \"Metro South Housing Court - Brockton Session\": ${ brockton_session_warning } % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MassHealthFairHearingRequestForm/docassemble/MassHealthFairHearingRequestForm/data/questions/mass_health_fair_hearing_request_fo.yml",
+      "line": 450,
+      "location": "subquestion",
+      "word": "PHR",
+      "snippet": "PHR is only for eligibility appeals. % if al_person_answering == \"user\": It gives you a chance to fix the problem before a formal hearing. If you choose PHR, MassHealth will contact you. % else: It gives ${ users[0] } a chance to fix the problem before a formal hearing. If you choose PHR, MassHealth",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-EnlargeTimeToFile/docassemble/EnlargeTimeToFile/data/questions/motion_to_enlarge.yml",
+      "line": 397,
+      "location": "subquestion",
+      "word": "touchpad",
+      "snippet": "Your forms are almost ready. You need to sign them first. Use the mouse or touchpad on your computer or sign with your finger on your phone. You can send the forms to someone else to sign if you choose the \"phone\" option.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-EnlargeTimeToFile/docassemble/EnlargeTimeToFile/data/questions/motion_to_enlarge.yml",
+      "line": 470,
+      "location": "subquestion",
+      "word": "md",
+      "snippet": "% if not defined('email_success') or not email_success: Thank you ${users[0]}. Your form is ready to send to the court. **It is not delivered until you complete the delivery process below.** [BR] 1. Click the preview image below to open the form in a new window. Correct any errors using the \"Make ch",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppelleeBrief/docassemble/MAInformalAppelleeBrief/data/questions/informal_appellee_brief_form.yml",
+      "line": 291,
+      "location": "subquestion",
+      "word": "https",
+      "snippet": "This interview will help you write an informal brief for filing with the Appeals Court. The Appeals Court permits only self-represented parties (no lawyer) to file an informal brief. Check the Appeals Court's website for [information about the informal brief program](https://www.mass.gov/info-detail",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-ALAffidavitOfIndigency/docassemble/ALAffidavitOfIndigency/data/questions/affidavit_body.yml",
+      "line": 537,
+      "location": "content",
+      "word": "https",
+      "snippet": "If you are not sure of the exact amount yet, it is OK to leave it blank. You can also write your best guess. For common fees, the court clerk may know the amount and can fill it in for you. You may also be able to find the fee by visiting the court's website: * [List of filing fees in Massachusetts]",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-SecurityDepositDemandLetterForTenantsMovingOut/docassemble/SecurityDepositDemandLetterForTenantsMovingOut/data/questions/security_deposit_demand_letter_for_tenants_moving_out.yml",
+      "line": 360,
+      "location": "subquestion",
+      "word": "pdf",
+      "snippet": "Here is a preview of the form you'll sign on the next page. ${ pdf_concatenate(security_deposit_demand_letter_for_tenants_moving_out_attachment['preview'], filename='security_deposit_demand_letter_for_tenants_moving_out.pdf')}",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 892,
+      "location": "subquestion",
+      "word": "Hingham",
+      "snippet": "% if person_answering == \"tenant\": You are stronger together! A tenant's union is a group of tenants working together. Your local tenant's union may have: % else: Tenants are stronger together! A tenant's union is a group of tenants working together. A local tenant's union may have: % endif 1. Regul",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-ssioverpaymentwaiver/docassemble/ssioverpaymentwaiver/data/questions/ssi_overpayment_waiver.yml",
+      "line": 1234,
+      "location": "fields[0].label",
+      "word": "endif",
+      "snippet": "% if overpayment_reason == 'dont_know' or overpayment_reason == 'something_else': After you reported the overpayment, did the Social Security Administration change your benefits amount? % else: After you told Social Security ${overpayment_reason_plain_text} did the Social Security Administration cha",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-01-intro.yml",
+      "line": 169,
+      "location": "fields[1].choices",
+      "word": "DOR",
+      "snippet": "DOR took my professional license.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 459,
+      "location": "question",
+      "word": "https",
+      "snippet": "If you need help or more information about filing an answer see [Answer to Eviction](https://www.masslegalhelp.org/housing/eviction-answer-interview).",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/Repair_Letter_Tenant.yml",
+      "line": 64,
+      "location": "subquestion",
+      "word": "MassAccess",
+      "snippet": "The MassAccess Project can help Massachusetts tenants write and send letters in 3 steps: Step 1. Answer the questions that will fill out your letter. Step 2. Review and sign the form. Step 3. Step 3. Download or email the final form. You will need to deliver it on your own. *This site is not a lawye",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 117,
+      "location": "fields[0].label",
+      "word": "endif",
+      "snippet": "% if len(users.elements) > 1: Is the other landlord or property owner an individual or a business? % elif person_answering == \"tenant\": Is your home owned by an individual or a business? % else: Is the tenant's home owned by an individual or a business? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-01-intro.yml",
+      "line": 55,
+      "location": "fields[0].first_key",
+      "word": "tos",
+      "snippet": "To continue you must accept the [terms of use](https://vlpnet.org/tos-for-guided-interviews/)",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/verified_complaint_and_motions_to_include.yml",
+      "line": 746,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": A **Chapter 93A demand letter** is a letter that is required by law to be sent to your landlord before bringing affirmative claims in court under **Chapter 93A, the consumer protection law**. The letter must be sent at least **30 days** before you file your 93A cla",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-ssareportchangesletter/docassemble/ssareportchangesletter/data/questions/ssa_report_of_dedicated_account.yml",
+      "line": 509,
+      "location": "fields[0].first_key",
+      "word": "SSI",
+      "snippet": "Past due SSI benefits deposited by SSA in dedicated account",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 1033,
+      "location": "content",
+      "word": "malegislature",
+      "snippet": "Sometimes a landlord will file an eviction case against a tenant if the tenant complains about problems in their home. In Massachusetts, evicting a tenant because they complain about bad housing conditions or other housing problems is called \"retaliation\". [Law about retaliation](https://www.massleg",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_page_2.yml",
+      "line": 327,
+      "location": "question",
+      "word": "responsiblity",
+      "snippet": "% if ( children_cares_for.target_number == 1 ): Tell us about the child in your home who you care and take responsiblity for % else: % if i == 0: Tell us about the oldest child in your home who you care and take responsiblity for % else: Tell us about the ${ordinal(i)} child in your home who you car",
+      "review_label": "typo"
+    },
+    {
+      "file": "repos/docassemble-MotionToStayEviction/docassemble/MotionToStayEviction/data/questions/SP6A.yml",
+      "line": 1221,
+      "location": "content",
+      "word": "courtformsonline",
+      "snippet": "<!DOCTYPE html> <html> <head> <title>MassAccess</title> </head> <body> <p>Hello ${ users[0].name },</p> <p><strong>Your Motion to Stay (Eviction) forms were sent to the Appeals Count. They will accept or reject your filing.</strong></p> <p>A person in the court has to accept the forms before they ar",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppelleeBrief/docassemble/MAInformalAppelleeBrief/data/questions/informal_appellee_brief_form.yml",
+      "line": 631,
+      "location": "subquestion",
+      "word": "www",
+      "snippet": "As an appellee (responding to an appeal), you may file a record appendix that will be called the **\"supplemental appendix,\"** containing copies of documents that were filed in or created by the trial court or agency, are not impounded, **and are relevant to the Appeals Court's review of the issues r",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/feedback.yml",
+      "line": 88,
+      "location": "subquestion",
+      "word": "UpToCode",
+      "snippet": "The information you type here will be publicly available. That means anyone will be able to see it. Use this form to give us information that does not include any personal details. If you need more help, these are free resources: - For help with a non-criminal legal problem in Massachusetts, use the",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-ALAffidavitOfIndigency/docassemble/ALAffidavitOfIndigency/data/questions/affidavit_body.yml",
+      "line": 136,
+      "location": "content",
+      "word": "https",
+      "snippet": "This website cannot provide you additional help. You may be able to find a free attorney through legal aid by using the [Legal Resource Finder](https://masslrf.org).",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_affidavit.yml",
+      "line": 623,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if plaintiff_assistant_type_obo: Can you describe another time ${ other_parties.familiar() } abused ${ users.familiar() }? % else: Can you describe another time ${ other_parties.familiar() } abused you? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 1204,
+      "location": "subquestion",
+      "word": "xmlns",
+      "snippet": "This is a list of common problems tenants have. Tap the <svg class=\"svg-inline--fa fa-circle-question\" aria-hidden=\"true\" focusable=\"false\" data-prefix=\"fas\" data-icon=\"circle-question\" role=\"img\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" data-fa-i2svg=\"\"><path fill=\"#c7e6b0\" d=\"M256 ",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MarriageWithoutDelay/docassemble/MarriageWithoutDelay/data/questions/marriage-without-delay.yml",
+      "line": 346,
+      "location": "help.content",
+      "word": "ele",
+      "snippet": "### Find your town clerk Use the [Massachusetts City and Town Directory](https://www.sec.state.ma.us/ele/eleclk/clkidx.htm) to find the town or city clerk's phone number. Call your town or city clerk to find out all the documents and information needed for a marriage license. Ask the town clerk whic",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/prs_complaint_interview.yml",
+      "line": 495,
+      "location": "question",
+      "word": "DESE",
+      "snippet": "What would you like to tell the Department of Elementary and Secondary Education (DESE)?",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/consent_to_nomination_by_a_minor.yml",
+      "line": 28,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if who_is_making_petition == \"minor\": What is your phone number? % else: What is ${ children[0].name }'s phone number? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 1851,
+      "location": "fields[2].label",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": What is the total (after tax) income for your household? % else: What is the total (after tax) income for the tenant's household? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MarriageWithoutDelay/docassemble/MarriageWithoutDelay/data/questions/marriage-without-delay.yml",
+      "line": 376,
+      "location": "subquestion",
+      "word": "www",
+      "snippet": "Your form is ready. You still need to call the court to figure out the best way to file it. 1. Click the link below to open the form in a new window. 2. Download and save or print a copy of this form for your records. 3. Call the clerk of the ${trial_court} at ${ trial_court.phone } or call the emer",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/parent_participate_in_guardianship_case.yml",
+      "line": 260,
+      "location": "fields[0].choices",
+      "word": "wellbeing",
+      "snippet": "Someone **else** who cares about the minor's wellbeing",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/consent_to_nomination_by_a_minor_standalone.yml",
+      "line": 139,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if who_is_making_petition == \"minor\": When were you born? % else: When was ${ children[0].name } born? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/shared.yml",
+      "line": 158,
+      "location": "subquestion",
+      "word": "elif",
+      "snippet": "% if form_approved_for_email_filing: ${ AL_ORGANIZATION_TITLE } can help you complete and file court forms in 3 steps: % else: ${ AL_ORGANIZATION_TITLE } can help you complete and download forms in 3 steps: % endif Step 1. Answer questions that will fill in your form for you.<br> Step 2. Preview the",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/affidavit_disclosing_care_or_custody.yml",
+      "line": 838,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if i >= 1: So far you have told us about the following attorneys, GALs and investigators for ${ children[i].familiar(unique_names=users) }: ${comma_and_list(children[i].gals.complete_elements()) } % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-AppealsCivilDocketingStatement/docassemble/AppealsCivilDocketingStatement/data/questions/civil_docketing_statement.yml",
+      "line": 321,
+      "location": "fields[0].choices",
+      "word": "Impoundment",
+      "snippet": "Impoundment",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/affidavit_disclosing_care_or_custody.yml",
+      "line": 431,
+      "location": "question",
+      "word": "Litem",
+      "snippet": "Attorneys, Guardians ad Litem, and Investigators",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MATCGuardiansCarePlanReportMpc821/docassemble/MATCGuardiansCarePlanReportMpc821/data/questions/guardians_care_plan_report_mpc_821.yml",
+      "line": 543,
+      "location": "fields[2].first_key",
+      "word": "habilitation",
+      "snippet": "Does the treatment or habilitation plan support the adult's best interests?",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-AppealsMiscellaneousMotion/docassemble/AppealsMiscellaneousMotion/data/questions/appealsmiscellaneousmotion.yml",
+      "line": 614,
+      "location": "content",
+      "word": "nbsp",
+      "snippet": "% if has_evidence and prepped_exhibits.ok and prepped_exhibits.size_in_bytes() > 10 * 1024 * 1024: **The user provided an attachment that is too large to email.** [Link to exhibits](${ prepped_exhibits.url_for(external=True) } ) % endif At ${current_datetime().format_datetime()}, ${users} submitted ",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/feedback.yml",
+      "line": 72,
+      "location": "subquestion",
+      "word": "masslao",
+      "snippet": "[CENTER][FILE gbls_logo.png, 100%, GBLS Logo] The information you type here will be publicly available. That means anyone will be able to see it. Use this form to give us information that does not include any personal details. If you need more help, these are free resources: - For help with a non-cr",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-01-intro.yml",
+      "line": 117,
+      "location": "subquestion",
+      "word": "wps",
+      "snippet": "Contact DOR: * Over the phone: * [(800)-332-2733](tel:+1-800-332-2733), or * [(617)-660-1234](tel:+1-617-600-1234) for local callers in the Boston area, * Use [their online form](https://ecse.cse.state.ma.us/uwps/wps/portal/), or * [Your case manager account](https://ecse.cse.state.ma.us/ECSE/Login/",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_basic_information.yml",
+      "line": 162,
+      "location": "subquestion",
+      "word": "massadvocates",
+      "snippet": "Before you start, you will need: 1. Your child's full name and date of birth. 2. Name and email of the special education contact for your child. OR Name and email of your child's school principal. If you need help finding any of this information, contact MAC’s helpline at 617-357-8431 or send a mess",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 2247,
+      "location": "subquestion",
+      "word": "Inspectional",
+      "snippet": "% if person_answering == \"tenant\": 1. Download and **print** your documents below. You can also send yourself or someone else a copy of the documents in an email. 1. Read the instructions to learn how to file and deliver your documents. % if direct_inspection_email == True and direct_inspection_emai",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/consent_to_nomination_by_a_minor_standalone.yml",
+      "line": 126,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if who_is_making_petition == \"minor\": Tell us about yourself % else: Who is the minor in this case? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingSearchLog/docassemble/HousingSearchLog/data/questions/housing_search_log.yml",
+      "line": 168,
+      "location": "subquestion",
+      "word": "https",
+      "snippet": "## Keeping track of all the properties you contact and visit can be hard, but this tool is here to help guide that process. ![housing](https://static.vecteezy.com/system/resources/thumbnails/002/785/799/small_2x/little-town-in-retro-style-illustration-free-vector.jpg) ## How this website can help yo",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-SNAP/docassemble/SNAP/data/questions/SnapCalculator-questions.yml",
+      "line": 30,
+      "location": "subquestion",
+      "word": "masslegalservices",
+      "snippet": "**<span class=\"navy\">[${as_of_date}]</span>** Welcome to MLRI's **Massachusetts SNAP online calculator** where you can estimate monthly SNAP benefits for Massachusetts households. Please review the [SNAP Advocacy Guide](https://www.masslegalservices.org/content/2024-snap-advocacy-guide) to learn who",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/military_affidavit.yml",
+      "line": 109,
+      "location": "fields[1].note",
+      "word": "osd",
+      "snippet": "If you do not have personal knowledge of each party's military status, you **must** search the [Servicemembers Civil Relief Act website](https://scra.dmdc.osd.mil/). 1. Copy a [link to this interview](${ interview_url() }) to return to it later. You can also leave this window or tab open. 1. Click t",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/military_affidavit.yml",
+      "line": 75,
+      "location": "subquestion",
+      "word": "Servicemembers",
+      "snippet": "This interview will help you fill out a Military Affidavit, which declares whether anybody who is part of this case is currently serving in a branch of the U.S. military. If someone is in the military, they may have special protections under the Servicemembers Civil Relief Act. This affidavit has to",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppellantBriefForm/docassemble/MAInformalAppellantBriefForm/data/questions/appellant_brief.yml",
+      "line": 261,
+      "location": "subquestion",
+      "word": "suffolklitlab",
+      "snippet": "This interview helps you write an informal brief for the Massachusetts Appeals Court. The Appeals Court permits only self-represented parties (no lawyer) to file an informal brief. Check the Appeals Court's website for [information about the informal brief program](https://www.mass.gov/info-details/",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 892,
+      "location": "subquestion",
+      "word": "clvu",
+      "snippet": "% if person_answering == \"tenant\": You are stronger together! A tenant's union is a group of tenants working together. Your local tenant's union may have: % else: Tenants are stronger together! A tenant's union is a group of tenants working together. A local tenant's union may have: % endif 1. Regul",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAPetitionToSealEviction/docassemble/MAPetitionToSealEviction/data/questions/support_efiling.yml",
+      "line": 892,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "This document cannot currently be e-filed. % if trial_court.department == \"Superior Court\": This document cannot be e-filed in the Superior Court. You can still file this document in-person at the court. % else: It does not look like this is an eviction case. You can still bring this document in-per",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAAffidavitDisclosingCareOrCustody/docassemble/MAAffidavitDisclosingCareOrCustody/data/questions/standalone.yml",
+      "line": 189,
+      "location": "subquestion",
+      "word": "md",
+      "snippet": "% if not defined('email_success') or not email_success: Thank you ${users[0]}. Your form is ready to send to the court. **It is not delivered until you complete the delivery process below.** 1. Click the preview image below to open the form in a new window. Correct any errors by using the back butto",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAPetitionToSealEviction/docassemble/MAPetitionToSealEviction/data/questions/support_efiling.yml",
+      "line": 388,
+      "location": "subquestion",
+      "word": "eFileMA",
+      "snippet": "E-filing is completely free and is the fastest way to file this document. You need a free account with eFileMA to e-file this document. We can help you make the account on the next screens if you do not already have one. ${ collapse_template(to_make_an_account_you_need_template) } ${ collapse_templa",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 550,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if defined('tenant.signature'): Click continue. % else: % if device() and device().is_mobile: Click continue on this screen when you're ready to sign. % else: Click continue to sign on this device. Wait here if you sent a link to sign to someone else. Click continue when the tenant has finished si",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-03-reasons-for-error.yml",
+      "line": 275,
+      "location": "subquestion",
+      "word": "cancelled",
+      "snippet": "Do you have any written or printed proof that shows you paid child support directly to ${other_parent.name.first}? Proof can be: * cancelled checks, * bank statements, * receipts, * letters, or * emails",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 2223,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": Do you have any special job training? % else: Does the tenant have any special job training? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 182,
+      "location": "subquestion",
+      "word": "judgement",
+      "snippet": "Call the clerk at the ${ trial_court } [BR] ${ showifdef('trial_court.phone_number') }[BR] Ask the clerk how you can get a copy of the judgement. [BR] If you cannot get an actual copy you will need the following information: * The plaintiff’s name in your case * The docket number for your case * Whi",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MassHealthFairHearingRequestForm/docassemble/MassHealthFairHearingRequestForm/data/questions/mass_health_fair_hearing_request_fo.yml",
+      "line": 226,
+      "location": "subquestion",
+      "word": "MassHealth",
+      "snippet": "This interview helps you ask for a MassHealth fair hearing. **Have these ready** 1. The MassHealth Member ID number, if you have it. 2. The notice about the decision you are appealing. 3. Any papers that support the appeal, if you have them now. <div class=\"alert alert-info\" role=\"alert\"> <strong>Ti",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 274,
+      "location": "subquestion",
+      "word": "http",
+      "snippet": "Watch the video below to learn a little more about the eviction process. You can also visit the [MassLegalHelp](http://www.masslegalhelp.org/housing/evictions) website.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-SNAP/docassemble/SNAP/data/questions/SnapCalculator-questions.yml",
+      "line": 51,
+      "location": "fields[3].note",
+      "word": "DTA",
+      "snippet": "<span class=\"navy\">**Income**</span> <span class=\"title_color\">Enter Gross __*Unearned*__ Income</span><br> Unemployment Comp, SSI, Social Security, Pensions, Veterans Benefits, Child Support, DTA cash assistance.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-05-other-considerations.yml",
+      "line": 88,
+      "location": "question",
+      "word": "DOR",
+      "snippet": "What else should DOR know about your situation?",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/temporary_guardian.yml",
+      "line": 49,
+      "location": "subquestion",
+      "word": "MPC",
+      "snippet": "This interview will help you fill out an Verified Motion for Appointment of Temporary Guardian (MPC 340). You can use this tool if: * Sample language, to be filled later. * Sample language, to be filled later. **Before you get started**, please gather: 1. Sample language, to be filled later. 2. Samp",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAPetitionToSealEviction/docassemble/MAPetitionToSealEviction/data/questions/support_efiling.yml",
+      "line": 388,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "E-filing is completely free and is the fastest way to file this document. You need a free account with eFileMA to e-file this document. We can help you make the account on the next screens if you do not already have one. ${ collapse_template(to_make_an_account_you_need_template) } ${ collapse_templa",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MassHealthFairHearingRequestForm/docassemble/MassHealthFairHearingRequestForm/data/questions/mass_health_fair_hearing_request_fo.yml",
+      "line": 444,
+      "location": "fields[0].first_key",
+      "word": "MassHealth",
+      "snippet": "Is this about MassHealth eligibility?",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/feedback.yml",
+      "line": 71,
+      "location": "subquestion",
+      "word": "MAClogo",
+      "snippet": "[CENTER][FILE MAClogo.jpg] The information you type here will be publicly available. That means anyone will be able to see it. Use this form to give us information that does not include any personal details. If you need more help, these are free resources: - For help with a non-criminal legal proble",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209a_package.yml",
+      "line": 337,
+      "location": "subquestion",
+      "word": "elif",
+      "snippet": "1. Look over the forms below. 1. If they look correct, download them or email them to yourself. 1. You still need to deliver them to the ${trial_court}, when you are ready. 4. Call the ${trial_court}'s clerk: ${tel(trial_court.phone) } to find out how they want you to send your forms to them. % if c",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLACareTypeFinder/docassemble/CLACareTypeFinder/data/questions/care_type_finder.yml",
+      "line": 90,
+      "location": "subquestion",
+      "word": "docassemble",
+      "snippet": "Does your child need a caregiver, temporary agent, or guardian in Massachusetts? The Care Type Finder tool is here to guide you. Answer a few questions about your family's situation. You'll get suggestions for the correct type of support using your answers. <a href=\"https://communitylegal.org/\">Comm",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppellantBriefForm/docassemble/MAInformalAppellantBriefForm/data/questions/appellant_brief.yml",
+      "line": 351,
+      "location": "subquestion",
+      "word": "www",
+      "snippet": "The next questions will be used to find out if you qualify for a fee waiver. The fee to file an appeal is **$300.00**. Click the link below to see the full schedule of fees. [Appeals court fees](https://www.mass.gov/info-details/appeals-court-fees)",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_filler.yml",
+      "line": 105,
+      "location": "fields[5].first_key",
+      "word": "daycares",
+      "snippet": "Pre-fill children's schools/daycares",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 2838,
+      "location": "subquestion",
+      "word": "https",
+      "snippet": "MADE was created by [Greater Boston Legal Services](https://www.gbls.org). Unfortunately, you don't live in a city helped by GBLS. If you would like to know if you qualify for help from a different program, please use the [Legal Resource Finder](https://www.masslegalservices.org/FindLegalAid). You c",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MotionToStayGeneral/docassemble/MotionToStayGeneral/data/questions/motiontostaygeneral.yml",
+      "line": 423,
+      "location": "dropdown",
+      "word": "efilema",
+      "snippet": "Efile and serve (efilema.com)",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/parent_participate_in_guardianship_case.yml",
+      "line": 594,
+      "location": "subquestion",
+      "word": "lsc",
+      "snippet": "% if form_approved_for_email_filing: ${ AL_ORGANIZATION_TITLE } can help you complete and file court forms in 3 steps: % else: ${ AL_ORGANIZATION_TITLE } can help you complete and download forms in 3 steps: % endif Step 1. Answer questions that will fill in your form for you.<br> Step 2. Preview the",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 1634,
+      "location": "help",
+      "word": "https",
+      "snippet": "\"Waiver\" is the idea that your landlord cannot evict you when they are acting in a way that means that they want you to continue as a tenant. The most straightforward type of waiver is when your landlord asks you to sign a new lease. However: even signing a new lease may not be waiver, if there is s",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_child-support.yml",
+      "line": 277,
+      "location": "help",
+      "word": "SSI",
+      "snippet": "For the Child Support Guidelines, income is gross income from any source. It does not matter if the Internal Revenue Code, Massachusetts Department of Revenue or any oher taxing authority counts the income. But do not count any income from a means-tested public assistance program like, TAFDC, SNAP, ",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_filler.yml",
+      "line": 116,
+      "location": "fields[8].first_key",
+      "word": "Pre",
+      "snippet": "Pre-fill wants all visitation orders",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/discovery.yml",
+      "line": 18,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": You will need to prove your case with evidence. **Evidence** can include photos, videos, texts, emails, letters, city inspection reports, and your word (telling the court about the problems through testimony). Bring three copies of your evidence to court if possibl",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppellantBriefForm/docassemble/MAInformalAppellantBriefForm/data/questions/appellant_brief.yml",
+      "line": 538,
+      "location": "subquestion",
+      "word": "www",
+      "snippet": "The legal argument is an important section of your brief. Present your reasons why the trial court or agency was wrong as a matter of law or fact, and why the Appeals Court should rule in your favor. - When discussing facts again in this section, you must reference to the specific page or pages in y",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAInformalAppelleeBrief/docassemble/MAInformalAppelleeBrief/data/questions/informal_appellee_brief_form.yml",
+      "line": 272,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if i == 0 and al_person_answering == \"user\": What is your email address? % else: What is ${ users[i] }'s email address? % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/customized_screens.yml",
+      "line": 1007,
+      "location": "content",
+      "word": "https",
+      "snippet": "A housing inspector is someone who works for the city or the housing authority. If you live in public housing or have a Section 8 voucher, the Housing Authority will inspect your home at least once a year. But you can call if you need them to come sooner. All tenants, including tenants who live in p",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/questions/housing_code_interview.yml",
+      "line": 2660,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if person_answering == \"tenant\": Review your answers % else: Review the answers % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 1124,
+      "location": "fields[8].first_key",
+      "word": "pre",
+      "snippet": "I pre-paid last month's rent when I first moved in.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 1989,
+      "location": "fields[0].choices",
+      "word": "Inspectional",
+      "snippet": "The apartment was inspected by Inspectional Services, Board of Health, a housing agency, or someone else and they told my landlord about the problems.",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/petition_for_appointment_of_guardian.yml",
+      "line": 1308,
+      "location": "question",
+      "word": "endif",
+      "snippet": "% if who_is_making_petition == \"minor\": Aside from your parents, can you provide information about any other relatives that can be found? % else: Aside from ${ children.familiar() }'s parents, can you provide information about any of ${ children.familiar() }'s other relatives that can be found? % en",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MassHealthFairHearingRequestForm/docassemble/MassHealthFairHearingRequestForm/data/questions/mass_health_fair_hearing_request_fo.yml",
+      "line": 448,
+      "location": "question",
+      "word": "PHR",
+      "snippet": "Prehearing Resolution (PHR)",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/questions/eviction.en.yml",
+      "line": 2448,
+      "location": "help",
+      "word": "https",
+      "snippet": "Learn more about the rules for handling a security deposit on [MassLegalHelp](https://www.masslegalhelp.org/housing/lt1-chapter-3-security-deposit.pdf).",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-CLAGuardianship/docassemble/CLAGuardianship/data/questions/consent_to_nomination_by_a_minor_standalone.yml",
+      "line": 83,
+      "location": "subquestion",
+      "word": "MPC",
+      "snippet": "This interview will help you fill out a Consent To Nomination By a Minor (MPC 441). You can use this tool if: - You are at least 14 and want to choose who will be your guardian. - You have been asked to be a guardian for a minor who is at least 14 and you agree **or** disagree to be the guardian. **",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-209aPlaintiffMotionToModify/docassemble/209aPlaintiffMotionToModify/data/questions/209a_plaintiff_s_motion_to_modify.yml",
+      "line": 398,
+      "location": "subquestion",
+      "word": "endif",
+      "snippet": "${ users[0].familiar() }, now your form is ready to give to the court. % if defined( 'trial_court.phone' ) and trial_court.phone: 1. Tap the 'View' button below to open the form in a new window. 1. Download, save, email, or print a copy of this form for your records. 1. Call ${ trial_court } at **${",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/questions/massachusetts_educational_evaluations_request.yml",
+      "line": 630,
+      "location": "question",
+      "word": "requestor",
+      "snippet": "% if requestor.right_to_send == 'Student': Check any of the following that you think are true about yourself. % else: Check any of the following that are true about ${student.name.first}. % endif",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/questions/dbd-04-reasons-for-review.yml",
+      "line": 247,
+      "location": "fields[0].choices",
+      "word": "EAEDC",
+      "snippet": "EAEDC",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MA209AProtectiveOrder/docassemble/MA209AProtectiveOrder/data/questions/209A_affidavit.yml",
+      "line": 386,
+      "location": "subquestion",
+      "word": "DCF",
+      "snippet": "% if plaintiff_assistant_type_obo: Think about: * Times ${ other_parties.familiar() } abused ${ users.familiar() }'s ${(children + children_cares_for).as_noun('children')}, * Where ${ users.familiar() }'s ${(children + children_cares_for).as_noun('children')} ${(children + children_cares_for).did_ve",
+      "review_label": "false_positive"
+    },
+    {
+      "file": "repos/docassemble-MTVHousing/docassemble/MTVHousing/data/questions/Motion_to_Vacate.yml",
+      "line": 317,
+      "location": "subquestion",
+      "word": "www",
+      "snippet": "This motion will be even more effective if you write an {Answer} tell the court why you should not be evicted. **How to file an answer now:** 1. Use the [Massachusetts Defense for Eviction](https://www.masslegalhelp.org/housing/eviction-answer-interview) interview to build your Answer. 2. Save the f",
+      "review_label": "false_positive"
+    }
+  ],
+  "history": {
+    "first_default_pass": {
+      "warnings": 60,
+      "unique_words": 51,
+      "files_with_warnings": 34
+    },
+    "first_default_false_positives": 14,
+    "retired_custom_name_list": {
+      "warnings": 46,
+      "false_positives": 0,
+      "note": "Tuned to the same corpus, so the zero-false-positive result did not establish general accuracy. The list has been removed."
+    }
+  },
+  "raw_output": "/tmp/dayamlchecker-spelling-context.json",
+  "reproduce_default": "python scripts/evaluate_spelling.py ~/all_interviews --output /tmp/spelling.json",
+  "upstream_issues": "reports/spelling_issues.json"
+}
